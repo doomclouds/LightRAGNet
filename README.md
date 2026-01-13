@@ -1,0 +1,2 @@
+# LightRAGNet
+LightRAG for dotNet
