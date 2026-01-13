@@ -1,0 +1,470 @@
+@page "/markdown-documents"
+@using System.Linq
+@using LightRAGNet.Web.Services
+@inject ApiClient ApiClient
+@inject RagTaskNotificationService NotificationService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@implements IAsyncDisposable
+
+<PageTitle>Markdown Document List</PageTitle>
+
+<MudContainer>
+    <MudText Typo="Typo.h4" Class="mb-4">Markdown Document List</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-4"/>
+    }
+    else if (_documents == null || !_documents.Any())
+    {
+        <MudAlert Severity="Severity.Info" Class="my-4">
+            No documents yet, please upload documents first.
+        </MudAlert>
+    }
+    else
+    {
+        <MudTable @ref="_tableRef"
+                  Items="@_documents"
+                  Hover="true"
+                  Striped="true"
+                  Dense="true"
+                  Breakpoint="Breakpoint.Sm"
+                  Elevation="2"
+                  ServerData="@ServerReload"
+                  TotalItems="@_totalCount"
+                  RowsPerPage="@_pageSize">
+            <HeaderContent>
+                <MudTh>File Name</MudTh>
+                <MudTh>File Size</MudTh>
+                <MudTh>Upload Time</MudTh>
+                <MudTh>RAG Status</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="File Name">
+                    <MudText>@context.FileName</MudText>
+                </MudTd>
+                <MudTd DataLabel="File Size">
+                    <MudText>@context.FileSize.FormatFileSize()</MudText>
+                </MudTd>
+                <MudTd DataLabel="Upload Time">
+                    <MudText>@context.UploadTime.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                </MudTd>
+                <MudTd DataLabel="RAG Status">
+                    @if (!string.IsNullOrEmpty(context.RagStatus))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@context.RagStatus.GetRagStatusColor()"
+                                 Icon="@context.RagStatus.GetRagStatusIcon()">
+                            @context.RagStatus.GetRagStatusText(context.RagCurrentStage)
+                        </MudChip>
+                        @* Show progress bar and percentage in ProcessingChunks, MergingEntities, MergingRelations stages *@
+                        @if (context is { RagStatus: "Processing" } && 
+                             (context.RagCurrentStage == "ProcessingChunks" || 
+                              context.RagCurrentStage == "MergingEntities" || 
+                              context.RagCurrentStage == "MergingRelations"))
+                        {
+                            <MudProgressLinear Color="Color.Primary" Value="@context.RagProgress" Class="mt-1"/>
+                            <MudText Typo="Typo.caption" Class="mt-1">@context.RagProgress%</MudText>
+                        }
+
+                        @if (context.RagAddedTime.HasValue)
+                        {
+                            <MudText Typo="Typo.caption" Class="mt-1">
+                                Added Time: @context.RagAddedTime.Value.ToString("yyyy-MM-dd HH:mm")
+                            </MudText>
+                        }
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                            Not Added
+                        </MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudTooltip Text="View">
+                        <MudIconButton Color="Color.Primary" Icon="@Icons.Material.Filled.Visibility"
+                                       OnClick="@(() => ViewDocument(context.Id))" 
+                                       Size="Size.Small" />
+                    </MudTooltip>
+                    @if (!string.IsNullOrEmpty(context.FileUrl))
+                    {
+                        <MudTooltip Text="Download">
+                            <MudIconButton Color="Color.Info"
+                                           Icon="@Icons.Material.Filled.Download"
+                                           Href="@GetDownloadUrl(context.FileUrl)"
+                                           Target="_blank"
+                                           Size="Size.Small" />
+                        </MudTooltip>
+                    }
+                    @if (!context.IsInRagSystem)
+                    {
+                        <MudTooltip Text="Add to RAG">
+                            <MudIconButton Color="Color.Success" Icon="@Icons.Material.Filled.AddCircle"
+                                           OnClick="@(() => AddToRagSystem(context.Id))"
+                                           Disabled="@(context.RagStatus == "Processing" || context.RagStatus == "Pending")"
+                                           Size="Size.Small" />
+                        </MudTooltip>
+                    }
+                    @* Hide delete button for documents that have completed RAG insertion *@
+                    @if (!context.IsInRagSystem)
+                    {
+                        <MudTooltip Text="Delete">
+                            <MudIconButton Color="Color.Error" Icon="@Icons.Material.Filled.Delete"
+                                           OnClick="@(() => DeleteDocument(context.Id))"
+                                           Disabled="@(context.RagStatus == "Processing" || context.RagStatus == "Pending")"
+                                           Size="Size.Small" />
+                        </MudTooltip>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager/>
+            </PagerContent>
+        </MudTable>
+    }
+</MudContainer>
+
+@code {
+    private List<MarkdownDocumentDto>? _documents;
+    private bool _loading = true;
+    private int _pageSize = 10;
+    private int _totalCount;
+    private bool _isInitialized;
+    private MudTable<MarkdownDocumentDto>? _tableRef;
+    
+    // Debounce executor related fields
+    private CancellationTokenSource? _debounceCts;
+    private readonly TimeSpan _debounceDelay = TimeSpan.FromMilliseconds(240); // Debounce delay time: 240ms
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Ensure SignalR connection is initialized (managed by MainLayout, here only ensure connection)
+        // If connection is not established, try to initialize (but won't duplicate initialization)
+        if (!NotificationService.IsConnected)
+        {
+            try
+            {
+                await NotificationService.InitializeAsync();
+            }
+            catch
+            {
+                // Initialization failure does not affect page loading, connection status will be shown in MainLayout
+            }
+        }
+        
+        // Only subscribe to events on first initialization
+        if (!_isInitialized)
+        {
+            _isInitialized = true;
+           
+            // Subscribe to task status update events
+            NotificationService.TaskStatusUpdated += OnTaskStatusUpdated;
+            // Subscribe to data cleared events
+            NotificationService.DataCleared += OnDataCleared;
+            
+            var response = await ApiClient.GetMarkdownDocumentsAsync(0, _pageSize);
+
+            if (response != null)
+            {
+                _documents = response.Items;
+                _totalCount = response.TotalCount;
+            }
+            else
+            {
+                _documents = [];
+                _totalCount = 0;
+            }
+            _loading = false;
+        }
+    }
+
+    private async Task OnDataCleared(object? sender, EventArgs e)
+    {
+        // After data is cleared, trigger MudTable to reload data
+        await InvokeAsync(async () =>
+        {
+            _documents = [];
+            _totalCount = 0;
+            await DebouncedReloadServerDataAsync();
+        });
+    }
+
+    private async Task OnTaskStatusUpdated(object? sender, TaskStatusUpdate update)
+    {
+        // Update corresponding document status in document list
+        var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
+        if (document != null)
+        {
+            var oldStatus = document.RagStatus;
+            document.RagStatus = update.Status;
+            document.RagCurrentStage = update.CurrentStage;
+                
+            // Update progress in ProcessingChunks, MergingEntities, MergingRelations stages
+            // Other stages don't update progress, keep previous value
+            if (update.CurrentStage is "ProcessingChunks" or "MergingEntities" or "MergingRelations")
+            {
+                document.RagProgress = update.Progress;
+            }
+                
+            // If task is completed, update related status
+            if (update.Status == "Completed")
+            {
+                document.IsInRagSystem = true;
+                document.RagAddedTime = update.CompletedAt ?? DateTime.UtcNow;
+            }
+                
+            // If task status changes to final status (Completed or Failed), need to reload list to re-sort
+            if (update.Status is "Completed" or "Failed" && 
+                oldStatus is "Processing" or "Pending")
+            {
+                // Use debounce mechanism to trigger MudTable to reload data
+                await InvokeAsync(async () =>
+                {
+                    await DebouncedReloadServerDataAsync();
+                });
+            }
+            else
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task<TableData<MarkdownDocumentDto>> ServerReload(TableState state, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _loading = true;
+
+            var response = await ApiClient.GetMarkdownDocumentsAsync(state.Page + 1, state.PageSize, cancellationToken);
+
+            if (response != null)
+            {
+                _documents = response.Items;
+                _totalCount = response.TotalCount;
+            }
+            else
+            {
+                _documents = [];
+                _totalCount = 0;
+            }
+        }
+        catch (HttpRequestException ex) when 
+            (ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.ConnectionRefused })
+        {
+            Snackbar.Add("Cannot connect to Server application, please ensure LightRAGNet.Server is started", Severity.Warning);
+            _documents = [];
+            _totalCount = 0;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load document list: {ex.Message}", Severity.Error);
+            _documents = [];
+            _totalCount = 0;
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        return new TableData<MarkdownDocumentDto>
+        {
+            Items = _documents ?? [],
+            TotalItems = _totalCount
+        };
+    }
+
+    private async Task ViewDocument(int id)
+    {
+        try
+        {
+            var document = await ApiClient.GetMarkdownDocumentAsync(id);
+
+            if (document != null)
+            {
+                var parameters = new DialogParameters
+                {
+                    { "Document", document }
+                };
+
+                var options = new DialogOptions
+                {
+                    MaxWidth = MaxWidth.ExtraLarge,
+                    FullWidth = true,
+                    CloseButton = true
+                };
+
+                await DialogService.ShowAsync<MarkdownViewDialog>("View Document", parameters, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load document: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DeleteDocument(int id)
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Confirm Delete",
+            "Are you sure you want to delete this document?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (_documents == null)
+            return;
+
+        if (result == true)
+        {
+            try
+            {
+                var success = await ApiClient.DeleteMarkdownDocumentAsync(id);
+
+                if (success)
+                {
+                    Snackbar.Add("Document deleted successfully", Severity.Success);
+
+                    // First remove deleted item from current list (if exists)
+                    var itemToRemove = _documents.FirstOrDefault(d => d.Id == id);
+                    if (itemToRemove != null)
+                    {
+                        _documents.Remove(itemToRemove);
+                        _totalCount--;
+                    }
+
+                    var remainingCount = await ApiClient.GetMarkdownDocumentsCountAsync();
+                    if (_documents.Count == 0 && remainingCount > 0)
+                    {
+                        // Use debounce mechanism to trigger MudTable to reload data (will automatically jump to appropriate page)
+                        await DebouncedReloadServerDataAsync();
+                    }
+                    else
+                    {
+                        // If current page still has data, only update UI
+                        StateHasChanged();
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("Failed to delete document", Severity.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to delete document: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task AddToRagSystem(int id)
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Add to RAG System",
+            "Are you sure you want to add this document to the RAG system?",
+            yesText: "Confirm",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                var document = await ApiClient.AddToRagSystemAsync(id);
+
+                if (document != null)
+                {
+                    // Update document status in local list
+                    var localDocument = _documents?.FirstOrDefault(d => d.Id == id);
+                    if (localDocument != null)
+                    {
+                        localDocument.RagStatus = document.RagStatus;
+                        localDocument.RagProgress = document.RagProgress;
+                        localDocument.IsInRagSystem = document.IsInRagSystem;
+                        localDocument.RagAddedTime = document.RagAddedTime;
+                    }
+
+                    Snackbar.Add("Document added to RAG system, processing...", Severity.Success);
+                    
+                    // Use debounce mechanism to trigger refresh and re-sort
+                    await DebouncedReloadServerDataAsync();
+                }
+                else
+                {
+                    Snackbar.Add("Failed to add to RAG system", Severity.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to add to RAG system: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private string GetDownloadUrl(string? fileUrl)
+    {
+        if (string.IsNullOrEmpty(fileUrl))
+        {
+            return "#";
+        }
+
+        // Get API base URL (from ApiClient's BaseAddress)
+        var baseUrl = ApiClient.GetBaseAddress();
+        return $"{baseUrl.TrimEnd('/')}{fileUrl}";
+    }
+
+    /// <summary>
+    /// Debounce executor: when multiple update requests are received within specified time, only execute the last update
+    /// </summary>
+    private async Task DebouncedReloadServerDataAsync()
+    {
+        // Cancel previous debounce wait (if any)
+        if (_debounceCts != null)
+        {
+            await _debounceCts.CancelAsync();
+            _debounceCts.Dispose();
+        }
+
+        // Create new CancellationTokenSource
+        _debounceCts = new CancellationTokenSource();
+        var cancellationToken = _debounceCts.Token;
+        
+        try
+        {
+            // Wait for debounce delay time
+            await Task.Delay(_debounceDelay, cancellationToken);
+            
+            // After delay time ends, execute actual refresh operation
+            if (_tableRef != null && !cancellationToken.IsCancellationRequested)
+            {
+                await _tableRef.ReloadServerData();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by new request, this is normal, no need to handle
+        }
+        finally
+        {
+            // Clean up CancellationTokenSource (if not currently active)
+            if (_debounceCts is { IsCancellationRequested: true })
+            {
+                _debounceCts.Dispose();
+                _debounceCts = null;
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        NotificationService.TaskStatusUpdated -= OnTaskStatusUpdated;
+        NotificationService.DataCleared -= OnDataCleared;
+        
+        // Clean up debounce executor resources
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = null;
+        
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LightRAGNet.Core\LightRAGNet.Core.csproj" />
+    <ProjectReference Include="..\LightRAGNet.LLM\LightRAGNet.LLM.csproj" />
+    <ProjectReference Include="..\LightRAGNet.Embedding\LightRAGNet.Embedding.csproj" />
+    <ProjectReference Include="..\LightRAGNet.Rerank\LightRAGNet.Rerank.csproj" />
+    <ProjectReference Include="..\LightRAGNet.Storage\LightRAGNet.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" Version="14.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.1" />
+  </ItemGroup>
+
+</Project>
+

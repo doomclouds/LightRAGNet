@@ -1,0 +1,228 @@
+@page "/"
+@using LightRAGNet.Web.Services
+@using LightRAGNet.Web.Models
+@inject ApiClient ApiClient
+@inject ChatHistoryService ChatHistoryService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<PageTitle>RAG Chat</PageTitle>
+
+<MudContainer Class="d-flex flex-column" Style="height: calc(100vh - 130px); max-width: 100%; overflow: hidden;">
+    <MudPaper Elevation="1" Class="ma-1 d-flex align-center justify-space-between pa-2">
+        <MudText Typo="Typo.h6">RAG Chat</MudText>
+        <MudButton Variant="Variant.Text" 
+                   Color="Color.Error" 
+                   StartIcon="@Icons.Material.Filled.DeleteSweep"
+                   Size="Size.Small"
+                   OnClick="@ClearChatHistory"
+                   Disabled="@_isWaitingResponse">
+            Clear History
+        </MudButton>
+    </MudPaper>
+    
+    <div @ref="_chatContainer" style="flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;">
+        <MudPaper Elevation="1" Class="ma-1">
+            @if (_chatHistory.Count == 0)
+            {
+                <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-2">Start chatting with RAG</MudText>
+            }
+            else
+            {
+                foreach (var chatMessage in _chatHistory)
+                {
+                    if (chatMessage.Role == "User")
+                    {
+                        <MudChat ChatPosition="ChatBubblePosition.End">
+                            <MudChatHeader Name="User"/>
+                            <MudChatBubble>
+                                <MudText>@chatMessage.Text</MudText>
+                            </MudChatBubble>
+                        </MudChat>
+                    }
+                    else if (chatMessage.Role == "Assistant")
+                    {
+                        <MudChat ChatPosition="ChatBubblePosition.Start">
+                            <MudChatHeader Name="RAG Assistant"/>
+                            <MudChatBubble>
+                                <MudMarkdown Value="@chatMessage.Text" />
+                            </MudChatBubble>
+                            @if (string.IsNullOrEmpty(chatMessage.Text))
+                            {
+                                <MudChatFooter>
+                                    <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
+                                </MudChatFooter>
+                            }
+                        </MudChat>
+                    }
+                }
+            }
+        </MudPaper>
+    </div>
+
+    <MudPaper Elevation="3" Class="mt-2">
+        <div class="d-flex gap-3 align-end">
+            <MudTextField @bind-Value="_inputMessage"
+                          Variant="Variant.Outlined"
+                          Lines="3"
+                          Disabled="_isWaitingResponse"
+                          Immediate="true"
+                          OnKeyDown="@HandleKeyPress"
+                          Placeholder="Enter your question..."
+                          Class="flex-grow-1"/>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       EndIcon="@Icons.Material.Filled.Send"
+                       Size="Size.Large"
+                       OnClick="@SendMessageAsync"
+                       Disabled="@CanNotSendMessage">
+                Send
+            </MudButton>
+        </div>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<ChatMessageModel> _chatHistory = [];
+    private string _inputMessage = string.Empty;
+    private bool _isWaitingResponse;
+    private ElementReference _chatContainer;
+    private CancellationTokenSource? _queryCancellationTokenSource;
+    private IJSObjectReference? _jsModule;
+
+    private bool CanNotSendMessage => string.IsNullOrWhiteSpace(_inputMessage) || _isWaitingResponse;
+
+    protected override void OnInitialized()
+    {
+        // Load chat history from service
+        _chatHistory = ChatHistoryService.GetChatHistory();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/RagChat.razor.js");
+            }
+            catch
+            {
+                // Ignore JavaScript module load errors
+            }
+            await ScrollToBottomAsync();
+        }
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            if (_jsModule != null)
+            {
+                await _jsModule.InvokeVoidAsync("scrollToBottom", _chatContainer);
+            }
+        }
+        catch
+        {
+            // Ignore JavaScript errors
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e is { Key: "Enter", ShiftKey: false } && !CanNotSendMessage)
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (CanNotSendMessage)
+            return;
+
+        var userMessage = _inputMessage.Trim();
+        if (string.IsNullOrWhiteSpace(userMessage))
+            return;
+
+        // Clear input and lock UI immediately
+        _inputMessage = string.Empty;
+        _isWaitingResponse = true;
+        _queryCancellationTokenSource = new CancellationTokenSource();
+        
+        // Add user message to history
+        var userChatMessage = new ChatMessageModel { Role = "User", Text = userMessage };
+        _chatHistory.Add(userChatMessage);
+        ChatHistoryService.AddMessage(userChatMessage);
+        
+        // Create and add empty assistant message immediately to show loading animation
+        var assistantMessage = new ChatMessageModel { Role = "Assistant", Text = string.Empty };
+        _chatHistory.Add(assistantMessage);
+        ChatHistoryService.AddMessage(assistantMessage);
+        
+        // Update UI to show loading animation and disable send button
+        StateHasChanged();
+        await ScrollToBottomAsync();
+
+        try
+        {
+            await ApiClient.QueryRagAsync(
+                userMessage,
+                chunk =>
+                {
+                    if (string.IsNullOrEmpty(chunk))
+                        return;
+
+                    // Append chunk to assistant message text
+                    assistantMessage.Text += chunk;
+                    InvokeAsync(() =>
+                    {
+                        StateHasChanged();
+                        _ = ScrollToBottomAsync();
+                    });
+                },
+                _queryCancellationTokenSource.Token);
+        }
+        catch (Exception ex)
+        {
+            assistantMessage.Text = $"Error: {ex.Message}";
+            Snackbar.Add($"Query failed: {ex.Message}", Severity.Error);
+            StateHasChanged();
+        }
+        finally
+        {
+            _isWaitingResponse = false;
+            _queryCancellationTokenSource?.Dispose();
+            _queryCancellationTokenSource = null;
+            StateHasChanged();
+            await ScrollToBottomAsync();
+        }
+    }
+
+    private void ClearChatHistory()
+    {
+        ChatHistoryService.ClearHistory();
+        _chatHistory.Clear();
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _queryCancellationTokenSource?.Cancel();
+        _queryCancellationTokenSource?.Dispose();
+        
+        if (_jsModule != null)
+        {
+            try
+            {
+                await _jsModule.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore disposal errors
+            }
+        }
+    }
+}

@@ -1,0 +1,158 @@
+@inherits LayoutComponentBase
+@using LightRAGNet.Web.Services
+@inject ApiClient ApiClient
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject RagTaskNotificationService NotificationService
+@implements IAsyncDisposable
+
+<MudThemeProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudPopoverProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" />
+        <MudText Typo="Typo.h6">LightRAGNet</MudText>
+        <MudSpacer />
+        <MudTooltip Text="Clear all data (including documents, tasks and RAG storage content)">
+            <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" 
+                          Color="Color.Error" 
+                          OnClick="@ClearAllData"
+                          Class="mr-2" />
+        </MudTooltip>
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent Style="padding-bottom: 48px;">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+    <MudPaper Elevation="1" Class="status-bar" Style="position: fixed; bottom: 0; left: 0; right: 0; height: 48px; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 0 16px;">
+        <MudTooltip Text="@GetConnectionStatusTooltip()">
+            <MudChip T="string" 
+                     Size="Size.Small" 
+                     Color="@GetConnectionStatusColor()" 
+                     Icon="@GetConnectionStatusIcon()"
+                     Variant="Variant.Filled">
+                @GetConnectionStatusText()
+            </MudChip>
+        </MudTooltip>
+    </MudPaper>
+</MudLayout>
+
+@code {
+    bool _drawerOpen = true;
+    private string _connectionStatus = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Initialize SignalR connection
+        await NotificationService.InitializeAsync();
+        
+        // Subscribe to connection state change events
+        NotificationService.ConnectionStateChanged += OnConnectionStateChanged;
+        
+        // Get initial connection status
+        _connectionStatus = NotificationService.IsConnected ? "Connected" : "Disconnected";
+    }
+
+    void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task OnConnectionStateChanged(object? sender, string state)
+    {
+        _connectionStatus = state;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetConnectionStatusText()
+    {
+        return _connectionStatus switch
+        {
+            "Connected" => "SignalR Connected",
+            "Disconnected" => "SignalR Disconnected",
+            "Reconnecting" => "SignalR Reconnecting",
+            "ServerNotStarted" => "Server Not Started",
+            _ => "SignalR Unknown Status"
+        };
+    }
+
+    private Color GetConnectionStatusColor()
+    {
+        return _connectionStatus switch
+        {
+            "Connected" => Color.Success,
+            "Disconnected" => Color.Error,
+            "Reconnecting" => Color.Warning,
+            "ServerNotStarted" => Color.Warning,
+            _ => Color.Default
+        };
+    }
+
+    private string GetConnectionStatusIcon()
+    {
+        return _connectionStatus switch
+        {
+            "Connected" => Icons.Material.Filled.CheckCircle,
+            "Disconnected" => Icons.Material.Filled.Error,
+            "Reconnecting" => Icons.Material.Filled.Sync,
+            "ServerNotStarted" => Icons.Material.Filled.Warning,
+            _ => Icons.Material.Filled.Help
+        };
+    }
+
+    private string GetConnectionStatusTooltip()
+    {
+        return _connectionStatus switch
+        {
+            "Connected" => "SignalR connection is normal, can receive real-time task status updates",
+            "Disconnected" => "SignalR connection is disconnected, cannot receive real-time updates",
+            "Reconnecting" => "SignalR is trying to reconnect",
+            "ServerNotStarted" => "Server application is not started, please start LightRAGNet.Server first (default port: 5261)",
+            _ => "SignalR connection status unknown"
+        };
+    }
+
+    private async Task ClearAllData()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Clear All Data",
+            "Warning: This operation will delete all documents, tasks and RAG storage content (including Qdrant vector data, Neo4j graph data, KV stores, etc.), and cannot be recovered!\n\nAre you sure you want to continue?",
+            yesText: "Confirm Clear",
+            cancelText: "Cancel",
+            options: new DialogOptions { MaxWidth = MaxWidth.Small });
+
+        if (result == true)
+        {
+            try
+            {
+                var response = await ApiClient.ClearAllDataAsync();
+                
+                if (response)
+                {
+                    Snackbar.Add("All data cleared", Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add("Failed to clear data", Severity.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to clear data: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        NotificationService.ConnectionStateChanged -= OnConnectionStateChanged;
+        return ValueTask.CompletedTask;
+    }
+}

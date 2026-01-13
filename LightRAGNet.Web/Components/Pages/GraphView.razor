@@ -1,0 +1,159 @@
+@page "/graph-view"
+@using LightRAGNet.Web.Components
+@using LightRAGNet.Share.Models
+@using LightRAGNet.Web
+@inject ApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<PageTitle>Knowledge Graph View</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pa-0" Style="height: calc(100vh - 80px);">
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudPaper Elevation="1" Class="ma-2 pa-3" Style="height: calc(100vh - 100px); overflow-y: auto;">
+                <MudText Typo="Typo.h6" Class="mb-3">Graph Settings</MudText>
+                
+                <MudTextField @bind-Value="_nodeLabel"
+                              Label="Node Label Filter"
+                              HelperText="Use '*' for all nodes"
+                              Variant="Variant.Outlined"
+                              Class="mb-3" />
+                
+                <MudNumericField @bind-Value="_maxDepth"
+                                 Label="Max Depth"
+                                 Min="1"
+                                 Max="5"
+                                 Variant="Variant.Outlined"
+                                 Class="mb-3" />
+                
+                <MudNumericField @bind-Value="_maxNodes"
+                                 Label="Max Nodes"
+                                 Min="10"
+                                 Max="1000"
+                                 Variant="Variant.Outlined"
+                                 Class="mb-3" />
+                
+                <MudButton Variant="Variant.Filled"
+                          Color="Color.Primary"
+                          FullWidth="true"
+                          OnClick="LoadGraphAsync"
+                          Disabled="_isLoading">
+                    @if (_isLoading)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    }
+                    Load Graph
+                </MudButton>
+                
+                @if (_graphData != null)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3">
+                        Nodes: @_graphData.Nodes.Count<br />
+                        Edges: @_graphData.Edges.Count
+                        @if (_graphData.IsTruncated)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Class="ml-2">Truncated</MudChip>
+                        }
+                    </MudText>
+                }
+                
+                @if (_selectedNode != null)
+                {
+                    <MudDivider Class="my-3" />
+                    <MudText Typo="Typo.h6" Class="mb-2">Node Properties</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-1"><strong>ID:</strong> @_selectedNode.Id</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-1"><strong>Label:</strong> @_selectedNode.Label</MudText>
+                    @if (!string.IsNullOrEmpty(_selectedNode.Type))
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-1"><strong>Type:</strong> @_selectedNode.Type</MudText>
+                    }
+                    @if (_selectedNode.Properties != null && _selectedNode.Properties.Count > 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2"><strong>Properties:</strong></MudText>
+                        <MudSimpleTable Dense="true" Hover="true">
+                            <tbody>
+                                @foreach (var prop in _selectedNode.Properties)
+                                {
+                                    <tr>
+                                        <td><strong>@prop.Key:</strong></td>
+                                        <td>@prop.Value</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+        
+        <MudItem xs="12" md="9">
+            <MudPaper Elevation="1" Class="ma-2" Style="height: calc(100vh - 100px); position: relative;">
+                @if (_graphData == null && !_isLoading)
+                {
+                    <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-4">
+                        Click "Load Graph" to visualize the knowledge graph
+                    </MudText>
+                }
+                else if (_isLoading)
+                {
+                    <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-4">
+                        <MudProgressCircular Indeterminate="true" Class="mb-2" />
+                        <br />Loading graph data...
+                    </MudText>
+                }
+                else
+                {
+                    <SigmaGraph ContainerId="graph-container"
+                               GraphData="_graphData"
+                               OnNodeClick="HandleNodeClick" />
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    private GraphViewDto? _graphData;
+    private GraphNodeDto? _selectedNode;
+    private string _nodeLabel = "*";
+    private int _maxDepth = 2;
+    private int _maxNodes = 100;
+    private bool _isLoading = false;
+
+    private async Task LoadGraphAsync()
+    {
+        _isLoading = true;
+        _selectedNode = null;
+        
+        try
+        {
+            _graphData = await ApiClient.GetGraphViewAsync(_nodeLabel, _maxDepth, _maxNodes);
+            
+            if (_graphData == null)
+            {
+                Snackbar.Add("Failed to load graph data", Severity.Error);
+            }
+            else
+            {
+                Snackbar.Add($"Loaded {_graphData.Nodes.Count} nodes and {_graphData.Edges.Count} edges", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading graph: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void HandleNodeClick(GraphNodeDto node)
+    {
+        // Update selected node without triggering graph re-render
+        _selectedNode = node;
+        // Only update the UI for the selected node panel, not the graph component
+        StateHasChanged();
+    }
+
+}

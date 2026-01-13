@@ -1,0 +1,32 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Document?.FileName</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (Document != null && !string.IsNullOrEmpty(Document.Content))
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">
+                <strong>File Size:</strong>@Document.FileSize.FormatFileSize() | 
+                <strong>Upload Time:</strong>@Document.UploadTime.ToString("yyyy-MM-dd HH:mm:ss")
+            </MudText>
+            <MudPaper Elevation="1" Class="pa-4" Style="max-height: 600px; overflow-y: auto;">
+                <MudMarkdown Value="@Document.Content" />
+            </MudPaper>
+        }
+        else
+        {
+            <MudText>Document content is empty</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog?.Close())">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+    
+    [Parameter] public MarkdownDocumentDto? Document { get; set; }
+
+}

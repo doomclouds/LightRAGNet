@@ -1,0 +1,148 @@
+@using System.Text.Json
+@implements IAsyncDisposable
+
+<div class="sigma-container" style="width: 100%; height: 100%; position: relative;">
+    <div id="@ContainerId" style="width: 100%; height: 100%;"></div>
+    @if (ShowControls)
+    {
+        <div class="sigma-controls" style="position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; background: rgba(255, 255, 255, 0.9); padding: 5px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <MudIconButton Icon="@Icons.Material.Filled.ZoomIn" 
+                          Size="Size.Small" 
+                          Variant="Variant.Text" 
+                          Color="Color.Default"
+                          OnClick="ZoomIn" 
+                          Title="Zoom In" />
+            <MudIconButton Icon="@Icons.Material.Filled.ZoomOut" 
+                          Size="Size.Small" 
+                          Variant="Variant.Text" 
+                          Color="Color.Default"
+                          OnClick="ZoomOut" 
+                          Title="Zoom Out" />
+            <MudIconButton Icon="@Icons.Material.Filled.CenterFocusStrong" 
+                          Size="Size.Small" 
+                          Variant="Variant.Filled" 
+                          Color="Color.Primary"
+                          OnClick="ResetCamera" 
+                          Title="Reset to Best View / Center" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "sigma-container";
+    [Parameter] public GraphViewDto? GraphData { get; set; }
+    [Parameter] public bool ShowControls { get; set; } = true;
+    [Parameter] public EventCallback<GraphNodeDto> OnNodeClick { get; set; }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
+    
+    private IJSObjectReference? _jsModule;
+    private DotNetObjectReference<SigmaGraph>? _objRef;
+    private GraphViewDto? _lastGraphData; // Track previous GraphData to avoid unnecessary updates
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            try
+            {
+                _jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/SigmaGraph.razor.js");
+                await InitializeGraph();
+                _lastGraphData = GraphData; // Store initial GraphData
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading sigma.js module: {ex.Message}");
+            }
+        }
+        else if (GraphData != null && GraphData != _lastGraphData)
+        {
+            // Only update graph if GraphData reference actually changed
+            // This prevents updates when only selected node changes (StateHasChanged from HandleNodeClick)
+            await UpdateGraph();
+            _lastGraphData = GraphData;
+        }
+    }
+
+    private async Task InitializeGraph()
+    {
+        if (_jsModule != null && GraphData != null)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            var json = JsonSerializer.Serialize(GraphData, options);
+            await _jsModule.InvokeVoidAsync("initializeSigma", ContainerId, json, _objRef);
+        }
+    }
+
+    private async Task UpdateGraph()
+    {
+        if (_jsModule != null && GraphData != null)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            var json = JsonSerializer.Serialize(GraphData, options);
+            await _jsModule.InvokeVoidAsync("updateSigmaGraph", ContainerId, json);
+        }
+    }
+
+    public async Task ZoomIn()
+    {
+        if (_jsModule != null)
+        {
+            await _jsModule.InvokeVoidAsync("zoomIn", ContainerId);
+        }
+    }
+
+    public async Task ZoomOut()
+    {
+        if (_jsModule != null)
+        {
+            await _jsModule.InvokeVoidAsync("zoomOut", ContainerId);
+        }
+    }
+
+    public async Task ResetCamera()
+    {
+        if (_jsModule != null)
+        {
+            await _jsModule.InvokeVoidAsync("resetCamera", ContainerId);
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleNodeClick(string nodeId, string nodeJson)
+    {
+        if (OnNodeClick.HasDelegate && GraphData != null)
+        {
+            var node = GraphData.Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null)
+            {
+                await OnNodeClick.InvokeAsync(node);
+            }
+        }
+    }
+
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_jsModule != null)
+        {
+            try
+            {
+                await _jsModule.InvokeVoidAsync("disposeSigma", ContainerId);
+                await _jsModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Ignore if JS context is disconnected
+            }
+        }
+        _objRef?.Dispose();
+    }
+}

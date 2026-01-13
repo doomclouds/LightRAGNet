@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="LightRAGNet.Core\LightRAGNet.Core.csproj" />
+  <Project Path="LightRAGNet.LLM\LightRAGNet.LLM.csproj" />
+  <Project Path="LightRAGNet.Embedding\LightRAGNet.Embedding.csproj" />
+  <Project Path="LightRAGNet.Rerank\LightRAGNet.Rerank.csproj" />
+  <Project Path="LightRAGNet.Storage\LightRAGNet.Storage.csproj" />
+  <Project Path="LightRAGNet\LightRAGNet.csproj" />
+  <Project Path="LightRAGNet.Example\LightRAGNet.Example.csproj" />
+  <Project Path="LightRAGNet.Hosting\LightRAGNet.Hosting.csproj" />
+  <Project Path="LightRAGNet.Web\LightRAGNet.Web.csproj" />
+  <Project Path="LightRAGNet.Server\LightRAGNet.Server.csproj" />
+  <Project Path="LightRAGNet.Share\LightRAGNet.Share.csproj" />
+</Solution>

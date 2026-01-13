@@ -1,0 +1,320 @@
+@page "/markdown-upload"
+@using System.IO
+@inject ApiClient ApiClient
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>Upload Markdown Document</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium">
+    <MudText Typo="Typo.h4" Class="mb-4">Upload Markdown Document</MudText>
+
+    <MudCard Elevation="2">
+        <MudCardContent>
+            <MudForm @bind-IsValid="@_isValid" @bind-Errors="@_errors">
+                <MudStack Spacing="3">
+                    <MudFileUpload T="IReadOnlyList<IBrowserFile>" 
+                                   Accept=".md,.markdown" 
+                                   MaximumFileCount="10"
+                                   OnFilesChanged="@OnFilesChanged"
+                                   Disabled="@_uploading">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Filled" 
+                                      Color="Color.Primary" 
+                                      StartIcon="@Icons.Material.Filled.CloudUpload"
+                                      HtmlTag="label">
+                                Select Files (Multiple)
+                            </MudButton>
+                        </ActivatorContent>
+                        <SelectedTemplate>
+                            @if (_selectedFiles.Count > 0)
+                            {
+                                <MudStack Spacing="2" Class="mt-2">
+                                    @foreach (var file in _selectedFiles)
+                                    {
+                                        <MudChip T="string" 
+                                                Icon="@Icons.Material.Filled.AttachFile" 
+                                                Size="Size.Medium" 
+                                                Color="Color.Primary" 
+                                                OnClose="@(() => OnRemoveFile(file))"
+                                                Class="mt-1">
+                                            @file.Name (@file.Size.FormatFileSize())
+                                        </MudChip>
+                                    }
+                                </MudStack>
+                            }
+                        </SelectedTemplate>
+                    </MudFileUpload>
+                    
+                    @if (_selectedFiles.Count > 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2">
+                            Selected <strong>@_selectedFiles.Count</strong> file(s), total size: <strong>@_selectedFiles.Sum(f => f.Size).FormatFileSize()</strong>
+                        </MudText>
+                    }
+                </MudStack>
+
+                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-4">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upload" 
+                               OnClick="@UploadFiles" Disabled="@(_selectedFiles.Count == 0 || _uploading)">
+                        @if (_uploading)
+                        {
+                            <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                            <MudText Class="ms-2">Uploading (@_uploadedCount/@_selectedFiles.Count)...</MudText>
+                        }
+                        else
+                        {
+                            <MudText>Upload (@_selectedFiles.Count)</MudText>
+                        }
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="@Cancel">Cancel</MudButton>
+                </MudStack>
+            </MudForm>
+        </MudCardContent>
+    </MudCard>
+
+    <MudAlert Severity="Severity.Info" Class="mt-4">
+        <MudText Typo="Typo.body2">
+            <strong>Tips:</strong>
+            <ul style="margin: 0; padding-left: 20px;">
+                <li>Only .md or .markdown files are supported</li>
+                <li>Maximum 10MB per file</li>
+                <li>Maximum 10 files can be uploaded at once</li>
+                <li>The system will automatically detect duplicate files (based on file content hash), duplicate files cannot be uploaded</li>
+                <li>After successful upload, please click the "Add to RAG" button on the document list page to add the document to the RAG processing queue</li>
+            </ul>
+        </MudText>
+    </MudAlert>
+    
+    @if (_uploading && _selectedFiles.Count > 0)
+    {
+        <MudCard Elevation="1" Class="mt-4">
+            <MudCardContent>
+                <MudText Typo="Typo.h6" Class="mb-3">Upload Progress</MudText>
+                <MudProgressLinear Value="@(_uploadedCount * 100.0 / _selectedFiles.Count)" 
+                                  Color="Color.Primary" 
+                                  Class="mb-2" />
+                <MudText Typo="Typo.body2">
+                    Uploaded: @_uploadedCount / @_selectedFiles.Count
+                </MudText>
+            </MudCardContent>
+        </MudCard>
+    }
+</MudContainer>
+
+@code {
+    private bool _isValid;
+    private string[] _errors = [];
+    private readonly List<IBrowserFile> _selectedFiles = [];
+    private bool _uploading;
+    private int _uploadedCount;
+
+    private async Task OnFilesChanged(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            if (e.GetMultipleFiles().Count == 0)
+            {
+                return;
+            }
+
+            var validFiles = new List<IBrowserFile>();
+            var invalidFiles = new List<string>();
+
+            foreach (var file in e.GetMultipleFiles())
+            {
+                // Validate file extension
+                var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+                if (extension != ".md" && extension != ".markdown")
+                {
+                    invalidFiles.Add($"{file.Name} (unsupported file type)");
+                    continue;
+                }
+
+                // Validate file size (10MB)
+                const long maxSize = 10 * 1024 * 1024;
+                if (file.Size > maxSize)
+                {
+                    invalidFiles.Add($"{file.Name} (exceeds 10MB)");
+                    continue;
+                }
+
+                // Check if file with same name already exists
+                if (_selectedFiles.Any(f => f.Name == file.Name))
+                {
+                    invalidFiles.Add($"{file.Name} (already selected)");
+                    continue;
+                }
+
+                validFiles.Add(file);
+            }
+
+            if (invalidFiles.Count > 0)
+            {
+                Snackbar.Add($"The following files cannot be added: {string.Join(", ", invalidFiles)}", Severity.Warning);
+            }
+
+            if (validFiles.Count > 0)
+            {
+                _selectedFiles.AddRange(validFiles);
+                Snackbar.Add($"Added {validFiles.Count} file(s)", Severity.Success);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error selecting files: {ex.Message}", Severity.Error);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnRemoveFile(IBrowserFile file)
+    {
+        _selectedFiles.Remove(file);
+        StateHasChanged();
+    }
+
+    private async Task UploadFiles()
+    {
+        if (_selectedFiles.Count == 0)
+        {
+            Snackbar.Add("Please select files first", Severity.Warning);
+            return;
+        }
+
+        // Validate all files again
+        var invalidFiles = new List<IBrowserFile>();
+        foreach (var file in _selectedFiles)
+        {
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (extension != ".md" && extension != ".markdown")
+            {
+                invalidFiles.Add(file);
+                continue;
+            }
+
+            const long maxSize = 10 * 1024 * 1024;
+            if (file.Size > maxSize)
+            {
+                invalidFiles.Add(file);
+            }
+        }
+
+        if (invalidFiles.Count > 0)
+        {
+            Snackbar.Add($"The following files do not meet requirements and have been automatically removed: {string.Join(", ", invalidFiles.Select(f => f.Name))}", Severity.Warning);
+            foreach (var file in invalidFiles)
+            {
+                _selectedFiles.Remove(file);
+            }
+            await InvokeAsync(StateHasChanged);
+            
+            if (_selectedFiles.Count == 0)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            _uploading = true;
+            _uploadedCount = 0;
+            var successCount = 0;
+            var failCount = 0;
+            var duplicateCount = 0;
+            var failFiles = new List<string>();
+
+            foreach (var file in _selectedFiles)
+            {
+                try
+                {
+                    var result = await ApiClient.UploadMarkdownDocumentAsync(file);
+
+                    if (result.Success && result.Document != null)
+                    {
+                        successCount++;
+                    }
+                    else
+                    {
+                        failCount++;
+                        if (result.IsDuplicate)
+                        {
+                            // File already exists (deduplication)
+                            duplicateCount++;
+                            failFiles.Add($"{file.Name} (file already exists, content duplicate)");
+                        }
+                        else
+                        {
+                            failFiles.Add($"{file.Name} ({result.ErrorMessage ?? "upload failed"})");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failCount++;
+                    failFiles.Add($"{file.Name} ({ex.Message})");
+                }
+                finally
+                {
+                    _uploadedCount++;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            // Display upload results
+            if (successCount > 0)
+            {
+                Snackbar.Add($"Successfully uploaded {successCount} file(s), automatically added to RAG processing queue", Severity.Success);
+            }
+
+            if (failCount > 0)
+            {
+                // Distinguish duplicate files and other errors
+                var duplicateFiles = failFiles.Where(f => f.Contains("content duplicate")).ToList();
+                var otherFailures = failFiles.Where(f => !f.Contains("content duplicate")).ToList();
+                
+                if (duplicateCount > 0)
+                {
+                    var duplicateFileNames = duplicateFiles.Select(f => f.Split('(')[0].Trim()).ToList();
+                    Snackbar.Add($"Detected {duplicateCount} duplicate file(s) (content already exists), skipped: {string.Join(", ", duplicateFileNames)}", Severity.Warning);
+                }
+                
+                if (otherFailures.Count > 0)
+                {
+                    Snackbar.Add($"Failed to upload {otherFailures.Count} file(s): {string.Join(", ", otherFailures)}", Severity.Error);
+                }
+            }
+
+            // If there are successfully uploaded files, navigate to document list page
+            if (successCount > 0)
+            {
+                // Clear selected files
+                _selectedFiles.Clear();
+                _uploadedCount = 0;
+                
+                await Task.Delay(1000);
+                Navigation.NavigateTo("/markdown-documents");
+            }
+            else
+            {
+                // All failed, don't clear file list, stay on current page for user to retry
+                _uploadedCount = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error occurred during upload: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _uploading = false;
+            _uploadedCount = 0;
+        }
+    }
+
+    private void Cancel()
+    {
+        _selectedFiles.Clear();
+        Navigation.NavigateTo("/markdown-documents");
+    }
+}
