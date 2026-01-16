@@ -120,7 +120,7 @@ public class DeepSeekLLMService : ILLMService
             var waitTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
             if (waitTime > 1000)
             {
-                _logger.LogWarning("Semaphore wait time was {WaitTime}ms for text length {Length}", waitTime, textLength);
+                _logger.LogDebug("Semaphore wait time was {WaitTime}ms for text length {Length}", waitTime, textLength);
             }
             
             // Use provided limits or default values (30 entities, 50 relationships)
