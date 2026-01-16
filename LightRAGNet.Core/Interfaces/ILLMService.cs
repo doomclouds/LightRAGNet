@@ -34,6 +34,8 @@ public interface ILLMService
         string text,
         List<string> entityTypes,
         float temperature = 0.3f,
+        int? maxEntities = null,
+        int? maxRelationships = null,
         CancellationToken cancellationToken = default);
     
     /// <summary>

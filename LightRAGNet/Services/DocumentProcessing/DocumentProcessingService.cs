@@ -131,9 +131,16 @@ public class DocumentProcessingService(
             "Concept", "Method", "Content", "Data", "Artifact", "NaturalObject"
         ];
         
+        // Get extraction limits from options (0 = no limit, use default values)
+        int? maxEntities = _options.MaxEntitiesPerChunk > 0 ? _options.MaxEntitiesPerChunk : null;
+        int? maxRelationships = _options.MaxRelationshipsPerChunk > 0 ? _options.MaxRelationshipsPerChunk : null;
+        
         var extractionResult = await llmService.ExtractEntitiesAsync(
             chunk.Content,
             entityTypes,
+            temperature: 0.3f,
+            maxEntities: maxEntities,
+            maxRelationships: maxRelationships,
             cancellationToken: cancellationToken);
         
         // Add source_id and file_path to entities and relationships

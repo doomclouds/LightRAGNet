@@ -145,7 +145,7 @@ public class LightRAG(
             "Document {DocId} split into {ChunkCount} chunks",
             docId,
             chunks.Count);
-
+        
         // 4. Process each chunk in parallel
         PostTaskState(new TaskState
         {
@@ -159,17 +159,27 @@ public class LightRAG(
         var processedCount = 0;
         var chunkTasks = chunks.Select(async chunk =>
         {
-            var result = await documentProcessingService.ProcessChunkAsync(chunk, cancellationToken);
-            var current = Interlocked.Increment(ref processedCount);
-            PostTaskState(new TaskState
+            try
             {
-                Stage = TaskStage.ProcessingChunks,
-                Current = current,
-                Total = chunks.Count,
-                Description = $"Processing document chunk {current}/{chunks.Count}",
-                DocId = docId
-            });
-            return result;
+                var result = await documentProcessingService.ProcessChunkAsync(chunk, cancellationToken);
+                
+                var current = Interlocked.Increment(ref processedCount);
+                PostTaskState(new TaskState
+                {
+                    Stage = TaskStage.ProcessingChunks,
+                    Current = current,
+                    Total = chunks.Count,
+                    Description = $"Processing document chunk {current}/{chunks.Count}",
+                    DocId = docId
+                });
+                return result;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing chunk {ChunkId}, order {Order}, tokens {Tokens}", 
+                    chunk.Id, chunk.ChunkOrderIndex, chunk.Tokens);
+                throw;
+            }
         });
         var chunkResults = await Task.WhenAll(chunkTasks);
 
@@ -432,6 +442,7 @@ public class LightRAG(
                 query,
                 systemPrompt,
                 queryParam.ConversationHistory,
+                temperature: 0.3f,
                 cancellationToken: cancellationToken);
 
             return new QueryResult
@@ -478,11 +489,12 @@ public class LightRAG(
 
                 1. Step-by-Step Instruction:
                   - Carefully determine the user's query intent in the context of the conversation history to fully understand the user's information need.
-                  - Scrutinize both `Knowledge Graph Data` and `Document Chunks` in the **Context**. Identify and extract all pieces of information that are directly relevant to answering the user query.
+                  - Scrutinize both `Knowledge Graph Data` (Entity and Relationship) and `Document Chunks` in the **Context**. The Knowledge Graph Data uses concise text format: entities as "Name (Type): Description" and relationships as "Source -> Target: Keywords - Description". Document Chunks show file names in brackets [FileName] followed by content.
+                  - Identify and extract all pieces of information that are directly relevant to answering the user query.
                   - Weave the extracted facts into a coherent and logical response. Your own knowledge must ONLY be used to formulate fluent sentences and connect ideas, NOT to introduce any external information.
                   - CRITICAL: DO NOT include any citation markers, reference numbers, or links like [1], [2], [filename](url), or any other citation format anywhere in the main body of your response. Write the response naturally without any citation markers in the text.
                   - CRITICAL: References can ONLY be placed at the very end of your response under the `### References` heading. Do NOT add references, citations, or links anywhere else in the response.
-                  - Track which document chunks directly support the facts presented in the response. Generate a references section ONLY at the end of the response under `### References` heading, listing only the file names (not reference_id) of documents that directly support the facts.
+                  - Track which document chunks (identified by file names in brackets) directly support the facts presented in the response. Generate a references section ONLY at the end of the response under `### References` heading, listing only the file names of documents that directly support the facts. Match the file names from Document Chunks with those in the Reference Document List.
                   - Do not generate anything after the reference section.
 
                 2. Content & Grounding:
@@ -497,10 +509,9 @@ public class LightRAG(
                 4. References Section Format (STRICTLY ENFORCED):
                   - CRITICAL: References can ONLY appear at the very end of your response under the `### References` heading. Do NOT add any references, citations, or links anywhere else in the response body.
                   - The References section MUST be under heading: `### References` and MUST be the last section of your response.
-                  - Reference list entries should adhere to the format: `* [FileName](URL)` where FileName is the file name (extracted from the file path) and URL is the file path from the Reference Document List. This format creates clickable Markdown links.
-                  - Extract only the file name from the file path (e.g., if path is "documents/example.txt", use "example.txt" as the FileName).
-                  - If the file path in the Reference Document List is already in Markdown link format `[n](URL)`, use the URL part directly and extract the file name from it.
-                  - The file name in the citation must retain its original language.
+                  - Reference list entries should adhere to the format: `* [FileName](URL)` where FileName is the file name shown in Document Chunks (in brackets) and URL is the file path from the Reference Document List. This format creates clickable Markdown links.
+                  - Match the file names from Document Chunks (shown as [FileName] in the chunks) with the corresponding file paths in the Reference Document List.
+                  - The file name in the citation must match exactly the file name shown in Document Chunks and must retain its original language.
                   - Output each citation on an individual line
                   - Provide maximum of 5 most relevant citations.
                   - Do not generate footnotes section or any comment, summary, or explanation after the references.

@@ -3,6 +3,8 @@
 *.user
 /.claude
 /.cursor
+CLAUDE.md
+AGENT.md
 /LightRAGNet/bin
 /LightRAGNet/obj
 /LightRAGNet.Core/bin

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
@@ -811,14 +810,11 @@ public class RetrievalContextService(
         
         if (allEntities.Count > 0)
         {
-            var entitiesJson = JsonSerializer.Serialize(allEntities.Select(e => new
-            {
-                entity_name = e.Name,
-                entity_type = e.Type,
-                description = e.Description
-            }), new JsonSerializerOptions { WriteIndented = true });
+            // Use concise text format instead of JSON to save tokens
+            var entitiesText = string.Join("\n", allEntities.Select(e => 
+                $"{e.Name} ({e.Type}): {e.Description}"));
             
-            parts.Add($"Knowledge Graph Data (Entity):\n\n```json\n{entitiesJson}\n```");
+            parts.Add($"Knowledge Graph Data (Entity):\n\n```\n{entitiesText}\n```");
         }
         
         // For mix mode, results are already merged in MixSearchStrategy, directly use LocalRelations
@@ -832,27 +828,36 @@ public class RetrievalContextService(
         
         if (allRelations.Count > 0)
         {
-            var relationsJson = JsonSerializer.Serialize(allRelations.Select(r => new
-            {
-                source_entity = r.SourceId,
-                target_entity = r.TargetId,
-                keywords = r.Keywords,
-                description = r.Description
-            }), new JsonSerializerOptions { WriteIndented = true });
+            // Use concise text format instead of JSON to save tokens
+            var relationsText = string.Join("\n", allRelations.Select(r => 
+                $"{r.SourceId} -> {r.TargetId}: {r.Keywords} - {r.Description}"));
             
-            parts.Add($"Knowledge Graph Data (Relationship):\n\n```json\n{relationsJson}\n```");
+            parts.Add($"Knowledge Graph Data (Relationship):\n\n```\n{relationsText}\n```");
         }
         
         // Document chunks
         if (searchResult.Chunks.Count > 0)
         {
-            var chunksJson = JsonSerializer.Serialize(searchResult.Chunks.Select(c => new
+            // Build a mapping from file path to file name for chunks
+            var filePathToFileName = new Dictionary<string, string>();
+            foreach (var chunk in searchResult.Chunks)
             {
-                reference_id = c.ReferenceId,
-                content = c.Content
-            }), new JsonSerializerOptions { WriteIndented = true });
+                if (!string.IsNullOrEmpty(chunk.FilePath) && !filePathToFileName.ContainsKey(chunk.FilePath))
+                {
+                    filePathToFileName[chunk.FilePath] = ExtractFileName(chunk.FilePath);
+                }
+            }
             
-            parts.Add($"Document Chunks (Each entry has a reference_id refer to the `Reference Document List`):\n\n```json\n{chunksJson}\n```");
+            // Use concise text format with file name instead of reference_id
+            var chunksText = string.Join("\n\n", searchResult.Chunks.Select(c =>
+            {
+                var fileName = !string.IsNullOrEmpty(c.FilePath) && filePathToFileName.TryGetValue(c.FilePath, out var name)
+                    ? name
+                    : "unknown";
+                return $"[{fileName}]\n{c.Content}";
+            }));
+            
+            parts.Add($"Document Chunks (Each entry shows the file name in brackets, refer to the `Reference Document List` for file paths):\n\n```\n{chunksText}\n```");
         }
         
         // Reference list
@@ -882,7 +887,7 @@ public class RetrievalContextService(
     /// <summary>
     /// Extract file name from file path
     /// </summary>
-    private static string ExtractFileName(string filePath)
+    private string ExtractFileName(string filePath)
     {
         if (string.IsNullOrEmpty(filePath))
             return "unknown";
@@ -891,10 +896,48 @@ public class RetrievalContextService(
         if (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
             filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            var uri = new Uri(filePath);
-            var path = uri.AbsolutePath;
-            var fileName = Path.GetFileName(path);
-            return !string.IsNullOrEmpty(fileName) ? fileName : "unknown";
+            try
+            {
+                var uri = new Uri(filePath);
+                var path = uri.AbsolutePath;
+                var fileName = Path.GetFileName(path);
+                
+                // Decode URL-encoded file name (e.g., %20 -> space, %E5%91%A8%E6%8A%A5 -> decoded text)
+                if (!string.IsNullOrEmpty(fileName))
+                {
+                    try
+                    {
+                        // Use Uri.UnescapeDataString to decode URL-encoded characters
+                        fileName = Uri.UnescapeDataString(fileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        // If decoding fails, use the original fileName
+                        _logger.LogWarning(ex, "Failed to decode URL-encoded file name: {FileName}", fileName);
+                    }
+                    return fileName;
+                }
+                return "unknown";
+            }
+            catch
+            {
+                // If URI parsing fails, try to extract filename directly
+                var lastSlash = filePath.LastIndexOf('/');
+                if (lastSlash >= 0 && lastSlash < filePath.Length - 1)
+                {
+                    var fileName = filePath.Substring(lastSlash + 1);
+                    try
+                    {
+                        fileName = Uri.UnescapeDataString(fileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to decode URL-encoded file name from path: {FileName}", fileName);
+                    }
+                    return fileName;
+                }
+                return "unknown";
+            }
         }
         
         // Handle local file paths
@@ -909,7 +952,10 @@ public class RetrievalContextService(
         
         foreach (var chunk in chunks)
         {
-            var chunkTokens = tokenizer.CountTokens(chunk.Content);
+            // Calculate tokens based on actual format used in context: "[FileName]\nContent"
+            var fileName = ExtractFileName(chunk.FilePath);
+            var chunkText = $"[{fileName}]\n{chunk.Content}";
+            var chunkTokens = tokenizer.CountTokens(chunkText);
             if (currentTokens + chunkTokens > maxTokens)
                 break;
             
@@ -927,7 +973,9 @@ public class RetrievalContextService(
         
         foreach (var entity in entities)
         {
-            var tokens = tokenizer.CountTokens($"{entity.Name}\n{entity.Description}");
+            // Calculate tokens based on actual text format used in context: "Name (Type): Description"
+            var entityText = $"{entity.Name} ({entity.Type}): {entity.Description}";
+            var tokens = tokenizer.CountTokens(entityText);
             if (currentTokens + tokens > maxTokens)
                 break;
             
@@ -945,7 +993,9 @@ public class RetrievalContextService(
         
         foreach (var relation in relations)
         {
-            var tokens = tokenizer.CountTokens($"{relation.SourceId}-{relation.TargetId}\n{relation.Description}");
+            // Calculate tokens based on actual text format used in context: "Source -> Target: Keywords - Description"
+            var relationText = $"{relation.SourceId} -> {relation.TargetId}: {relation.Keywords} - {relation.Description}";
+            var tokens = tokenizer.CountTokens(relationText);
             if (currentTokens + tokens > maxTokens)
                 break;
             

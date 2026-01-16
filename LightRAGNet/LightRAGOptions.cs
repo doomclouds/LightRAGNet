@@ -103,5 +103,15 @@ public class LightRAGOptions
     /// Number of related chunks per entity/relation
     /// </summary>
     public int RelatedChunkNumber { get; set; } = 5;
+    
+    /// <summary>
+    /// Maximum number of entities to extract per chunk (0 = no limit)
+    /// </summary>
+    public int MaxEntitiesPerChunk { get; set; } = 30;
+    
+    /// <summary>
+    /// Maximum number of relationships to extract per chunk (0 = no limit)
+    /// </summary>
+    public int MaxRelationshipsPerChunk { get; set; } = 50;
 }
 

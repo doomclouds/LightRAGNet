@@ -14,12 +14,15 @@ public class DeepSeekLLMService : ILLMService
 {
     private readonly IChatClient _chatClient;
     private readonly ILogger<DeepSeekLLMService> _logger;
+    private readonly SemaphoreSlim _extractEntitiesSemaphore;
 
     public DeepSeekLLMService(
         ILogger<DeepSeekLLMService> logger,
         IOptions<DeepSeekOptions> options)
     {
         _logger = logger;
+        // Limit ExtractEntitiesAsync to max 10 concurrent requests
+        _extractEntitiesSemaphore = new SemaphoreSlim(10, 10);
         var options1 = options.Value;
 
         if (string.IsNullOrEmpty(options1.ApiKey))
@@ -29,12 +32,15 @@ public class DeepSeekLLMService : ILLMService
                                                           "or set the DeepseekKey environment variable.");
         }
 
+        var openAiClientOptions = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(options1.BaseUrl),
+            NetworkTimeout = TimeSpan.FromMinutes(3) // Increase timeout to 3 minutes for long-running operations
+        };
+        
         var openAiClient = new OpenAIClient(
             new ApiKeyCredential(options1.ApiKey),
-            new OpenAIClientOptions
-            {
-                Endpoint = new Uri(options1.BaseUrl)
-            });
+            openAiClientOptions);
         _chatClient = openAiClient.GetChatClient(options1.ModelName).AsIChatClient();
     }
 
@@ -100,20 +106,74 @@ public class DeepSeekLLMService : ILLMService
         string text,
         List<string> entityTypes,
         float temperature = 0.3f,
+        int? maxEntities = null,
+        int? maxRelationships = null,
         CancellationToken cancellationToken = default)
     {
-        // Reference: Python version prompt.py entity_extraction_system_prompt
-        // Default to use same language as input text
-        var systemPrompt = BuildEntityExtractionSystemPrompt(entityTypes);
-        var userPrompt = BuildEntityExtractionUserPrompt(text, entityTypes);
+        var textLength = text.Length;
+        var startTime = DateTime.UtcNow;
+        
+        // Acquire semaphore to limit concurrent ExtractEntitiesAsync calls
+        await _extractEntitiesSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var waitTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            if (waitTime > 1000)
+            {
+                _logger.LogWarning("Semaphore wait time was {WaitTime}ms for text length {Length}", waitTime, textLength);
+            }
+            
+            // Use provided limits or default values (30 entities, 50 relationships)
+            var adjustedMaxEntities = maxEntities ?? 30;
+            var adjustedMaxRelationships = maxRelationships ?? 50;
+            
+            // Reference: Python version prompt.py entity_extraction_system_prompt
+            // Default to use same language as input text
+            var systemPrompt = BuildEntityExtractionSystemPrompt(entityTypes, adjustedMaxEntities, adjustedMaxRelationships);
+            var userPrompt = BuildEntityExtractionUserPrompt(text, entityTypes, adjustedMaxEntities, adjustedMaxRelationships);
 
-        var response = await GenerateAsync(
-            userPrompt,
-            systemPrompt,
-            temperature: temperature,
-            cancellationToken: cancellationToken);
+            var extractionStartTime = DateTime.UtcNow;
+            var response = await GenerateAsync(
+                userPrompt,
+                systemPrompt,
+                temperature: temperature,
+                cancellationToken: cancellationToken);
+            
+            var extractionTime = (DateTime.UtcNow - extractionStartTime).TotalSeconds;
+            if (extractionTime > 150)
+            {
+                _logger.LogWarning("Entity extraction took {Time}s (long operation), text length: {Length}", extractionTime, textLength);
+            }
 
-        return ParseEntityExtractionResult(response);
+            await Task.Delay(200, cancellationToken);
+            var result = ParseEntityExtractionResult(response, adjustedMaxEntities, adjustedMaxRelationships);
+            
+            if (result.Entities.Count > adjustedMaxEntities || 
+                result.Relationships.Count > adjustedMaxRelationships)
+            {
+                _logger.LogWarning(
+                    "Extracted entities/relationships exceeded limits. Entities: {EntityCount}/{MaxEntities}, Relationships: {RelationCount}/{MaxRelationships}. Truncating...",
+                    result.Entities.Count, adjustedMaxEntities,
+                    result.Relationships.Count, adjustedMaxRelationships);
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in ExtractEntitiesAsync, text length: {Length}, wait time: {WaitTime}ms", 
+                textLength, (DateTime.UtcNow - startTime).TotalMilliseconds);
+            throw;
+        }
+        finally
+        {
+            _extractEntitiesSemaphore.Release();
+            var totalTime = (DateTime.UtcNow - startTime).TotalSeconds;
+            if (totalTime > 60)
+            {
+                _logger.LogWarning("Total ExtractEntitiesAsync time: {Time}s, text length: {Length}", totalTime, textLength);
+            }
+        }
     }
 
     public async Task<KeywordsResult> ExtractKeywordsAsync(
@@ -146,7 +206,7 @@ public class DeepSeekLLMService : ILLMService
         return await GenerateAsync(prompt, temperature: temperature, cancellationToken: cancellationToken);
     }
 
-    private string BuildEntityExtractionSystemPrompt(List<string> entityTypes)
+    private string BuildEntityExtractionSystemPrompt(List<string> entityTypes, int maxEntities, int maxRelationships)
     {
         var entityTypesStr = string.Join(", ", entityTypes);
         return $"""
@@ -155,23 +215,25 @@ public class DeepSeekLLMService : ILLMService
 
                 ---Instructions---
                 1. **Entity Extraction & Output:**
-                   * **Identification:** Identify clearly defined and meaningful entities in the input text.
+                   * **Identification:** Identify clearly defined and meaningful entities in the input text. **Focus on key concepts and important entities** - for hierarchical lists, extract the main categories and most significant sub-items, not every single item.
                    * **Entity Details:** For each identified entity, extract the following information:
                        * `entity_name`: The name of the entity. If the entity name is case-insensitive, capitalize the first letter of each significant word (title case). Ensure **consistent naming** across the entire extraction process.
                        * `entity_type`: Categorize the entity using one of the following types: {entityTypesStr}. If none of the provided entity types apply, do not add new entity type and classify it as `Other`.
-                       * `entity_description`: Provide a concise yet comprehensive description of the entity's attributes and activities, based *solely* on the information present in the input text.
+                       * `entity_description`: Provide a concise yet comprehensive description of the entity's attributes and activities, based *solely* on the information present in the input text. **Keep descriptions brief** (one sentence maximum, focus on key attributes).
                    * **Output Format - Entities:** Output a total of 4 fields for each entity, delimited by `<|#|>`, on a single line. The first field *must* be the literal string `entity`.
                        * Format: `entity<|#|>entity_name<|#|>entity_type<|#|>entity_description`
+                   * **Priority:** Extract the most important entities first. For hierarchical structures, prioritize top-level categories and key concepts over granular sub-items.
 
                 2. **Relationship Extraction & Output:**
-                   * **Identification:** Identify direct, clearly stated, and meaningful relationships between previously extracted entities.
+                   * **Identification:** Identify direct, clearly stated, and meaningful relationships between previously extracted entities. **Focus on the most important relationships only** - avoid extracting trivial or obvious hierarchical relationships (e.g., "Software Development contains Code Generation" is too obvious and can be inferred from structure).
                    * **Relationship Details:** For each binary relationship, extract the following fields:
                        * `source_entity`: The name of the source entity. Ensure **consistent naming** with entity extraction.
                        * `target_entity`: The name of the target entity. Ensure **consistent naming** with entity extraction.
-                       * `relationship_keywords`: One or more high-level keywords summarizing the overarching nature, concepts, or themes of the relationship. Multiple keywords within this field must be separated by a comma `,`.
-                       * `relationship_description`: A concise explanation of the nature of the relationship between the source and target entities.
+                       * `relationship_keywords`: One or more high-level keywords summarizing the overarching nature, concepts, or themes of the relationship. Multiple keywords within this field must be separated by a comma `,`. **Keep keywords concise** (1-3 words preferred).
+                       * `relationship_description`: A concise explanation of the nature of the relationship between the source and target entities. **Keep descriptions brief** (one sentence maximum).
                    * **Output Format - Relationships:** Output a total of 5 fields for each relationship, delimited by `<|#|>`, on a single line. The first field *must* be the literal string `relation`.
                        * Format: `relation<|#|>source_entity<|#|>target_entity<|#|>relationship_keywords<|#|>relationship_description`
+                   * **Priority:** Extract only the most meaningful relationships. Skip obvious parent-child relationships in hierarchical structures unless they represent significant conceptual connections.
 
                 3. **Output Order & Prioritization:**
                    * Output all extracted entities first, followed by all extracted relationships.
@@ -185,10 +247,14 @@ public class DeepSeekLLMService : ILLMService
                    * Proper nouns (e.g., personal names, place names, organization names) should be retained in their original language if a proper, widely accepted translation is not available or would cause ambiguity.
 
                 6. **Completion Signal:** Output the literal string `<|COMPLETE|>` only after all entities and relationships have been completely extracted and outputted.
+                7. **Extraction Limits:**
+                   * Extract a maximum of {maxEntities} entities and {maxRelationships} relationships.
+                   * Focus on the most important and meaningful ones.
+                   * If the content contains many similar items (e.g., hierarchical lists), prioritize top-level categories and key concepts over granular sub-items.
                 """;
     }
 
-    private string BuildEntityExtractionUserPrompt(string text, List<string> entityTypes)
+    private string BuildEntityExtractionUserPrompt(string text, List<string> entityTypes, int maxEntities, int maxRelationships)
     {
         var entityTypesJson = JsonSerializer.Serialize(entityTypes);
         return $"""
@@ -200,6 +266,9 @@ public class DeepSeekLLMService : ILLMService
                 2. **Output Content Only:** Output *only* the extracted list of entities and relationships. Do not include any introductory or concluding remarks, explanations, or additional text before or after the list.
                 3. **Completion Signal:** Output `<|COMPLETE|>` as the final line after all relevant entities and relationships have been extracted and presented.
                 4. **Output Language:** Ensure the output language is the same as the input text. Proper nouns (e.g., personal names, place names, organization names) must be kept in their original language and not translated.
+                5. **Extraction Limits:**
+                   * Extract a maximum of {maxEntities} entities and {maxRelationships} relationships.
+                   * If the content contains hierarchical structures or lists, prioritize the most important top-level concepts and skip redundant or overly granular items.
 
                 ---Data to be Processed---
                 <Entity_types>
@@ -215,7 +284,7 @@ public class DeepSeekLLMService : ILLMService
                 """;
     }
 
-    private static EntityExtractionResult ParseEntityExtractionResult(string response)
+    private static EntityExtractionResult ParseEntityExtractionResult(string response, int maxEntities, int maxRelationships)
     {
         var result = new EntityExtractionResult();
         var lines = response.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -259,6 +328,17 @@ public class DeepSeekLLMService : ILLMService
                     Weight = weight // Parsed from LLM response, use default value 1.0 if not present
                 });
             }
+        }
+
+        // Apply limits
+        if (result.Entities.Count > maxEntities)
+        {
+            result.Entities = result.Entities.Take(maxEntities).ToList();
+        }
+        
+        if (result.Relationships.Count > maxRelationships)
+        {
+            result.Relationships = result.Relationships.Take(maxRelationships).ToList();
         }
 
         return result;
