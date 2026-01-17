@@ -149,7 +149,7 @@ public class ApiClient(HttpClient httpClient)
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Whether the query was successful</returns>
     public async Task QueryRagAsync(string query,
-        Action<string> onChunkReceived,
+        Func<string, Task> onChunkReceived,
         CancellationToken cancellationToken = default)
     {
         try
@@ -177,7 +177,7 @@ public class ApiClient(HttpClient httpClient)
                 {
                     if (!string.IsNullOrEmpty(textEvent.Chunk))
                     {
-                        onChunkReceived(textEvent.Chunk);
+                        await onChunkReceived(textEvent.Chunk);
                     }
                 }
                 else if (sseItem.Data is DoneEvent)

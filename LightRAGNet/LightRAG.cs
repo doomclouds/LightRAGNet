@@ -505,6 +505,7 @@ public class LightRAG(
 
                 3. Formatting & Language:
                   - The response MUST be in the same language as the user query.
+                  - CRITICAL: ALL parts of the response, including section headings, MUST be in the same language as the user query. The References section heading MUST use the most accurate translation of "References" in the user's query language, NOT the English word "References" unless the query is in English.
                   - The response MUST utilize Markdown formatting for enhanced clarity and structure (e.g., headings, bold text, bullet points).
                   - The response should be presented in {responseType}.
 
