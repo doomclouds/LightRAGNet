@@ -35,6 +35,8 @@ public class LightRAG(
     IKVStore entityChunksStore,
     [FromKeyedServices(KVContracts.RelationChunks)]
     IKVStore relationChunksStore,
+    [FromKeyedServices(KVContracts.LLMCache)]
+    IKVStore llmCacheStore,
     ILogger<LightRAG> logger)
 {
     /// <summary>
@@ -300,7 +302,7 @@ public class LightRAG(
         {
             Stage = TaskStage.Persisting,
             Current = 0,
-            Total = 6,
+            Total = 7,
             Description = "Persisting data",
             DocId = docId
         });
@@ -312,7 +314,7 @@ public class LightRAG(
             fullEntitiesStore.IndexDoneCallbackAsync(cancellationToken),
             fullRelationsStore.IndexDoneCallbackAsync(cancellationToken),
             entityChunksStore.IndexDoneCallbackAsync(cancellationToken),
-            relationChunksStore.IndexDoneCallbackAsync(cancellationToken)
+            relationChunksStore.IndexDoneCallbackAsync(cancellationToken),
         };
 
         for (var i = 0; i < persistTasks.Length; i++)

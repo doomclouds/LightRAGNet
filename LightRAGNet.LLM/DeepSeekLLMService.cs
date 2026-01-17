@@ -123,9 +123,9 @@ public class DeepSeekLLMService : ILLMService
                 _logger.LogDebug("Semaphore wait time was {WaitTime}ms for text length {Length}", waitTime, textLength);
             }
             
-            // Use provided limits or default values (30 entities, 50 relationships)
-            var adjustedMaxEntities = maxEntities ?? 30;
-            var adjustedMaxRelationships = maxRelationships ?? 50;
+            // Use provided limits or default values (45 entities, 60 relationships)
+            var adjustedMaxEntities = maxEntities ?? 45;
+            var adjustedMaxRelationships = maxRelationships ?? 60;
             
             // Reference: Python version prompt.py entity_extraction_system_prompt
             // Default to use same language as input text

@@ -5,6 +5,7 @@
 /.cursor
 CLAUDE.md
 AGENT.md
+/lightrag
 /LightRAGNet/bin
 /LightRAGNet/obj
 /LightRAGNet.Core/bin
