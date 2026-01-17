@@ -26,6 +26,7 @@ AGENT.md
 /LightRAGNet.Web/obj
 /LightRAGNet.Server/bin
 /LightRAGNet.Server/obj
+/LightRAGNet.Server/appsettings.Development.json
 /LightRAGNet.Server/Uploads
 /LightRAGNet.Share/bin
 /LightRAGNet.Share/obj
