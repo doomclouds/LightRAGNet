@@ -90,6 +90,7 @@
     private ElementReference _chatContainer;
     private CancellationTokenSource? _queryCancellationTokenSource;
     private IJSObjectReference? _jsModule;
+    private bool _shouldScrollAfterRender;
 
     private bool CanNotSendMessage => string.IsNullOrWhiteSpace(_inputMessage) || _isWaitingResponse;
 
@@ -111,6 +112,13 @@
             {
                 // Ignore JavaScript module load errors
             }
+            await ScrollToBottomAsync();
+        }
+        
+        // Scroll to bottom after render if requested (e.g., after user message is added)
+        if (_shouldScrollAfterRender)
+        {
+            _shouldScrollAfterRender = false;
             await ScrollToBottomAsync();
         }
     }
@@ -162,25 +170,25 @@
         _chatHistory.Add(assistantMessage);
         ChatHistoryService.AddMessage(assistantMessage);
         
-        // Update UI to show loading animation and disable send button
+        // Update UI to show user message and loading animation
+        _shouldScrollAfterRender = true;
         StateHasChanged();
-        await ScrollToBottomAsync();
 
         try
         {
             await ApiClient.QueryRagAsync(
                 userMessage,
-                chunk =>
+                async chunk =>
                 {
                     if (string.IsNullOrEmpty(chunk))
                         return;
 
                     // Append chunk to assistant message text
                     assistantMessage.Text += chunk;
-                    InvokeAsync(() =>
+                    await InvokeAsync(async () =>
                     {
+                        await ScrollToBottomAsync();
                         StateHasChanged();
-                        _ = ScrollToBottomAsync();
                     });
                 },
                 _queryCancellationTokenSource.Token);
@@ -196,8 +204,6 @@
             _isWaitingResponse = false;
             _queryCancellationTokenSource?.Dispose();
             _queryCancellationTokenSource = null;
-            StateHasChanged();
-            await ScrollToBottomAsync();
         }
     }
 
