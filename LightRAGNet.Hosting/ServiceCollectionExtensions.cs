@@ -76,8 +76,41 @@ public static class ServiceCollectionExtensions
             return new DeepSeekTokenizer();
         });
         
-        services.AddHttpClient<IEmbeddingService, AliyunEmbeddingService>();
-        services.AddHttpClient<IRerankService, AliyunRerankService>();
+        // Register Embedding service with HttpClient configuration
+        services.AddHttpClient<IEmbeddingService, AliyunEmbeddingService>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<AliyunEmbeddingOptions>>().Value;
+            var apiKey = options.ApiKey;
+            
+            // Get API key from options or environment variable
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                apiKey = Environment.GetEnvironmentVariable("ALiYunKey") ??
+                         throw new ArgumentException("Configure the API key[Embedding:ApiKey] in the appsettings.json file " +
+                                                     "or set the ALiYunKey environment variable.");
+            }
+            
+            // Set authentication header
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        });
+        
+        // Register Rerank service with HttpClient configuration
+        services.AddHttpClient<IRerankService, AliyunRerankService>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<AliyunRerankOptions>>().Value;
+            var apiKey = options.ApiKey;
+            
+            // Get API key from options or environment variable
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                apiKey = Environment.GetEnvironmentVariable("ALiYunKey") ??
+                         throw new ArgumentException("Configure the API key[Rerank:ApiKey] in the appsettings.json file " +
+                                                     "or set the ALiYunKey environment variable.");
+            }
+            
+            // Set authentication header
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        });
 
         #endregion
 

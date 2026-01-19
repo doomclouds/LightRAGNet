@@ -12,12 +12,14 @@ namespace LightRAGNet.Embedding;
 /// Aliyun Embedding service implementation
 /// Reference: Python version embedding implementation
 /// </summary>
-public class AliyunEmbeddingService : IEmbeddingService
+public class AliyunEmbeddingService(
+    HttpClient httpClient,
+    ILogger<AliyunEmbeddingService> logger,
+    IOptions<AliyunEmbeddingOptions> options)
+    : IEmbeddingService
 {
-    private readonly HttpClient _httpClient;
-    private readonly ILogger<AliyunEmbeddingService> _logger;
-    private readonly AliyunEmbeddingOptions _options;
-    private readonly SemaphoreSlim _rateLimitSemaphore;
+    private readonly AliyunEmbeddingOptions _options = options.Value;
+    private readonly SemaphoreSlim _rateLimitSemaphore = new(1, MaxThreads); // Limit concurrent requests
     private DateTime _lastRequestTime = DateTime.MinValue;
     private const int Delay = 100;
     private const int MaxThreads = 5;
@@ -25,27 +27,6 @@ public class AliyunEmbeddingService : IEmbeddingService
 
     public int EmbeddingDimension => _options.Dimension;
     public int MaxTokenSize => _options.MaxTokenSize;
-
-    public AliyunEmbeddingService(
-        HttpClient httpClient,
-        ILogger<AliyunEmbeddingService> logger,
-        IOptions<AliyunEmbeddingOptions> options)
-    {
-        _httpClient = httpClient;
-        _logger = logger;
-        _options = options.Value;
-        _rateLimitSemaphore = new SemaphoreSlim(1, MaxThreads); // Limit concurrent requests
-
-        if (string.IsNullOrEmpty(_options.ApiKey))
-        {
-            _options.ApiKey = Environment.GetEnvironmentVariable("ALiYunKey") ??
-                              throw new ArgumentException("Configure the API key[Rerank:ApiKey] in the appsettings.json file " +
-                                                          "or set the ALiYunKey environment variable.");
-        }
-
-        // Set authentication header
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_options.ApiKey}");
-    }
 
     public async Task<float[]> GenerateEmbeddingAsync(
         string text,
@@ -126,7 +107,7 @@ public class AliyunEmbeddingService : IEmbeddingService
                 if (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
                 {
                     var waitTime = retryDelay * (attempt + 1); // Exponential backoff
-                    _logger.LogWarning(
+                    logger.LogWarning(
                         "Rate limit exceeded (429). Retrying after {WaitTime}ms (attempt {Attempt}/{MaxRetries})",
                         waitTime.TotalMilliseconds, attempt + 1, maxRetries);
 
@@ -135,7 +116,7 @@ public class AliyunEmbeddingService : IEmbeddingService
                 }
 
                 // Other HTTP errors, also retry
-                _logger.LogWarning(
+                logger.LogWarning(
                     ex,
                     "HTTP request failed. Retrying after {WaitTime}ms (attempt {Attempt}/{MaxRetries})",
                     retryDelay.TotalMilliseconds, attempt + 1, maxRetries);
@@ -145,7 +126,7 @@ public class AliyunEmbeddingService : IEmbeddingService
             catch (TaskCanceledException) when (attempt < maxRetries - 1)
             {
                 // Timeout error, retry
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Request timeout. Retrying after {WaitTime}ms (attempt {Attempt}/{MaxRetries})",
                     retryDelay.TotalMilliseconds, attempt + 1, maxRetries);
 
@@ -202,7 +183,7 @@ public class AliyunEmbeddingService : IEmbeddingService
         var json = JsonSerializer.Serialize(request);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync(
+        var response = await httpClient.PostAsync(
             $"{_options.BaseUrl}/v1/embeddings",
             content,
             cancellationToken);
@@ -211,7 +192,7 @@ public class AliyunEmbeddingService : IEmbeddingService
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError(
+            logger.LogError(
                 "Embedding API request failed with status {StatusCode}. Response: {ErrorContent}",
                 response.StatusCode,
                 errorContent);
@@ -221,7 +202,7 @@ public class AliyunEmbeddingService : IEmbeddingService
         if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
         {
             var retryAfter = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5);
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Rate limit exceeded (429). Retry-After: {RetryAfter}",
                 retryAfter);
             throw new HttpRequestException(
