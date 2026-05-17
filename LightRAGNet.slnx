@@ -1,15 +1,19 @@
 <Solution>
-  <Project Path="src\LightRAGNet.Core\LightRAGNet.Core.csproj" />
-  <Project Path="src\LightRAGNet.LLM\LightRAGNet.LLM.csproj" />
-  <Project Path="src\LightRAGNet.Embedding\LightRAGNet.Embedding.csproj" />
-  <Project Path="src\LightRAGNet.Rerank\LightRAGNet.Rerank.csproj" />
-  <Project Path="src\LightRAGNet.Storage\LightRAGNet.Storage.csproj" />
-  <Project Path="src\LightRAGNet\LightRAGNet.csproj" />
-  <Project Path="src\LightRAGNet.Example\LightRAGNet.Example.csproj" />
-  <Project Path="src\LightRAGNet.Hosting\LightRAGNet.Hosting.csproj" />
-  <Project Path="src\LightRAGNet.Web\LightRAGNet.Web.csproj" />
-  <Project Path="src\LightRAGNet.Server\LightRAGNet.Server.csproj" />
-  <Project Path="src\LightRAGNet.Share\LightRAGNet.Share.csproj" />
-  <Project Path="tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj" />
-  <Project Path="tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src\LightRAGNet.Core\LightRAGNet.Core.csproj" />
+    <Project Path="src\LightRAGNet.LLM\LightRAGNet.LLM.csproj" />
+    <Project Path="src\LightRAGNet.Embedding\LightRAGNet.Embedding.csproj" />
+    <Project Path="src\LightRAGNet.Rerank\LightRAGNet.Rerank.csproj" />
+    <Project Path="src\LightRAGNet.Storage\LightRAGNet.Storage.csproj" />
+    <Project Path="src\LightRAGNet\LightRAGNet.csproj" />
+    <Project Path="src\LightRAGNet.Example\LightRAGNet.Example.csproj" />
+    <Project Path="src\LightRAGNet.Hosting\LightRAGNet.Hosting.csproj" />
+    <Project Path="src\LightRAGNet.Web\LightRAGNet.Web.csproj" />
+    <Project Path="src\LightRAGNet.Server\LightRAGNet.Server.csproj" />
+    <Project Path="src\LightRAGNet.Share\LightRAGNet.Share.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj" />
+    <Project Path="tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj" />
+  </Folder>
 </Solution>
