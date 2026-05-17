@@ -27,6 +27,7 @@ public class RetrievalContextService(
     
     private readonly ILogger<RetrievalContextService> _logger = loggerFactory.CreateLogger<RetrievalContextService>();
     private readonly LightRAGOptions _options = options.Value;
+    private readonly TokenBudgetPlanner _tokenBudgetPlanner = new(tokenizer);
     private readonly ChunkTokenLimiter _chunkTokenLimiter = new(tokenizer);
     private readonly ReferenceListBuilder _referenceListBuilder = new();
     /// <summary>
@@ -211,8 +212,14 @@ public class RetrievalContextService(
         // Apply token limit (apply uniformly after merging all chunks)
         // Reference Python version: after _merge_all_chunks, chunks will apply token limit in _build_context_str
         // But for consistency, we apply the limit here
-        var maxChunkTokens = queryParam.MaxTotalTokens - queryParam.MaxEntityTokens - queryParam.MaxRelationTokens;
-        var finalChunks = _chunkTokenLimiter.Limit(mergedChunks, maxChunkTokens);
+        var tokenBudgetPlan = _tokenBudgetPlanner.Plan(
+            maxTotalTokens: queryParam.MaxTotalTokens,
+            systemPrompt: string.Empty,
+            query: string.Empty,
+            knowledgeGraphContext: string.Empty,
+            reservedOutputTokens: queryParam.MaxEntityTokens + queryParam.MaxRelationTokens,
+            safetyBufferTokens: 0);
+        var finalChunks = _chunkTokenLimiter.Limit(mergedChunks, tokenBudgetPlan.AvailableChunkTokens);
         
         // Log information consistent with Python version
         _logger.LogInformation(
