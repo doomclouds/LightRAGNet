@@ -1,32 +1,44 @@
-﻿/.idea
-/.vs
+# Build outputs
+[Bb]in/
+[Oo]bj/
+artifacts/
+TestResults/
+coverage/
+*.trx
+
+# IDE and editor state
+.idea/
+.vs/
+.vscode/
 *.user
-/.claude
-/.cursor
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Local agent and assistant state
+.claude/
+.cursor/
 CLAUDE.md
 AGENT.md
-/LightRAG
-/LightRAGNet/bin
-/LightRAGNet/obj
-/LightRAGNet.Core/bin
-/LightRAGNet.Core/obj
-/LightRAGNet.Embedding/bin
-/LightRAGNet.Embedding/obj
-/LightRAGNet.Example/bin
-/LightRAGNet.Example/obj
-/LightRAGNet.LLM/bin
-/LightRAGNet.LLM/obj
-/LightRAGNet.Rerank/bin
-/LightRAGNet.Rerank/obj
-/LightRAGNet.Storage/bin
-/LightRAGNet.Storage/obj
-/LightRAGNet.Hosting/bin
-/LightRAGNet.Hosting/obj
-/LightRAGNet.Web/bin
-/LightRAGNet.Web/obj
-/LightRAGNet.Server/bin
-/LightRAGNet.Server/obj
-/LightRAGNet.Server/appsettings.Development.json
-/LightRAGNet.Server/Uploads
-/LightRAGNet.Share/bin
-/LightRAGNet.Share/obj
+.worktrees/
+
+# Local reference implementations and generated runtime data
+/LightRAG/
+**/Uploads/
+**/rag_storage/
+
+# Local configuration and secrets
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+*.env
+*.env.*
+!.env.example
+!*.env.example
+docker-compose.override.yml
+docker-compose.*.override.yml
+
+# OS noise
+.DS_Store
+Thumbs.db
