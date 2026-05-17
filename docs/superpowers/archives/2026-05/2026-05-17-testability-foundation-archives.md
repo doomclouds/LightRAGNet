@@ -39,7 +39,7 @@
 
 ## Related Problems
 
-- None.
+- [testability refactor completion gaps](../../problems/2026-05/2026-05-18-testability-refactor-completion-gaps-problem.md)
 
 ## Notes
 
