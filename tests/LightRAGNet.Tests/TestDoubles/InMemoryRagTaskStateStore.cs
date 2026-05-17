@@ -6,10 +6,17 @@ namespace LightRAGNet.Tests.TestDoubles;
 internal sealed class InMemoryRagTaskStateStore : IRagTaskStateStore
 {
     private readonly Dictionary<string, RagTask> tasksById = [];
+    private readonly List<string> savedTaskIds = [];
+
+    public int GetSaveCount(string taskId)
+    {
+        return savedTaskIds.Count(savedTaskId => savedTaskId == taskId);
+    }
 
     public Task SaveTaskStateAsync(RagTask task, CancellationToken cancellationToken = default)
     {
         tasksById[task.TaskId] = task;
+        savedTaskIds.Add(task.TaskId);
         return Task.CompletedTask;
     }
 

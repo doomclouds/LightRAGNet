@@ -46,6 +46,7 @@ public sealed class RagTaskQueueServiceTests
     {
         var (service, store, _) = CreateService();
         var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        var saveCountBeforeProcessing = store.GetSaveCount(taskId);
 
         await service.UpdateTaskStatusAsync(taskId, RagTaskStatus.Processing);
 
@@ -53,9 +54,7 @@ public sealed class RagTaskQueueServiceTests
         task.Should().NotBeNull();
         task!.Status.Should().Be(RagTaskStatus.Processing);
         task.StartedAt.Should().NotBeNull();
-
-        var persistedTask = await store.LoadTaskStateAsync(taskId);
-        persistedTask.Should().BeSameAs(task);
+        store.GetSaveCount(taskId).Should().Be(saveCountBeforeProcessing + 1);
     }
 
     [Fact]
