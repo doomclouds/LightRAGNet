@@ -27,6 +27,8 @@ public class RetrievalContextService(
     
     private readonly ILogger<RetrievalContextService> _logger = loggerFactory.CreateLogger<RetrievalContextService>();
     private readonly LightRAGOptions _options = options.Value;
+    private readonly ChunkTokenLimiter _chunkTokenLimiter = new(tokenizer);
+    private readonly ReferenceListBuilder _referenceListBuilder = new();
     /// <summary>
     /// Build query context
     /// Reference: operate.py _build_query_context function
@@ -210,7 +212,7 @@ public class RetrievalContextService(
         // Reference Python version: after _merge_all_chunks, chunks will apply token limit in _build_context_str
         // But for consistency, we apply the limit here
         var maxChunkTokens = queryParam.MaxTotalTokens - queryParam.MaxEntityTokens - queryParam.MaxRelationTokens;
-        var finalChunks = ApplyTokenLimit(mergedChunks, maxChunkTokens);
+        var finalChunks = _chunkTokenLimiter.Limit(mergedChunks, maxChunkTokens);
         
         // Log information consistent with Python version
         _logger.LogInformation(
@@ -220,7 +222,7 @@ public class RetrievalContextService(
             vectorChunks.Count);
         
         // Generate reference list (reference Python version generate_reference_list_from_chunks function)
-        var (references, chunksWithRefIds) = GenerateReferenceListFromChunks(finalChunks);
+        var (references, chunksWithRefIds) = _referenceListBuilder.Build(finalChunks);
         
         // Merge results
         searchResult.Chunks = chunksWithRefIds;
@@ -663,83 +665,6 @@ public class RetrievalContextService(
     }
     
     /// <summary>
-    /// Generate reference list from chunks
-    /// Reference: Python version generate_reference_list_from_chunks function
-    /// Sort by frequency descending, first occurrence position ascending, assign consecutive reference_id to each unique file_path
-    /// </summary>
-    private (List<ReferenceItem> References, List<ChunkData> ChunksWithRefIds) GenerateReferenceListFromChunks(
-        List<ChunkData> chunks)
-    {
-        if (chunks.Count == 0)
-            return ([], []);
-        
-        // Step 1: Count occurrences of each file_path
-        var filePathCounts = new Dictionary<string, int>();
-        foreach (var chunk in chunks)
-        {
-            var filePath = chunk.FilePath;
-            if (!string.IsNullOrEmpty(filePath) && filePath != "unknown_source")
-            {
-                filePathCounts[filePath] = filePathCounts.GetValueOrDefault(filePath, 0) + 1;
-            }
-        }
-        
-        // Step 2: Sort by frequency descending, first occurrence position ascending
-        var filePathWithIndices = new List<(string FilePath, int Count, int FirstIndex)>();
-        var seenPaths = new HashSet<string>();
-        for (int i = 0; i < chunks.Count; i++)
-        {
-            var filePath = chunks[i].FilePath;
-            if (!string.IsNullOrEmpty(filePath) && filePath != "unknown_source" && seenPaths.Add(filePath))
-            {
-                filePathWithIndices.Add((filePath, filePathCounts[filePath], i));
-            }
-        }
-        
-        // Sort by frequency descending, first occurrence position ascending
-        var sortedFilePaths = filePathWithIndices
-            .OrderByDescending(x => x.Count)
-            .ThenBy(x => x.FirstIndex)
-            .Select(x => x.FilePath)
-            .ToList();
-        
-        // Step 3: Create mapping from file_path to reference_id
-        var filePathToRefId = new Dictionary<string, string>();
-        for (int i = 0; i < sortedFilePaths.Count; i++)
-        {
-            filePathToRefId[sortedFilePaths[i]] = (i + 1).ToString();
-        }
-        
-        // Step 4: Add reference_id to each chunk
-        var chunksWithRefIds = chunks.Select(chunk =>
-        {
-            var filePath = chunk.FilePath;
-            var referenceId = !string.IsNullOrEmpty(filePath) && filePath != "unknown_source" && filePathToRefId.TryGetValue(filePath, out var refId)
-                ? refId
-                : string.Empty;
-            
-            return new ChunkData
-            {
-                ChunkId = chunk.ChunkId,
-                Content = chunk.Content,
-                FilePath = chunk.FilePath,
-                ReferenceId = referenceId
-            };
-        }).ToList();
-        
-        // Step 5: Build reference_list
-        var references = sortedFilePaths
-            .Select((filePath, i) => new ReferenceItem
-            {
-                ReferenceId = (i + 1).ToString(),
-                FilePath = filePath
-            })
-            .ToList();
-        
-        return (references, chunksWithRefIds);
-    }
-    
-    /// <summary>
     /// Round-robin merge all chunks
     /// Reference: Python version _merge_all_chunks function
     /// </summary>
@@ -844,7 +769,7 @@ public class RetrievalContextService(
             {
                 if (!string.IsNullOrEmpty(chunk.FilePath) && !filePathToFileName.ContainsKey(chunk.FilePath))
                 {
-                    filePathToFileName[chunk.FilePath] = ExtractFileName(chunk.FilePath);
+                    filePathToFileName[chunk.FilePath] = ReferenceListBuilder.ExtractFileName(chunk.FilePath);
                 }
             }
             
@@ -867,7 +792,7 @@ public class RetrievalContextService(
             {
                 // Extract file name from file path
                 var filePath = r.FilePath;
-                var fileName = ExtractFileName(filePath);
+                var fileName = ReferenceListBuilder.ExtractFileName(filePath);
                 
                 if (!string.IsNullOrEmpty(filePath) && (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
                 {
@@ -882,88 +807,6 @@ public class RetrievalContextService(
         }
         
         return string.Join("\n\n", parts);
-    }
-    
-    /// <summary>
-    /// Extract file name from file path
-    /// </summary>
-    private string ExtractFileName(string filePath)
-    {
-        if (string.IsNullOrEmpty(filePath))
-            return "unknown";
-        
-        // Handle URL paths
-        if (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
-            filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                var uri = new Uri(filePath);
-                var path = uri.AbsolutePath;
-                var fileName = Path.GetFileName(path);
-                
-                // Decode URL-encoded file name (e.g., %20 -> space, %E5%91%A8%E6%8A%A5 -> decoded text)
-                if (!string.IsNullOrEmpty(fileName))
-                {
-                    try
-                    {
-                        // Use Uri.UnescapeDataString to decode URL-encoded characters
-                        fileName = Uri.UnescapeDataString(fileName);
-                    }
-                    catch (Exception ex)
-                    {
-                        // If decoding fails, use the original fileName
-                        _logger.LogWarning(ex, "Failed to decode URL-encoded file name: {FileName}", fileName);
-                    }
-                    return fileName;
-                }
-                return "unknown";
-            }
-            catch
-            {
-                // If URI parsing fails, try to extract filename directly
-                var lastSlash = filePath.LastIndexOf('/');
-                if (lastSlash >= 0 && lastSlash < filePath.Length - 1)
-                {
-                    var fileName = filePath.Substring(lastSlash + 1);
-                    try
-                    {
-                        fileName = Uri.UnescapeDataString(fileName);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to decode URL-encoded file name from path: {FileName}", fileName);
-                    }
-                    return fileName;
-                }
-                return "unknown";
-            }
-        }
-        
-        // Handle local file paths
-        var fileNameFromPath = Path.GetFileName(filePath);
-        return !string.IsNullOrEmpty(fileNameFromPath) ? fileNameFromPath : filePath;
-    }
-    
-    private List<ChunkData> ApplyTokenLimit(List<ChunkData> chunks, int maxTokens)
-    {
-        var result = new List<ChunkData>();
-        var currentTokens = 0;
-        
-        foreach (var chunk in chunks)
-        {
-            // Calculate tokens based on actual format used in context: "[FileName]\nContent"
-            var fileName = ExtractFileName(chunk.FilePath);
-            var chunkText = $"[{fileName}]\n{chunk.Content}";
-            var chunkTokens = tokenizer.CountTokens(chunkText);
-            if (currentTokens + chunkTokens > maxTokens)
-                break;
-            
-            result.Add(chunk);
-            currentTokens += chunkTokens;
-        }
-        
-        return result;
     }
     
     private int GetEntityCountByTokens(IEnumerable<EntityData> entities, int maxTokens)
