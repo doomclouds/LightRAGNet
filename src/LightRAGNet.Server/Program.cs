@@ -110,3 +110,5 @@ app.MapControllers();
 app.MapHub<RagTaskHub>("/hubs/ragtask");
 
 app.Run();
+
+public partial class Program;

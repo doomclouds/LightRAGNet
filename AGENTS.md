@@ -2,16 +2,16 @@
 
 ## Project Structure & Module Organization
 
-LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Core contracts and shared models live in `LightRAGNet.Core/` and `LightRAGNet.Share/`. The main RAG orchestration code is in `LightRAGNet/`, with service areas under `Services/DocumentProcessing`, `Services/KnowledgeGraphMerge`, `Services/RetrievalContext`, and `Services/TaskQueue`. Provider implementations are split into `LightRAGNet.LLM/`, `LightRAGNet.Embedding/`, `LightRAGNet.Rerank/`, and `LightRAGNet.Storage/`. `LightRAGNet.Hosting/` contains dependency-injection setup. `LightRAGNet.Server/` is the ASP.NET Core API, SignalR hub, EF Core migrations, and SQLite-backed document metadata service. `LightRAGNet.Web/` is the Blazor Server UI with MudBlazor components and static assets under `wwwroot/`. `LightRAGNet.Example/` contains sample usage and local skill examples.
+LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Production projects live under `src/`. Core contracts and shared models live in `src/LightRAGNet.Core/` and `src/LightRAGNet.Share/`. The main RAG orchestration code is in `src/LightRAGNet/`, with service areas under `Services/DocumentProcessing`, `Services/KnowledgeGraphMerge`, `Services/RetrievalContext`, and `Services/TaskQueue`. Provider implementations are split into `src/LightRAGNet.LLM/`, `src/LightRAGNet.Embedding/`, `src/LightRAGNet.Rerank/`, and `src/LightRAGNet.Storage/`. `src/LightRAGNet.Hosting/` contains dependency-injection setup. `src/LightRAGNet.Server/` is the ASP.NET Core API, SignalR hub, EF Core migrations, and SQLite-backed document metadata service. `src/LightRAGNet.Web/` is the Blazor Server UI with MudBlazor components and static assets under `wwwroot/`. `src/LightRAGNet.Example/` contains sample usage and local skill examples.
 
 ## Build, Test, and Development Commands
 
 - `dotnet restore LightRAGNet.slnx` restores NuGet packages.
 - `dotnet build LightRAGNet.slnx` builds all projects.
 - `docker compose up -d` starts Qdrant and Neo4j for local RAG storage.
-- `dotnet run --project LightRAGNet.Server` runs the API server.
-- `dotnet run --project LightRAGNet.Web` runs the Blazor UI.
-- `dotnet test LightRAGNet.slnx` is the expected test command once test projects are added.
+- `dotnet run --project src/LightRAGNet.Server` runs the API server.
+- `dotnet run --project src/LightRAGNet.Web` runs the Blazor UI.
+- `dotnet test LightRAGNet.slnx` runs the core and server test projects.
 
 ## Coding Style & Naming Conventions
 
@@ -19,7 +19,7 @@ Use C# with nullable reference types and implicit usings enabled. Follow standar
 
 ## Testing Guidelines
 
-No dedicated test project is currently present. Add tests under a sibling project such as `LightRAGNet.Tests/` or `LightRAGNet.Server.Tests/`, and name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
+Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
 
 ## Commit & Pull Request Guidelines
 
