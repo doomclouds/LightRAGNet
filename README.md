@@ -16,14 +16,15 @@ A .NET implementation of LightRAG, fully referencing the architecture and implem
 
 ```
 LightRAGNet/
-├── LightRAGNet.Core/          # Core interfaces and models
-├── LightRAGNet.LLM/           # LLM service (Deepseek OpenAI compatible)
-├── LightRAGNet.Embedding/     # Embedding service (Alibaba Cloud)
-├── LightRAGNet.Rerank/        # Rerank service (Alibaba Cloud)
-├── LightRAGNet.Storage/       # Storage implementations (Qdrant + Neo4j + JSON files)
-├── LightRAGNet/               # Core LightRAG class
-├── LightRAGNet.Hosting/       # Dependency injection extensions
-└── LightRAGNet.Example/       # Usage examples
+└── src/
+    ├── LightRAGNet.Core/          # Core interfaces and models
+    ├── LightRAGNet.LLM/           # LLM service (Deepseek OpenAI compatible)
+    ├── LightRAGNet.Embedding/     # Embedding service (Alibaba Cloud)
+    ├── LightRAGNet.Rerank/        # Rerank service (Alibaba Cloud)
+    ├── LightRAGNet.Storage/       # Storage implementations (Qdrant + Neo4j + JSON files)
+    ├── LightRAGNet/               # Core LightRAG class
+    ├── LightRAGNet.Hosting/       # Dependency injection extensions
+    └── LightRAGNet.Example/       # Usage examples
 ```
 
 ## Features
@@ -56,7 +57,7 @@ LightRAGNet/
 
 ## Configuration
 
-Edit `LightRAGNet.Example/appsettings.json`:
+Edit `src/LightRAGNet.Example/appsettings.json`:
 
 ```json
 {

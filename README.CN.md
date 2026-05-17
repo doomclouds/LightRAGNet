@@ -16,14 +16,15 @@ LightRAG 的 .NET 实现，完全参考 Python 版本的架构和实现逻辑。
 
 ```
 LightRAGNet/
-├── LightRAGNet.Core/          # 核心接口和模型
-├── LightRAGNet.LLM/           # LLM服务（Deepseek OpenAI兼容）
-├── LightRAGNet.Embedding/     # Embedding服务（阿里云）
-├── LightRAGNet.Rerank/        # Rerank服务（阿里云）
-├── LightRAGNet.Storage/       # 存储实现（Qdrant + Neo4j + JSON文件）
-├── LightRAGNet/               # 核心LightRAG类
-├── LightRAGNet.Hosting/       # 依赖注入扩展
-└── LightRAGNet.Example/       # 使用示例
+└── src/
+    ├── LightRAGNet.Core/          # 核心接口和模型
+    ├── LightRAGNet.LLM/           # LLM服务（Deepseek OpenAI兼容）
+    ├── LightRAGNet.Embedding/     # Embedding服务（阿里云）
+    ├── LightRAGNet.Rerank/        # Rerank服务（阿里云）
+    ├── LightRAGNet.Storage/       # 存储实现（Qdrant + Neo4j + JSON文件）
+    ├── LightRAGNet/               # 核心LightRAG类
+    ├── LightRAGNet.Hosting/       # 依赖注入扩展
+    └── LightRAGNet.Example/       # 使用示例
 ```
 
 ## 功能特性
@@ -56,7 +57,7 @@ LightRAGNet/
 
 ## 配置
 
-编辑 `LightRAGNet.Example/appsettings.json`：
+编辑 `src/LightRAGNet.Example/appsettings.json`：
 
 ```json
 {
