@@ -10,4 +10,6 @@
   <Project Path="src\LightRAGNet.Web\LightRAGNet.Web.csproj" />
   <Project Path="src\LightRAGNet.Server\LightRAGNet.Server.csproj" />
   <Project Path="src\LightRAGNet.Share\LightRAGNet.Share.csproj" />
+  <Project Path="tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj" />
+  <Project Path="tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj" />
 </Solution>
