@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -8,21 +6,21 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - D:\PALINK\Qdrant\storage:/qdrant/storage:z
+      - C:/WorkSpace/stores/qdrant/storage:/qdrant/storage
     restart: unless-stopped
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5-community
     container_name: neo4j
     ports:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
     volumes:
-      - D:\PALINK\Neo4j\data:/data
-      - D:\PALINK\Neo4j\logs:/logs
-      - D:\PALINK\Neo4j\conf:/var/lib/neo4j/conf
-      - D:\PALINK\Neo4j\import:/var/lib/neo4j/import
-      - D:\PALINK\Neo4j\plugins:/var/lib/neo4j/plugins
+      - C:/WorkSpace/stores/neo4j/data:/data
+      - C:/WorkSpace/stores/neo4j/logs:/logs
+      - C:/WorkSpace/stores/neo4j/conf:/var/lib/neo4j/conf
+      - C:/WorkSpace/stores/neo4j/import:/var/lib/neo4j/import
+      - C:/WorkSpace/stores/neo4j/plugins:/var/lib/neo4j/plugins
     restart: unless-stopped

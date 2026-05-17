@@ -27,9 +27,9 @@ public class DeepSeekLLMService : ILLMService
 
         if (string.IsNullOrEmpty(options1.ApiKey))
         {
-            options1.ApiKey = Environment.GetEnvironmentVariable("DeepseekKey") ??
+            options1.ApiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ??
                               throw new ArgumentException("Configure the API key[LLM:ApiKey] in the appsettings.json file " +
-                                                          "or set the DeepseekKey environment variable.");
+                                                          "or set the DEEPSEEK_API_KEY environment variable.");
         }
 
         var openAiClientOptions = new OpenAIClientOptions
@@ -446,5 +446,5 @@ public class DeepSeekOptions
 {
     public string BaseUrl { get; set; } = "https://api.deepseek.com";
     public string ApiKey { get; set; } = string.Empty;
-    public string ModelName { get; set; } = "deepseek-chat";
+    public string ModelName { get; set; } = "deepseek-v4-flash";
 }

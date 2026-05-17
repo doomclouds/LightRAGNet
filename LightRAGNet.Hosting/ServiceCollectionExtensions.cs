@@ -85,9 +85,9 @@ public static class ServiceCollectionExtensions
             // Get API key from options or environment variable
             if (string.IsNullOrEmpty(apiKey))
             {
-                apiKey = Environment.GetEnvironmentVariable("ALiYunKey") ??
+                apiKey = Environment.GetEnvironmentVariable("DASHSCOPE_API_KEY") ??
                          throw new ArgumentException("Configure the API key[Embedding:ApiKey] in the appsettings.json file " +
-                                                     "or set the ALiYunKey environment variable.");
+                                                     "or set the DASHSCOPE_API_KEY environment variable.");
             }
             
             // Set authentication header
@@ -103,9 +103,9 @@ public static class ServiceCollectionExtensions
             // Get API key from options or environment variable
             if (string.IsNullOrEmpty(apiKey))
             {
-                apiKey = Environment.GetEnvironmentVariable("ALiYunKey") ??
+                apiKey = Environment.GetEnvironmentVariable("DASHSCOPE_API_KEY") ??
                          throw new ArgumentException("Configure the API key[Rerank:ApiKey] in the appsettings.json file " +
-                                                     "or set the ALiYunKey environment variable.");
+                                                     "or set the DASHSCOPE_API_KEY environment variable.");
             }
             
             // Set authentication header
