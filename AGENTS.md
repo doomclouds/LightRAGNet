@@ -11,7 +11,7 @@ LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Productio
 - `docker compose up -d` starts Qdrant and Neo4j for local RAG storage.
 - `dotnet run --project src/LightRAGNet.Server` runs the API server.
 - `dotnet run --project src/LightRAGNet.Web` runs the Blazor UI.
-- `dotnet test LightRAGNet.slnx` is the expected test command once test projects are added.
+- `dotnet test LightRAGNet.slnx` runs the core and server test projects.
 
 ## Coding Style & Naming Conventions
 
@@ -19,7 +19,7 @@ Use C# with nullable reference types and implicit usings enabled. Follow standar
 
 ## Testing Guidelines
 
-No dedicated test project is currently present. Add tests under `tests/LightRAGNet.Tests/` or `tests/LightRAGNet.Server.Tests/`, and name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
+Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
 
 ## Commit & Pull Request Guidelines
 
