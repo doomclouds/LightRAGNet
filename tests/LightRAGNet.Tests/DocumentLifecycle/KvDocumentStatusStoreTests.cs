@@ -7,6 +7,11 @@ namespace LightRAGNet.Tests.DocumentLifecycle;
 
 public sealed class KvDocumentStatusStoreTests
 {
+    private const string LegacyWorkspace = "workspace-a";
+    private const string LegacyDocId = "doc-legacy";
+    private const string LegacyKey = $"{LegacyWorkspace}:{LegacyDocId}";
+    private const string CurrentKey = $"w11:{LegacyWorkspace}d10:{LegacyDocId}";
+
     [Fact]
     public async Task Roundtrip_WithJsonKvStore_PersistsStatusRecordFields()
     {
@@ -61,6 +66,72 @@ public sealed class KvDocumentStatusStoreTests
             loaded.ChunkSnapshots.Should().Equal(
                 new DocumentChunkSnapshot("chunk-1", 10, 0, "doc.md"),
                 new DocumentChunkSnapshot("chunk-2", 8, 1, "doc.md"));
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetAsync_WithLegacyColonDelimitedKey_ReadsMigratesAndDeletesLegacyKey()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+
+        try
+        {
+            var kvStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await kvStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [LegacyKey] = CreateLegacyRecordDictionary()
+            });
+            await kvStore.IndexDoneCallbackAsync();
+            var statusStore = new KvDocumentStatusStore(kvStore);
+
+            var loaded = await statusStore.GetAsync(LegacyWorkspace, LegacyDocId);
+
+            loaded.Should().NotBeNull();
+            loaded!.Status.Should().Be(DocumentLifecycleStatus.Processed);
+            loaded.Workspace.Should().Be(LegacyWorkspace);
+            loaded.DocId.Should().Be(LegacyDocId);
+            loaded.FilePath.Should().Be("legacy.md");
+            (await kvStore.GetByIdAsync(CurrentKey)).Should().NotBeNull();
+            (await kvStore.GetByIdAsync(LegacyKey)).Should().BeNull();
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAsync_RemovesCurrentAndLegacyKeys()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+
+        try
+        {
+            var kvStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await kvStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [CurrentKey] = CreateLegacyRecordDictionary(),
+                [LegacyKey] = CreateLegacyRecordDictionary()
+            });
+            await kvStore.IndexDoneCallbackAsync();
+            var statusStore = new KvDocumentStatusStore(kvStore);
+
+            await statusStore.DeleteAsync(LegacyWorkspace, LegacyDocId);
+
+            (await kvStore.GetByIdAsync(CurrentKey)).Should().BeNull();
+            (await kvStore.GetByIdAsync(LegacyKey)).Should().BeNull();
         }
         finally
         {
@@ -131,5 +202,38 @@ public sealed class KvDocumentStatusStoreTests
                 File.Delete(filePath);
             }
         }
+    }
+
+    private static Dictionary<string, object> CreateLegacyRecordDictionary()
+    {
+        return new Dictionary<string, object>
+        {
+            ["doc_id"] = LegacyDocId,
+            ["workspace"] = LegacyWorkspace,
+            ["status"] = "processed",
+            ["content_summary"] = "legacy summary",
+            ["content_length"] = 14,
+            ["chunks_count"] = 1,
+            ["chunks_list"] = new List<string> { "chunk-legacy" },
+            ["chunk_snapshots"] = new List<Dictionary<string, object>>
+            {
+                new()
+                {
+                    ["chunk_id"] = "chunk-legacy",
+                    ["tokens"] = 3,
+                    ["chunk_order_index"] = 0,
+                    ["file_path"] = "legacy.md"
+                }
+            },
+            ["file_path"] = "legacy.md",
+            ["track_id"] = "track-legacy",
+            ["error_msg"] = string.Empty,
+            ["metadata"] = new Dictionary<string, object>
+            {
+                ["source"] = "legacy"
+            },
+            ["created_at"] = new DateTimeOffset(2026, 5, 17, 1, 2, 3, TimeSpan.Zero).ToString("O"),
+            ["updated_at"] = new DateTimeOffset(2026, 5, 17, 4, 5, 6, TimeSpan.Zero).ToString("O")
+        };
     }
 }

@@ -40,7 +40,7 @@ public sealed class DocumentLifecycleService
         var existing = await _statusStore.GetAsync(workspace, resolvedDocId, cancellationToken);
         if (existing is not null)
         {
-            if (existing.Status != DocumentLifecycleStatus.Processed)
+            if (existing.Status == DocumentLifecycleStatus.Failed)
             {
                 _logger.LogDebug(
                     "Document {DocId} in workspace {Workspace} is {Status}; refreshing lifecycle metadata for retry.",

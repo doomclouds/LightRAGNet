@@ -14,8 +14,26 @@ public sealed class KvDocumentStatusStore(
         string docId,
         CancellationToken cancellationToken = default)
     {
-        var data = await store.GetByIdAsync(MakeKey(workspace, docId), cancellationToken);
-        return data is null ? null : FromDictionary(data);
+        var currentKey = MakeKey(workspace, docId);
+        var data = await store.GetByIdAsync(currentKey, cancellationToken);
+        if (data is not null)
+        {
+            return FromDictionary(data);
+        }
+
+        var legacyKey = MakeLegacyKey(workspace, docId);
+        var legacyData = await store.GetByIdAsync(legacyKey, cancellationToken);
+        if (legacyData is null)
+        {
+            return null;
+        }
+
+        var record = FromDictionary(legacyData);
+        await UpsertAsync(record, cancellationToken);
+        await store.DeleteAsync([legacyKey], cancellationToken);
+        await store.IndexDoneCallbackAsync(cancellationToken);
+
+        return record;
     }
 
     public async Task UpsertAsync(
@@ -37,7 +55,9 @@ public sealed class KvDocumentStatusStore(
         string docId,
         CancellationToken cancellationToken = default)
     {
-        await store.DeleteAsync([MakeKey(workspace, docId)], cancellationToken);
+        await store.DeleteAsync(
+            [MakeKey(workspace, docId), MakeLegacyKey(workspace, docId)],
+            cancellationToken);
         await store.IndexDoneCallbackAsync(cancellationToken);
     }
 
@@ -45,6 +65,11 @@ public sealed class KvDocumentStatusStore(
     {
         var normalizedWorkspace = NormalizeWorkspace(workspace);
         return $"w{normalizedWorkspace.Length}:{normalizedWorkspace}d{docId.Length}:{docId}";
+    }
+
+    private static string MakeLegacyKey(string workspace, string docId)
+    {
+        return $"{NormalizeWorkspace(workspace)}:{docId}";
     }
 
     private static string NormalizeWorkspace(string workspace)

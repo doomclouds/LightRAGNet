@@ -362,6 +362,38 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
+    public async Task PrepareIngestion_DeletionFailedDocument_DoesNotResetDeletionStateAndMetadata()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        await PrepareProcessedDocumentAsync(service);
+        await service.MarkDeletionFailedAsync("workspace-a", "doc-1", "vectors", "delete failed");
+
+        var result = await service.PrepareIngestionAsync(
+            "replacement content",
+            docId: "doc-1",
+            filePath: "replacement.md",
+            trackId: "replacement-track");
+
+        result.IsDuplicate.Should().BeTrue();
+        result.StatusRecord.Status.Should().Be(DocumentLifecycleStatus.DeletionFailed);
+        result.StatusRecord.FilePath.Should().Be("doc.md");
+        result.StatusRecord.ContentSummary.Should().Be("content");
+        result.StatusRecord.ContentLength.Should().Be("content".Length);
+        result.StatusRecord.TrackId.Should().Be("track-doc-1");
+        result.StatusRecord.ErrorMessage.Should().Be("delete failed");
+        result.StatusRecord.Metadata.Should().Contain("deletion_failed", true);
+        result.StatusRecord.Metadata.Should().Contain("deletion_failure_stage", "vectors");
+        result.StatusRecord.Metadata.Should().NotContainKey("failure_stage");
+
+        var stored = await store.GetAsync("workspace-a", "doc-1");
+        stored.Should().NotBeNull();
+        stored!.Status.Should().Be(DocumentLifecycleStatus.DeletionFailed);
+        stored.Metadata.Should().Contain("deletion_failed", true);
+        stored.Metadata.Should().Contain("deletion_failure_stage", "vectors");
+    }
+
+    [Fact]
     public async Task CreateDeletionPlan_UnknownDocument_ReturnsNotFound()
     {
         var service = CreateService(new InMemoryDocumentStatusStore());
