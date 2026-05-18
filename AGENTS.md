@@ -67,12 +67,18 @@ When `compound-development-asset` and `write-superpowers-problem` are available,
 - `find_related_assets.py`: find matching specs, plans, archives, problems, and inbox notes before creating a new asset.
 - `suggest_asset_route.py`: get a first-pass route suggestion: `none`, `inbox`, `update-existing`, `new-problem`, `archive`, or `both`.
 - `check_indexes.py`: validate archive/problem/inbox index order, dead links, duplicate entries, and orphan files.
-- `check_completion_gate.py`: check close-out evidence, reviewer/subagent asset candidates, src/tests relayout leftovers, and solution-folder drift.
+- `check_completion_gate.py`: check close-out evidence, completed-topic archive coverage, reviewer/subagent asset candidates, src/tests relayout leftovers, and solution-folder drift.
 - `archive-superpowers-feature/scripts/validate_archive_asset.py`: validate formal archive assets.
 - `write-superpowers-problem/scripts/validate_problem_asset.py`: validate formal problem assets and inbox notes.
 - `write-superpowers-problem/scripts/inspect_inbox_lifecycle.py`: inspect related inbox lifecycle status and revisit candidates.
 
 Scripts provide evidence, not final authority. Use the output to reduce misses and duplicates, then make the final routing decision with project context.
+
+For completed requirement work, include the topic so spec+plan without archive coverage cannot silently pass:
+
+```powershell
+python <compound-development-asset>/scripts/check_completion_gate.py . --completed-topic "<topic-keyword-or-slug>" --json
+```
 
 ### Routing Boundaries
 
@@ -89,6 +95,8 @@ Requirement archives and problem archives are separate gates:
 
 - Requirement archiving records what was delivered. Run it when a coherent requirement, phase, feature, or accepted design-to-implementation thread is complete and verified.
 - Problem archiving records reusable failure knowledge. Run it after the current task has been implemented, spec-reviewed, code-quality-reviewed, and verified, before starting the next task or when the overall task is ending.
+
+A plain completion-gate pass is not enough to skip requirement archiving. If `docs/superpowers/specs/` and `docs/superpowers/plans/` contain the completed topic but `docs/superpowers/archives/` does not, route to `archive` or `update-existing` before close-out.
 
 For meaningful development work, the main agent must run a problem-archiving gate after:
 
