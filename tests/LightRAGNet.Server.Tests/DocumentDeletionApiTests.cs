@@ -221,6 +221,39 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
+    public async Task DeleteMarkdownDocument_IndexedWithExternalUploadsUrl_QueuesEmptyFilePath()
+    {
+        var fileName = CreateUniqueUploadFileName("indexed-external");
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 17,
+            FileName = fileName,
+            Content = "content",
+            FileUrl = $"https://evil.example/uploads/{fileName}",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-indexed-external",
+            RagStatus = "Completed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/17");
+        var result = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        result.Should().NotBeNull();
+        result!.TaskId.Should().NotBeNullOrWhiteSpace();
+
+        using var scope = factory.Services.CreateScope();
+        var taskQueue = scope.ServiceProvider.GetRequiredService<IRagTaskQueueService>();
+        var task = await taskQueue.GetTaskAsync(result.TaskId!);
+        task.Should().NotBeNull();
+        task!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+        task.DeleteFilePath.Should().BeEmpty();
+        task.FilePath.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task DeleteMarkdownDocument_Processing_ReturnsConflict()
     {
         using var factory = new LightRagServerFactory();

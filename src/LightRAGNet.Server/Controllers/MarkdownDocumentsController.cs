@@ -350,7 +350,7 @@ public class MarkdownDocumentsController(
         var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
             document.Id,
             document.RagDocumentId,
-            deleteFilePath!,
+            deleteFilePath ?? string.Empty,
             deleteLlmCache,
             cancellationToken);
 
