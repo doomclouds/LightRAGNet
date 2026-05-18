@@ -176,6 +176,8 @@ Server-only stages such as Markdown row/file deletion stay in server code, not t
 - Modify: `src/LightRAGNet/Services/DocumentLifecycle/DocumentLifecycleService.cs`
 - Test: `tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentLifecycle/DocumentLifecycleServiceTests.cs`
+- Test: `tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs`
+- Test support: `tests/LightRAGNet.Server.Tests/LightRagServerFactory.cs`
 
 - [ ] **Step 1: Add failing queue contract tests**
 
@@ -402,6 +404,35 @@ if (hasActiveTask)
 ```
 
 Update `MarkdownDocumentsController.AddToRagSystem` so a null task id returns `409 Conflict` and does not mark the document as `Pending`.
+
+Add a server regression test named `AddToRagSystem_WhenQueueRejectsTask_ReturnsConflictAndDoesNotMarkPending`:
+
+```csharp
+[Fact]
+public async Task AddToRagSystem_WhenQueueRejectsTask_ReturnsConflictAndDoesNotMarkPending()
+{
+    using var factory = new LightRagServerFactory();
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 10,
+        FileName = "blocked.md",
+        Content = "content",
+        RagStatus = null
+    });
+    await SeedDeleteTaskAsync(factory, documentId: 10);
+    using var client = factory.CreateClient();
+
+    var response = await client.PostAsync("/api/MarkdownDocuments/10/add-to-rag", null);
+
+    response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    using var scope = factory.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var document = await context.MarkdownDocuments.FindAsync(10);
+    document!.RagStatus.Should().BeNull();
+}
+```
+
+If the existing server test factory cannot seed active queue state, extend `LightRagServerFactory` with the smallest test hook needed to configure or access the in-memory queue. Do not introduce production-only test hooks.
 
 In `RagTaskQueueService.EnqueueDeletionTaskAsync`:
 
