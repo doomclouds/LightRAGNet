@@ -708,9 +708,12 @@ namespace LightRAGNet.Tests.TestDoubles;
 
 internal sealed class InMemoryKvStore : IKVStore
 {
-    private readonly Dictionary<string, Dictionary<string, object>> _items = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, object>> items = new(StringComparer.Ordinal);
 
-    public IReadOnlyDictionary<string, Dictionary<string, object>> Items => _items;
+    public Dictionary<string, Dictionary<string, object>> Items => items.ToDictionary(
+        pair => pair.Key,
+        pair => Clone(pair.Value),
+        StringComparer.Ordinal);
     public List<IReadOnlyList<string>> DeleteCalls { get; } = [];
     public List<IReadOnlyDictionary<string, Dictionary<string, object>>> UpsertCalls { get; } = [];
     public string? ThrowOnDeleteKey { get; set; }
@@ -718,18 +721,18 @@ internal sealed class InMemoryKvStore : IKVStore
 
     public Task<Dictionary<string, object>?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_items.TryGetValue(id, out var value) ? Clone(value) : null);
+        return Task.FromResult(items.TryGetValue(id, out var value) ? Clone(value) : null);
     }
 
     public Task<List<Dictionary<string, object>>> GetByIdsAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ids.Where(_items.ContainsKey).Select(id => Clone(_items[id])).ToList());
+        return Task.FromResult(ids.Where(items.ContainsKey).Select(id => Clone(items[id])).ToList());
     }
 
     public Task<HashSet<string>> FilterKeysAsync(HashSet<string> keys, CancellationToken cancellationToken = default)
     {
         // Match JsonKVStore: return keys that are missing from storage.
-        return Task.FromResult(keys.Where(key => !_items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
+        return Task.FromResult(keys.Where(key => !items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
     }
 
     public Task UpsertAsync(Dictionary<string, Dictionary<string, object>> data, CancellationToken cancellationToken = default)
@@ -742,7 +745,7 @@ internal sealed class InMemoryKvStore : IKVStore
         UpsertCalls.Add(data);
         foreach (var (key, value) in data)
         {
-            _items[key] = Clone(value);
+            items[key] = Clone(value);
         }
 
         return Task.CompletedTask;
@@ -759,21 +762,21 @@ internal sealed class InMemoryKvStore : IKVStore
                 throw new InvalidOperationException($"delete failed: {id}");
             }
 
-            _items.Remove(id);
+            items.Remove(id);
         }
 
         return Task.CompletedTask;
     }
 
-    public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default) => Task.FromResult(_items.Count == 0);
+    public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default) => Task.FromResult(items.Count == 0);
     public Task IndexDoneCallbackAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task DropAsync(CancellationToken cancellationToken = default)
     {
-        _items.Clear();
+        items.Clear();
         return Task.CompletedTask;
     }
 
-    public void Seed(string id, Dictionary<string, object> value) => _items[id] = Clone(value);
+    public void Seed(string id, Dictionary<string, object> value) => items[id] = Clone(value);
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> value)
     {
@@ -797,6 +800,7 @@ Create vector/graph doubles with the same pattern:
 
 ```csharp
 // InMemoryVectorStore: dictionary keyed by collection then id.
+// Collections should expose a deep-cloned snapshot, not the internal dictionary.
 // Implement QueryAsync by returning [] because deletion tests do not query.
 // Record DeleteCalls as List<(string Collection, IReadOnlyList<string> Ids)>.
 // Record UpsertCalls as List<(string Collection, IReadOnlyList<VectorDocument> Documents)>.
