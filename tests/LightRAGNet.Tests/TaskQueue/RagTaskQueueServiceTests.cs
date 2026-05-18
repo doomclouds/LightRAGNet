@@ -13,7 +13,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueTaskAsync_CreatesPendingTaskAndPublishesEvent()
     {
-        var (service, _, mediator) = CreateService();
+        var (service, _, mediator, _) = CreateService();
 
         var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
 
@@ -29,7 +29,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueDeletionTaskAsync_WhenIndexTaskPendingForDocument_ReturnsNullAndDoesNotCreateTask()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
         await service.EnqueueTaskAsync(42, "alpha beta", "alpha.md");
 
         var taskId = await service.EnqueueDeletionTaskAsync(
@@ -47,7 +47,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueDeletionTaskAsync_WhenNoActiveTask_CreatesDeleteTask()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
 
         var taskId = await service.EnqueueDeletionTaskAsync(
             42,
@@ -68,7 +68,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueDeletionTaskAsync_WhenDeleteTaskPendingForDocument_ReturnsNull()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
         await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
 
         var duplicate = await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
@@ -81,7 +81,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueTaskAsync_WhenDeleteTaskPendingForDocument_ReturnsNullAndDoesNotCreateIndexTask()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
         await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
 
         var indexTaskId = await service.EnqueueTaskAsync(42, "alpha beta", "alpha.md");
@@ -95,7 +95,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task EnqueueDeletionTaskAsync_PublishesDeleteOperationMetadata()
     {
-        var (service, _, mediator) = CreateService();
+        var (service, _, mediator, _) = CreateService();
 
         await service.EnqueueDeletionTaskAsync(
             42,
@@ -114,7 +114,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task GetNextTaskAsync_WhenDeleteTaskPending_ReturnsDeleteTaskMetadata()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
         await service.EnqueueDeletionTaskAsync(
             42,
             "doc-alpha",
@@ -132,7 +132,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task GetNextTaskAsync_ReturnsLowestPriorityPendingTask()
     {
-        var (service, _, _) = CreateService();
+        var (service, _, _, _) = CreateService();
         var firstTaskId = await service.EnqueueTaskAsync(1, "first", "first.md");
         var secondTaskId = await service.EnqueueTaskAsync(2, "second", "second.md");
         await service.ReorderTaskAsync(firstTaskId!, 10);
@@ -147,7 +147,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task UpdateTaskStatusAsync_WhenProcessing_SetsStartedAtAndSaves()
     {
-        var (service, store, _) = CreateService();
+        var (service, store, _, _) = CreateService();
         var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
         var saveCountBeforeProcessing = store.GetSaveCount(taskId!);
 
@@ -163,7 +163,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task UpdateTaskStatusAsync_WhenCompleted_RemovesPersistentState()
     {
-        var (service, store, _) = CreateService();
+        var (service, store, _, _) = CreateService();
         var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
 
         await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Completed);
@@ -178,7 +178,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task RetryTaskAsync_WhenFailedAndBelowMaxRetries_RequeuesTask()
     {
-        var (service, store, _) = CreateService();
+        var (service, store, _, _) = CreateService();
         var task = new RagTask
         {
             TaskId = "task-failed",
@@ -213,7 +213,7 @@ public sealed class RagTaskQueueServiceTests
     [Fact]
     public async Task StopAllTasksAsync_FailsPendingAndProcessingTasks()
     {
-        var (service, _, mediator) = CreateService();
+        var (service, _, mediator, _) = CreateService();
         var pendingTaskId = await service.EnqueueTaskAsync(1, "pending", "pending.md");
         var processingTaskId = await service.EnqueueTaskAsync(2, "processing", "processing.md");
         var completedTaskId = await service.EnqueueTaskAsync(3, "completed", "completed.md");
@@ -244,9 +244,25 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task StopAllTasksAsync_CancelsRegisteredProcessingTaskToken()
+    {
+        var (service, _, _, cancellationRegistry) = CreateService();
+        var taskId = await service.EnqueueTaskAsync(2, "processing", "processing.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        using var hostCancellation = new CancellationTokenSource();
+        var processingToken = cancellationRegistry.RegisterProcessingTask(taskId!, hostCancellation.Token);
+
+        await service.StopAllTasksAsync();
+
+        processingToken.IsCancellationRequested.Should().BeTrue();
+        hostCancellation.IsCancellationRequested.Should().BeFalse();
+        cancellationRegistry.CompleteProcessingTask(taskId!);
+    }
+
+    [Fact]
     public async Task ClearAllTasksAsync_RemovesAllTasks()
     {
-        var (service, store, _) = CreateService();
+        var (service, store, _, _) = CreateService();
         await service.EnqueueTaskAsync(1, "first", "first.md");
         await service.EnqueueTaskAsync(2, "second", "second.md");
 
@@ -258,15 +274,21 @@ public sealed class RagTaskQueueServiceTests
         persistedTasks.Should().BeEmpty();
     }
 
-    private static (RagTaskQueueService Service, InMemoryRagTaskStateStore Store, IMediator Mediator) CreateService()
+    private static (
+        RagTaskQueueService Service,
+        InMemoryRagTaskStateStore Store,
+        IMediator Mediator,
+        RagTaskCancellationRegistry CancellationRegistry) CreateService()
     {
         var store = new InMemoryRagTaskStateStore();
         var mediator = Substitute.For<IMediator>();
+        var cancellationRegistry = new RagTaskCancellationRegistry();
         var service = new RagTaskQueueService(
             store,
             mediator,
+            cancellationRegistry,
             NullLogger<RagTaskQueueService>.Instance);
 
-        return (service, store, mediator);
+        return (service, store, mediator, cancellationRegistry);
     }
 }

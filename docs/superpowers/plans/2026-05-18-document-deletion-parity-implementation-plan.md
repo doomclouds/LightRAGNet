@@ -58,12 +58,13 @@ This section is a hard gate. If a spec row cannot be mapped to a task, this plan
 | Prune graph node/edge `source_id` | Task 2 parser, Task 3 impact analysis and execution |
 | Delete entities/relations with no remaining sources | Task 3 owned graph deletion tests |
 | Update/rebuild retained entities/relations | Task 3 shared graph update tests |
+| Keep entities referenced by retained relations outside the deleted document's own relation index | Task 3 external retained relation regression |
 | Update/delete `entity_chunks` and `relation_chunks` | Task 3 tracking tests |
 | Optional LLM cache deletion, disabled by default | Task 3 cache tests, Task 4 public API option |
 | Record failed deletion stages and allow retry | Task 1 lifecycle metadata, Task 3 failure tests, Task 6 retry |
 | Use background task/status path | Task 1 queue contracts, Task 5 processor, Task 8 SignalR/UI |
 | API returns `204`, `202`, `409`, `404` as designed | Task 6 server tests |
-| `clear-all` remains bulk reset and includes `doc_status` | Task 9 cleanup boundary |
+| `clear-all` remains bulk reset, includes `doc_status`, stops/cancels tasks first, and reuses upload deletion safety | Task 9 cleanup boundary |
 | Normal tests do not require Docker | Tasks 2-9 use fakes; Task 10 optional integration only |
 
 Before final implementation review, run this grep and manually verify every term still has a task:
@@ -1179,6 +1180,15 @@ public async Task DeleteAsync_WhenDeletedEntityIsEndpointOfRetainedRelation_Reta
 }
 
 [Fact]
+public async Task DeleteAsync_WhenEntityOnlyHasDeletedChunksButExternalRelationRetainsIt_DoesNotDetachDeleteNode()
+{
+    // The deleted document's full_relations does not mention the retained edge,
+    // but graph edges plus relation_chunks still prove another relation keeps
+    // the entity alive. Assert DeleteNodeAsync is not called because Neo4j
+    // DETACH DELETE would remove that external relation too.
+}
+
+[Fact]
 public async Task DeleteAsync_WhenImpactAnalysisFails_DoesNotRunDestructiveDeletes()
 {
     var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
@@ -2267,13 +2277,17 @@ git commit -m "feat: update document deletion ui"
 
 ## Task 9: Clear-All Regression and Full Suite
 
-**Spec coverage:** `clear-all` remains bulk reset, includes `doc_status`, stops tasks first, pushes refresh.
+**Spec coverage:** `clear-all` remains bulk reset, includes `doc_status`, stops/cancels tasks first, shares uploaded-file safety with single-document delete, and pushes refresh.
 
 **Files:**
 
 - Modify if needed: `src/LightRAGNet.Storage/KVContracts.cs`
 - Modify if needed: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
+- Modify if needed: `src/LightRAGNet/Services/TaskQueue/RagTaskQueueService.cs`
+- Modify if needed: `src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs`
 - Test: `tests/LightRAGNet.Server.Tests/DocumentDeletionApiTests.cs`
+- Test: `tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs`
+- Test: `tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs`
 
 - [ ] **Step 1: Add regression test**
 
@@ -2296,6 +2310,12 @@ public const string DocStatus = "doc_status";
 and include it in `GetKVStoreNames()`.
 
 - [ ] **Step 2: Verify clear-all behavior**
+
+Add/keep clear-all regressions for:
+
+- traversal-like `FileUrl` values such as `/uploads/../outside.md` must not delete outside the uploads directory.
+- `StopAllTasksAsync` must run before Markdown rows and storage are cleared.
+- registered processing task tokens must be cancelled, not only marked `Failed`, so the background processor can stop in-flight RAG work before bulk clearing storage.
 
 Run:
 

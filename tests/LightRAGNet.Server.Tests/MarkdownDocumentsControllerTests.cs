@@ -38,6 +38,71 @@ public sealed class MarkdownDocumentsControllerTests
         document!.RagStatus.Should().BeNull();
     }
 
+    [Fact]
+    public async Task ClearAllData_WithTraversalUploadsPath_DoesNotDeleteFileOutsideUploads()
+    {
+        var outsideFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"clear-all-outside-{Guid.NewGuid():N}.md");
+        await File.WriteAllTextAsync(outsideFile, "outside");
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 43,
+                FileName = "outside.md",
+                Content = "content",
+                FileUrl = $"/uploads/../{Path.GetFileName(outsideFile)}"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            File.Exists(outsideFile).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(outsideFile))
+            {
+                File.Delete(outsideFile);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ClearAllData_StopsActiveTasksBeforeDeletingDocumentRows()
+    {
+        LightRagServerFactory? factory = null;
+        var queue = new InspectingRagTaskQueueService(() =>
+        {
+            using var scope = factory!.Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return context.MarkdownDocuments.Any();
+        });
+        factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await using (factory)
+        {
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 44,
+                FileName = "active.md",
+                Content = "content",
+                FileUrl = "/uploads/active.md"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            queue.RowsWerePresentWhenStopWasCalled.Should().BeTrue();
+            queue.StopAllTasksCallOrder.Should().BeLessThan(queue.ClearAllTasksCallOrder);
+        }
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -46,7 +111,7 @@ public sealed class MarkdownDocumentsControllerTests
         await context.SaveChangesAsync();
     }
 
-    private sealed class RejectingRagTaskQueueService : IRagTaskQueueService
+    private class RejectingRagTaskQueueService : IRagTaskQueueService
     {
         public Task<string?> EnqueueTaskAsync(
             int documentId,
@@ -127,7 +192,7 @@ public sealed class MarkdownDocumentsControllerTests
             return Task.FromResult(false);
         }
 
-        public Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
+        public virtual Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }
@@ -137,9 +202,31 @@ public sealed class MarkdownDocumentsControllerTests
             return Task.FromResult(false);
         }
 
-        public Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default)
+        public virtual Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0);
+        }
+    }
+
+    private sealed class InspectingRagTaskQueueService(Func<bool> rowsExistAtStop) : RejectingRagTaskQueueService
+    {
+        private int callOrder;
+
+        public bool RowsWerePresentWhenStopWasCalled { get; private set; }
+        public int StopAllTasksCallOrder { get; private set; }
+        public int ClearAllTasksCallOrder { get; private set; }
+
+        public override Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
+        {
+            ClearAllTasksCallOrder = ++callOrder;
+            return Task.CompletedTask;
+        }
+
+        public override Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default)
+        {
+            StopAllTasksCallOrder = ++callOrder;
+            RowsWerePresentWhenStopWasCalled = rowsExistAtStop();
+            return Task.FromResult(1);
         }
     }
 }

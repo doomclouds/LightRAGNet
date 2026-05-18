@@ -10,6 +10,7 @@ namespace LightRAGNet.Services.TaskQueue;
 /// </summary>
 public class RagTaskProcessorService(
     IRagTaskQueueService taskQueue,
+    IRagTaskCancellationRegistry cancellationRegistry,
     IServiceScopeFactory scopeFactory,
     ILogger<RagTaskProcessorService> logger)
     : BackgroundService
@@ -55,9 +56,10 @@ public class RagTaskProcessorService(
     private async Task ProcessTaskAsync(RagTask task, CancellationToken cancellationToken)
     {
         logger.LogInformation("Starting to process task: {TaskId}, DocumentId: {DocumentId}", task.TaskId, task.DocumentId);
+        var taskCancellationToken = cancellationRegistry.RegisterProcessingTask(task.TaskId, cancellationToken);
 
         // Update status to Processing
-        await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Processing, cancellationToken: cancellationToken);
+        await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Processing, cancellationToken: taskCancellationToken);
         task.StartedAt = DateTime.UtcNow;
 
         // Create scope to get LightRAG service
@@ -79,7 +81,7 @@ public class RagTaskProcessorService(
                         task.TaskId,
                         state.Stage,
                         progress,
-                        cancellationToken);
+                        taskCancellationToken);
                 }
                 else
                 {
@@ -88,7 +90,7 @@ public class RagTaskProcessorService(
                         task.TaskId,
                         state.Stage,
                         null, // Don't update progress
-                        cancellationToken);
+                        taskCancellationToken);
                 }
             }
         };
@@ -99,7 +101,7 @@ public class RagTaskProcessorService(
         {
             if (task.OperationType == RagTaskOperationType.DeleteDocument)
             {
-                await ProcessDeleteTaskAsync(task, lightRAG, cancellationToken);
+                await ProcessDeleteTaskAsync(task, lightRAG, taskCancellationToken);
                 return;
             }
 
@@ -108,7 +110,7 @@ public class RagTaskProcessorService(
                 task.Content,
                 task.RagDocumentId,
                 task.FilePath,
-                cancellationToken);
+                taskCancellationToken);
 
             // Update task status to Completed
             task.RagDocumentId = docId;
@@ -116,7 +118,7 @@ public class RagTaskProcessorService(
             task.CompletedAt = DateTime.UtcNow;
             task.CurrentStage = TaskStage.Completed;
 
-            await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Completed, cancellationToken: cancellationToken);
+            await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Completed, cancellationToken: taskCancellationToken);
 
             logger.LogInformation("Task processing completed: {TaskId}, RagDocumentId: {DocId}", task.TaskId, docId);
         }
@@ -142,6 +144,10 @@ public class RagTaskProcessorService(
                 null,
                 CancellationToken.None);
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Task {TaskId} was cancelled by task queue stop request.", task.TaskId);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error occurred while processing task {TaskId}", task.TaskId);
@@ -155,11 +161,12 @@ public class RagTaskProcessorService(
                 task.TaskId,
                 RagTaskStatus.Failed,
                 ex.Message,
-                cancellationToken);
+                taskCancellationToken);
         }
         finally
         {
             lightRAG.TaskStateChanged -= progressHandler;
+            cancellationRegistry.CompleteProcessingTask(task.TaskId);
         }
     }
 

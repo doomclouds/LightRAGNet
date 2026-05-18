@@ -277,6 +277,27 @@ public sealed class DocumentDeletionServiceTests
         fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-z" });
     }
 
+    [Fact]
+    public async Task DeleteAsync_WhenEntityOnlyHasDeletedChunksButExternalRelationRetainsIt_DoesNotDetachDeleteNode()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        fixture.FullEntities.Seed("doc-1", new() { ["entity_names"] = new List<object> { "ALPHA" }, ["count"] = 1 });
+        fixture.FullRelations.Seed("doc-1", new() { ["relation_pairs"] = new List<object>(), ["count"] = 0 });
+        fixture.EntityChunks.Seed("ALPHA", new() { ["chunk_ids"] = new List<object> { "chunk-a" }, ["count"] = 1 });
+        fixture.RelationChunks.Seed("ALPHA<SEP>GAMMA", new() { ["chunk_ids"] = new List<object> { "chunk-z" }, ["count"] = 1 });
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["source_id"] = "chunk-a", ["description"] = "alpha desc" });
+        fixture.Graph.SeedNode("GAMMA", new() { ["entity_id"] = "GAMMA", ["source_id"] = "chunk-z", ["description"] = "gamma desc" });
+        fixture.Graph.SeedEdge("ALPHA", "GAMMA", new() { ["source_id"] = "chunk-z", ["description"] = "external rel", ["keywords"] = "external" });
+
+        var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.DeletedNodes.Should().NotContain("ALPHA");
+        fixture.Graph.GetSeededNode("ALPHA").Should().NotBeNull();
+        fixture.Graph.GetSeededEdge("ALPHA", "GAMMA").Should().NotBeNull();
+        fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-z" });
+    }
+
     private sealed class DocumentDeletionFixture
     {
         private DocumentDeletionFixture(

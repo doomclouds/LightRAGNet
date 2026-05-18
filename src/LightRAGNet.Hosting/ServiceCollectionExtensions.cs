@@ -178,6 +178,7 @@ public static class ServiceCollectionExtensions
         #region Register Task Queue Services
 
         services.AddSingleton<IRagTaskStateStore, RagTaskStateStore>();
+        services.AddSingleton<IRagTaskCancellationRegistry, RagTaskCancellationRegistry>();
         services.AddSingleton<IRagTaskQueueService, RagTaskQueueService>();
         services.AddHostedService<RagTaskProcessorService>();
 

@@ -12,6 +12,7 @@ namespace LightRAGNet.Services.TaskQueue;
 public class RagTaskQueueService(
     IRagTaskStateStore stateStore,
     IMediator mediator,
+    IRagTaskCancellationRegistry cancellationRegistry,
     ILogger<RagTaskQueueService> logger) : IRagTaskQueueService
 {
     private readonly ConcurrentDictionary<string, RagTask> _tasks = new();
@@ -525,6 +526,12 @@ public class RagTaskQueueService(
     public async Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default)
     {
         await EnsureTasksLoadedAsync(cancellationToken);
+
+        var cancelledCount = cancellationRegistry.CancelActiveTasks();
+        if (cancelledCount > 0)
+        {
+            logger.LogInformation("Cancellation requested for {Count} active processing tasks.", cancelledCount);
+        }
 
         await _lock.WaitAsync(cancellationToken);
         var stoppedCount = 0;

@@ -280,8 +280,17 @@ public sealed class DocumentDeletionService
                     relationKey,
                     remainingChunkIds,
                     deletedChunkIds,
-                    cancellationToken));
+                cancellationToken));
             }
+        }
+
+        foreach (var entityName in entityNames)
+        {
+            await ProtectExternalRetainedRelationsAsync(
+                entityName,
+                deletedChunkIds,
+                protectedEntityChunks,
+                cancellationToken);
         }
 
         foreach (var entityName in entityNames)
@@ -335,6 +344,34 @@ public sealed class DocumentDeletionService
         }
 
         return impact;
+    }
+
+    private async Task ProtectExternalRetainedRelationsAsync(
+        string entityName,
+        ISet<string> deletedChunkIds,
+        Dictionary<string, HashSet<string>> protectedEntityChunks,
+        CancellationToken cancellationToken)
+    {
+        var graphEdges = await _graphStore.GetNodeEdgesAsync(entityName, cancellationToken);
+        foreach (var (sourceId, targetId) in graphEdges)
+        {
+            var relationKey = GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId);
+            var tracking = await _relationChunksStore.GetByIdAsync(relationKey, cancellationToken);
+            var relationChunkIds = ReadStringList(tracking, "chunk_ids");
+            if (relationChunkIds.Count == 0)
+            {
+                var graphEdge = await _graphStore.GetEdgeAsync(sourceId, targetId, cancellationToken);
+                relationChunkIds = GraphSourceReferenceParser.Split(GetString(graphEdge?.Properties, "source_id"));
+            }
+
+            var remainingChunkIds = relationChunkIds
+                .Where(chunkId => !deletedChunkIds.Contains(chunkId))
+                .ToList();
+            if (remainingChunkIds.Count > 0)
+            {
+                ProtectRelationEndpoint(protectedEntityChunks, entityName, remainingChunkIds);
+            }
+        }
     }
 
     private static void ProtectRelationEndpoint(
@@ -453,9 +490,9 @@ public sealed class DocumentDeletionService
         };
     }
 
-    private static string GetString(Dictionary<string, object> data, string key)
+    private static string GetString(Dictionary<string, object>? data, string key)
     {
-        if (!data.TryGetValue(key, out var value) || value is null)
+        if (data is null || !data.TryGetValue(key, out var value) || value is null)
         {
             return string.Empty;
         }

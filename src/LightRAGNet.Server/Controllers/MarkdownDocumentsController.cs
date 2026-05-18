@@ -464,7 +464,14 @@ public class MarkdownDocumentsController(
         {
             var results = new List<string>();
 
-            // 1. Delete all documents (including files in file system)
+            // 1. Stop all tasks before clearing rows or storage.
+            var stoppedCount = await taskQueueService.StopAllTasksAsync();
+            if (stoppedCount > 0)
+            {
+                results.Add($"Stopped {stoppedCount} tasks being processed");
+            }
+
+            // 2. Delete all documents (including files in file system)
             var documents = await context.MarkdownDocuments.ToListAsync();
             var documentCount = documents.Count;
             foreach (var document in documents)
@@ -474,15 +481,8 @@ public class MarkdownDocumentsController(
                 {
                     try
                     {
-                        var fileName = document.FileUrl.Replace("/uploads/", "").TrimStart('/');
-                        var uploadsFolder = GetUploadsPath();
-                        var filePath = Path.Combine(uploadsFolder, fileName);
-
-                        if (System.IO.File.Exists(filePath))
-                        {
-                            System.IO.File.Delete(filePath);
-                            logger.LogInformation("Deleted file: {FilePath}", filePath);
-                        }
+                        var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+                        documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
                     }
                     catch (Exception ex)
                     {
@@ -491,12 +491,12 @@ public class MarkdownDocumentsController(
                 }
             }
 
-            // 2. Delete all database records
+            // 3. Delete all database records
             context.MarkdownDocuments.RemoveRange(documents);
             await context.SaveChangesAsync();
             results.Add($"Deleted {documentCount} documents");
 
-            // 2.1 Delete all files in Uploads folder (including possible orphaned files)
+            // 3.1 Delete all files in Uploads folder (including possible orphaned files)
             try
             {
                 var uploadsFolder = GetUploadsPath();
@@ -526,13 +526,6 @@ public class MarkdownDocumentsController(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Error occurred while clearing Uploads folder: {Error}", ex.Message);
-            }
-
-            // 3. Stop all tasks being processed
-            var stoppedCount = await taskQueueService.StopAllTasksAsync();
-            if (stoppedCount > 0)
-            {
-                results.Add($"Stopped {stoppedCount} tasks being processed");
             }
 
             // 4. Clear all tasks
