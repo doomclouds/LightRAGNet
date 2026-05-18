@@ -11,6 +11,13 @@ public interface IRagTaskQueueService
     /// Add document to processing queue
     /// </summary>
     Task<string> EnqueueTaskAsync(int documentId, string content, string filePath, CancellationToken cancellationToken = default);
+
+    Task<string?> EnqueueDeletionTaskAsync(
+        int documentId,
+        string ragDocumentId,
+        string filePath,
+        bool deleteLlmCache,
+        CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Get next pending task

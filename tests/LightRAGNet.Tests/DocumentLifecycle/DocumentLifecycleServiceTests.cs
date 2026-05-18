@@ -342,6 +342,59 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
+    public async Task MarkDeletionStartedAsync_WhenProcessed_MarksDeletingAndClearsPreviousFailure()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        await PrepareProcessedDocumentAsync(service);
+        await service.MarkDeletionFailedAsync("workspace-a", "doc-1", "delete_chunk_vectors", "qdrant failed");
+
+        await service.MarkDeletionStartedAsync("workspace-a", "doc-1");
+
+        var stored = await store.GetAsync("workspace-a", "doc-1");
+        stored.Should().NotBeNull();
+        stored!.Status.Should().Be(DocumentLifecycleStatus.Deleting);
+        stored.ErrorMessage.Should().BeEmpty();
+        stored.Metadata.Should().NotContainKey("deletion_failed");
+        stored.Metadata.Should().NotContainKey("deletion_failure_stage");
+    }
+
+    [Fact]
+    public async Task MarkDeletionSucceededAsync_WhenDeleting_DeletesStatusRecord()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        await PrepareProcessedDocumentAsync(service);
+        await service.MarkDeletionStartedAsync("workspace-a", "doc-1");
+
+        await service.MarkDeletionSucceededAsync("workspace-a", "doc-1");
+
+        var stored = await store.GetAsync("workspace-a", "doc-1");
+        stored.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task MarkDeletionFailedAsync_WithCacheIds_PreservesRetryMetadata()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        await PrepareProcessedDocumentAsync(service);
+
+        await service.MarkDeletionFailedAsync(
+            "workspace-a",
+            "doc-1",
+            "delete_llm_cache",
+            "cache failed",
+            ["cache-a", "cache-b"]);
+
+        var stored = await store.GetAsync("workspace-a", "doc-1");
+        stored.Should().NotBeNull();
+        stored!.Status.Should().Be(DocumentLifecycleStatus.DeletionFailed);
+        stored.Metadata["deletion_failure_stage"].Should().Be("delete_llm_cache");
+        stored.Metadata["deletion_llm_cache_ids"].Should().BeEquivalentTo(new[] { "cache-a", "cache-b" });
+    }
+
+    [Fact]
     public async Task CreateDeletionPlan_DeletionFailedDocument_RemainsRetryable()
     {
         var store = new InMemoryDocumentStatusStore();

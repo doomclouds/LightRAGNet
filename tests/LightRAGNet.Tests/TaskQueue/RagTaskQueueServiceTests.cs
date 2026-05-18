@@ -27,6 +27,58 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task EnqueueDeletionTaskAsync_WhenIndexTaskPendingForDocument_ReturnsNullAndDoesNotCreateTask()
+    {
+        var (service, _, _) = CreateService();
+        await service.EnqueueTaskAsync(42, "alpha beta", "alpha.md");
+
+        var taskId = await service.EnqueueDeletionTaskAsync(
+            42,
+            "doc-alpha",
+            "alpha.md",
+            deleteLlmCache: false);
+
+        taskId.Should().BeNull();
+        var tasks = await service.GetAllTasksAsync();
+        tasks.Should().ContainSingle();
+        tasks[0].OperationType.Should().Be(RagTaskOperationType.IndexDocument);
+    }
+
+    [Fact]
+    public async Task EnqueueDeletionTaskAsync_WhenNoActiveTask_CreatesDeleteTask()
+    {
+        var (service, _, _) = CreateService();
+
+        var taskId = await service.EnqueueDeletionTaskAsync(
+            42,
+            "doc-alpha",
+            "alpha.md",
+            deleteLlmCache: true);
+
+        taskId.Should().NotBeNullOrWhiteSpace();
+        var task = await service.GetTaskAsync(taskId!);
+        task.Should().NotBeNull();
+        task!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+        task.RagDocumentId.Should().Be("doc-alpha");
+        task.DeleteLlmCache.Should().BeTrue();
+        task.DeleteFilePath.Should().Be("alpha.md");
+        task.Status.Should().Be(RagTaskStatus.Pending);
+    }
+
+    [Fact]
+    public async Task EnqueueDeletionTaskAsync_WhenDeleteTaskPendingForDocument_ReturnsNull()
+    {
+        var (service, _, _) = CreateService();
+        await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
+
+        var duplicate = await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
+
+        duplicate.Should().BeNull();
+        var tasks = await service.GetAllTasksAsync();
+        tasks.Should().ContainSingle(t => t.OperationType == RagTaskOperationType.DeleteDocument);
+    }
+
+    [Fact]
     public async Task GetNextTaskAsync_ReturnsLowestPriorityPendingTask()
     {
         var (service, _, _) = CreateService();

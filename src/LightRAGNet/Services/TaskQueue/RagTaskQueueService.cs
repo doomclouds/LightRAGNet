@@ -74,6 +74,57 @@ public class RagTaskQueueService(
         return taskId;
     }
 
+    public async Task<string?> EnqueueDeletionTaskAsync(
+        int documentId,
+        string ragDocumentId,
+        string filePath,
+        bool deleteLlmCache,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureTasksLoadedAsync(cancellationToken);
+        await _lock.WaitAsync(cancellationToken);
+        RagTask task;
+        try
+        {
+            var hasActiveTask = _tasks.Values.Any(t =>
+                t.DocumentId == documentId &&
+                (t.Status == RagTaskStatus.Pending || t.Status == RagTaskStatus.Processing));
+
+            if (hasActiveTask)
+            {
+                logger.LogWarning("Cannot enqueue deletion for document {DocumentId}; active task exists.", documentId);
+                return null;
+            }
+
+            var taskId = HashUtils.ComputeMd5Hash(
+                $"delete_{documentId}_{ragDocumentId}_{DateTime.UtcNow:O}",
+                "task-");
+
+            task = new RagTask
+            {
+                TaskId = taskId,
+                DocumentId = documentId,
+                RagDocumentId = ragDocumentId,
+                FilePath = filePath,
+                DeleteFilePath = filePath,
+                DeleteLlmCache = deleteLlmCache,
+                OperationType = RagTaskOperationType.DeleteDocument,
+                Status = RagTaskStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _tasks.TryAdd(taskId, task);
+            await stateStore.SaveTaskStateAsync(task, cancellationToken);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        await PublishStatusChangedAsync(task, cancellationToken);
+        return task.TaskId;
+    }
+
     public async Task<RagTask?> GetNextTaskAsync(CancellationToken cancellationToken = default)
     {
         await EnsureTasksLoadedAsync(cancellationToken);
