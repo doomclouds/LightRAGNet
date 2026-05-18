@@ -568,8 +568,10 @@ git commit -m "feat: add deletion task contracts"
 
 - Create: `src/LightRAGNet/Services/DocumentDeletion/GraphSourceReferenceParser.cs`
 - Modify: `src/LightRAGNet/Services/KnowledgeGraphMerge/RelationBuilder.cs`
+- Modify: `src/LightRAGNet/Services/KnowledgeGraphMerge/StorageUpdateStage.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentDeletion/GraphSourceReferenceParserTests.cs`
 - Test: `tests/LightRAGNet.Tests/KnowledgeGraphMerge/RelationBuilderTests.cs`
+- Test: `tests/LightRAGNet.Tests/KnowledgeGraphMerge/StorageUpdateStageTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStore.cs`
 - Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStore.cs`
@@ -812,6 +814,12 @@ Also update `RelationBuilder` so relation chunk keys are generated with
 deletion code, and graph test doubles must share the same ordinal relation-key
 helper; do not leave a culture-sensitive `OrderBy(x => x)` key path in the
 writer.
+
+Also update `StorageUpdateStage` so `full_relations.relation_pairs` are generated
+from the same `GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId)`
+normalization. `InMemoryKvStore.Items` and `InMemoryVectorStore.Collections`
+must expose clone/snapshot views so tests cannot mutate double internals without
+going through store methods.
 
 Do not add test-only methods to production types.
 

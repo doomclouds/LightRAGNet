@@ -4,7 +4,15 @@ namespace LightRAGNet.Tests.TestDoubles;
 
 public sealed class InMemoryVectorStore : IVectorStore
 {
-    public Dictionary<string, Dictionary<string, VectorDocument>> Collections { get; } = [];
+    private readonly Dictionary<string, Dictionary<string, VectorDocument>> collections = [];
+
+    public Dictionary<string, Dictionary<string, VectorDocument>> Collections => collections.ToDictionary(
+        collection => collection.Key,
+        collection => collection.Value.ToDictionary(
+            document => document.Key,
+            document => Clone(document.Value),
+            StringComparer.Ordinal),
+        StringComparer.Ordinal);
 
     public List<(string Collection, IReadOnlyList<string> Ids)> DeleteCalls { get; } = [];
     public List<(string Collection, IReadOnlyList<VectorDocument> Documents)> UpsertCalls { get; } = [];
@@ -110,10 +118,10 @@ public sealed class InMemoryVectorStore : IVectorStore
 
     private Dictionary<string, VectorDocument> GetCollection(string collection)
     {
-        if (!Collections.TryGetValue(collection, out var items))
+        if (!collections.TryGetValue(collection, out var items))
         {
             items = new Dictionary<string, VectorDocument>(StringComparer.Ordinal);
-            Collections[collection] = items;
+            collections[collection] = items;
         }
 
         return items;

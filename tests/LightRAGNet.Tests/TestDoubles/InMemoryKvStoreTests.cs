@@ -46,4 +46,23 @@ public sealed class InMemoryKvStoreTests
             .Equal("nested-a");
         ((List<string>)secondRead["string_list"]).Should().Equal("file-a");
     }
+
+    [Fact]
+    public async Task InMemoryKvStore_Items_ReturnsSnapshot()
+    {
+        var store = new InMemoryKvStore();
+        store.Seed("chunk-a", new Dictionary<string, object>
+        {
+            ["object_list"] = new List<object> { "source-a" }
+        });
+
+        var snapshot = store.Items;
+        ((List<object>)snapshot["chunk-a"]["object_list"]).Add("source-b");
+        snapshot.Remove("chunk-a");
+
+        var stored = await store.GetByIdAsync("chunk-a");
+
+        stored.Should().NotBeNull();
+        ((List<object>)stored!["object_list"]).Should().Equal("source-a");
+    }
 }

@@ -4,7 +4,12 @@ namespace LightRAGNet.Tests.TestDoubles;
 
 public sealed class InMemoryKvStore : IKVStore
 {
-    public Dictionary<string, Dictionary<string, object>> Items { get; } = [];
+    private readonly Dictionary<string, Dictionary<string, object>> items = [];
+
+    public Dictionary<string, Dictionary<string, object>> Items => items.ToDictionary(
+        pair => pair.Key,
+        pair => Clone(pair.Value),
+        StringComparer.Ordinal);
     public List<IReadOnlyList<string>> DeleteCalls { get; } = [];
     public List<Dictionary<string, Dictionary<string, object>>> UpsertCalls { get; } = [];
 
@@ -13,7 +18,7 @@ public sealed class InMemoryKvStore : IKVStore
 
     public void Seed(string id, Dictionary<string, object> value)
     {
-        Items[id] = Clone(value);
+        items[id] = Clone(value);
     }
 
     public Task<Dictionary<string, object>?> GetByIdAsync(
@@ -21,7 +26,7 @@ public sealed class InMemoryKvStore : IKVStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Items.TryGetValue(id, out var item) ? Clone(item) : null);
+        return Task.FromResult(items.TryGetValue(id, out var item) ? Clone(item) : null);
     }
 
     public Task<List<Dictionary<string, object>>> GetByIdsAsync(
@@ -30,12 +35,12 @@ public sealed class InMemoryKvStore : IKVStore
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var items = ids
-            .Where(Items.ContainsKey)
-            .Select(id => Clone(Items[id]))
+        var values = ids
+            .Where(items.ContainsKey)
+            .Select(id => Clone(items[id]))
             .ToList();
 
-        return Task.FromResult(items);
+        return Task.FromResult(values);
     }
 
     public Task<HashSet<string>> FilterKeysAsync(
@@ -43,7 +48,7 @@ public sealed class InMemoryKvStore : IKVStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(keys.Where(key => !Items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
+        return Task.FromResult(keys.Where(key => !items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
     }
 
     public Task UpsertAsync(
@@ -66,7 +71,7 @@ public sealed class InMemoryKvStore : IKVStore
 
         foreach (var (id, value) in clonedData)
         {
-            Items[id] = Clone(value);
+            items[id] = Clone(value);
         }
 
         return Task.CompletedTask;
@@ -86,7 +91,7 @@ public sealed class InMemoryKvStore : IKVStore
 
         foreach (var id in idsList)
         {
-            Items.Remove(id);
+            items.Remove(id);
         }
 
         return Task.CompletedTask;
@@ -95,7 +100,7 @@ public sealed class InMemoryKvStore : IKVStore
     public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Items.Count == 0);
+        return Task.FromResult(items.Count == 0);
     }
 
     public Task IndexDoneCallbackAsync(CancellationToken cancellationToken = default)
@@ -107,7 +112,7 @@ public sealed class InMemoryKvStore : IKVStore
     public Task DropAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Items.Clear();
+        items.Clear();
         return Task.CompletedTask;
     }
 

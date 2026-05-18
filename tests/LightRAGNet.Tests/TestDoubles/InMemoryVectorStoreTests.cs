@@ -44,4 +44,30 @@ public sealed class InMemoryVectorStoreTests
             .Equal("nested-a");
         ((List<string>)secondRead.Metadata["file_paths"]).Should().Equal("file-a.md");
     }
+
+    [Fact]
+    public async Task InMemoryVectorStore_Collections_ReturnsSnapshot()
+    {
+        var store = new InMemoryVectorStore();
+        store.Seed("entities", new VectorDocument
+        {
+            Id = "entity-a",
+            Vector = [1.0f, 2.0f],
+            Metadata = new Dictionary<string, object>
+            {
+                ["source_ids"] = new List<object> { "chunk-a" }
+            }
+        });
+
+        var collections = store.Collections;
+        collections["entities"]["entity-a"].Vector[0] = 99.0f;
+        ((List<object>)collections["entities"]["entity-a"].Metadata["source_ids"]).Add("chunk-b");
+        collections["entities"].Remove("entity-a");
+
+        var stored = await store.GetByIdAsync("entities", "entity-a");
+
+        stored.Should().NotBeNull();
+        stored!.Vector.Should().Equal(1.0f, 2.0f);
+        ((List<object>)stored.Metadata["source_ids"]).Should().Equal("chunk-a");
+    }
 }
