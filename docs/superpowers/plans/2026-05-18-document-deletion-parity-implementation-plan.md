@@ -858,6 +858,7 @@ git commit -m "test: add deletion storage doubles"
 
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionRequest.cs`
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionImpact.cs`
+- Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionStage.cs`
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionService.cs`
 - Create: `tests/LightRAGNet.Tests/DocumentDeletion/DocumentDeletionServiceTests.cs`
 - Modify: `src/LightRAGNet.Hosting/ServiceCollectionExtensions.cs`
@@ -1134,7 +1135,7 @@ public async Task DeleteAsync_WhenVectorDeleteFails_RecordsFailureStage()
     var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
 
     result.Succeeded.Should().BeFalse();
-    result.FailedStage.Should().Be(DocumentDeletionStage.DeleteChunkVectors);
+    result.Stage.Should().Be(DocumentDeletionStage.DeleteChunkVectors);
     var status = await fixture.StatusStore.GetAsync("workspace-a", "doc-1");
     status!.Status.Should().Be(DocumentLifecycleStatus.DeletionFailed);
     status.Metadata["deletion_failure_stage"].Should().Be(DocumentDeletionStage.DeleteChunkVectors);
