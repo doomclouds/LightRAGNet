@@ -14,6 +14,10 @@ namespace LightRAGNet.Server.Tests;
 internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
 {
     private readonly SqliteConnection connection = new("Data Source=:memory:");
+    private readonly string workingDirectory = Path.Combine(
+        Path.GetTempPath(),
+        "LightRAGNet.Server.Tests",
+        Guid.NewGuid().ToString("N"));
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -32,7 +36,7 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
                 ["Neo4j:Uri"] = "neo4j://localhost:7687",
                 ["Neo4j:User"] = "neo4j",
                 ["Neo4j:Password"] = "test-password",
-                ["LightRAG:WorkingDir"] = "rag_storage_test"
+                ["LightRAG:WorkingDir"] = workingDirectory
             });
         });
 
@@ -50,6 +54,24 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
         if (disposing)
         {
             connection.Dispose();
+            TryDeleteWorkingDirectory();
+        }
+    }
+
+    private void TryDeleteWorkingDirectory()
+    {
+        try
+        {
+            if (Directory.Exists(workingDirectory))
+            {
+                Directory.Delete(workingDirectory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 }
