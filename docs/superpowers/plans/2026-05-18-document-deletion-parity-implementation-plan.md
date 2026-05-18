@@ -2340,16 +2340,19 @@ Only do this task if Tasks 1-9 are green.
 
 - Create: `tests/LightRAGNet.Tests/Storage/DocumentDeletionStorageIntegrationTests.cs`
 
-- [ ] **Step 1: Add skip gate**
+- [ ] **Step 1: Add opt-in execution gate**
 
-Use this skip pattern:
+Use this opt-in pattern:
 
 ```csharp
 private static bool RunStorageIntegration =>
     Environment.GetEnvironmentVariable("LIGHTRAGNET_RUN_STORAGE_INTEGRATION") == "1";
 ```
 
-Each test should skip when false.
+This project uses xUnit v2 without a dynamic skip package, so each test should
+return before touching external storage when the flag is false. This preserves
+the design goal that normal `dotnet test` never requires Docker, while
+`LIGHTRAGNET_RUN_STORAGE_INTEGRATION=1` runs the real Qdrant and Neo4j checks.
 
 - [ ] **Step 2: Add Qdrant delete/upsert round-trip**
 
