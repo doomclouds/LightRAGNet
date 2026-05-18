@@ -13,11 +13,17 @@ namespace LightRAGNet.Server.Tests;
 
 internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
 {
+    private readonly Action<IServiceCollection>? configureTestServices;
     private readonly SqliteConnection connection = new("Data Source=:memory:");
     private readonly string workingDirectory = Path.Combine(
         Path.GetTempPath(),
         "LightRAGNet.Server.Tests",
         Guid.NewGuid().ToString("N"));
+
+    public LightRagServerFactory(Action<IServiceCollection>? configureTestServices = null)
+    {
+        this.configureTestServices = configureTestServices;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -44,6 +50,7 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(connection));
+            configureTestServices?.Invoke(services);
         });
     }
 
