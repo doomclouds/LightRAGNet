@@ -274,8 +274,10 @@ public sealed class DocumentDeletionStorageIntegrationTests
     {
         cancellationToken.ThrowIfCancellationRequested();
         await using var session = driver.AsyncSession();
-        var cursor = await session.RunAsync($"MATCH (n:`{workspace}`) DETACH DELETE n");
-        await cursor.ConsumeAsync();
+        var cursor = await session
+            .RunAsync($"MATCH (n:`{workspace}`) DETACH DELETE n")
+            .WaitAsync(cancellationToken);
+        await cursor.ConsumeAsync().WaitAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 
