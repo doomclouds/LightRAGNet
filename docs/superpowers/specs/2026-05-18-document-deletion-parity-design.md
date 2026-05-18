@@ -230,6 +230,7 @@ Core unit tests:
 - LLM cache deletion is skipped by default
 - LLM cache ids are collected and deleted when requested
 - deletion failure records stage and retry metadata
+- cancellation propagates without marking the document as `DeletionFailed`
 - retry after graph rebuild failure succeeds
 - final `doc_status` delete failure does not create zombie status
 
