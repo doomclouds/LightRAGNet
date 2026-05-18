@@ -1626,6 +1626,65 @@ public sealed class DocumentDeletionApiTests
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
+    [Fact]
+    public async Task DeleteMarkdownDocument_Deleting_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 4,
+            FileName = "deleting.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-deleting",
+            RagStatus = "Deleting"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/4");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_DeletionFailed_ReturnsAcceptedAndClearsError()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 5,
+            FileName = "retry.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-retry",
+            RagStatus = "DeletionFailed",
+            RagErrorMessage = "previous failure"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/5");
+        var result = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        result!.Accepted.Should().BeTrue();
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var doc = await context.MarkdownDocuments.FindAsync(5);
+        doc!.RagStatus.Should().Be("Deleting");
+        doc.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Missing_ReturnsNotFound()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/404");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -1656,6 +1715,10 @@ Processing delete returns BadRequest or wrong status instead of Conflict.
 In `DeleteMarkdownDocument`:
 
 ```csharp
+[ProducesResponseType(StatusCodes.Status204NoContent)]
+[ProducesResponseType(typeof(MarkdownDocumentDeleteResult), StatusCodes.Status202Accepted)]
+[ProducesResponseType(StatusCodes.Status404NotFound)]
+[ProducesResponseType(StatusCodes.Status409Conflict)]
 public async Task<IActionResult> DeleteMarkdownDocument(
     int id,
     [FromQuery] bool deleteLlmCache = false,

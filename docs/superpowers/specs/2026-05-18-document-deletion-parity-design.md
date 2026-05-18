@@ -182,7 +182,7 @@ DeletionFailed
 - Not indexed: returns `204 NoContent` after local delete.
 - Indexed: enqueues deletion and returns `202 Accepted` with task info.
 - Deletion failed: enqueues a retry deletion and returns `202 Accepted`.
-- Pending/processing insertion: returns `409 Conflict`.
+- Pending/processing insertion or deletion already in progress: returns `409 Conflict`.
 - Missing row: returns `404 NotFound`.
 
 Add an optional request path or query flag for LLM cache cleanup:
