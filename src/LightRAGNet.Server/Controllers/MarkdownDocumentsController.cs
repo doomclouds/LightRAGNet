@@ -299,61 +299,118 @@ public class MarkdownDocumentsController(
     /// Delete Markdown document
     /// </summary>
     /// <param name="id">Document ID</param>
+    /// <param name="deleteLlmCache">Whether to delete related LLM cache entries</param>
+    /// <param name="cancellationToken"></param>
     /// <returns>No content</returns>
     /// <response code="204">Delete successful</response>
+    /// <response code="202">Deletion task accepted</response>
     /// <response code="404">Document not found</response>
+    /// <response code="409">Document cannot be deleted right now</response>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(MarkdownDocumentDeleteResult), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> DeleteMarkdownDocument(int id)
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteMarkdownDocument(
+        int id,
+        [FromQuery] bool deleteLlmCache = false,
+        CancellationToken cancellationToken = default)
     {
-        var document = await context.MarkdownDocuments.FindAsync(id);
+        var document = await context.MarkdownDocuments.FindAsync([id], cancellationToken);
         if (document == null)
         {
             return NotFound();
         }
 
-        // Prevent deletion of documents that have completed RAG insertion
-        if (document.IsInRagSystem)
+        if (document.RagStatus is "Pending" or "Processing" or "Deleting")
         {
-            return BadRequest(new { error = "Cannot delete document", message = "Documents that have completed RAG insertion cannot be deleted." });
+            return Conflict(new { error = "Document has active RAG task" });
         }
 
-        // Delete file from file system
-        if (!string.IsNullOrEmpty(document.FileUrl))
+        if (!document.IsInRagSystem && document.RagStatus != "DeletionFailed")
         {
-            try
-            {
-                // FileUrl format is /uploads/{filename}, need to convert to actual file path
-                var fileName = document.FileUrl.Replace("/uploads/", "").TrimStart('/');
-                var uploadsFolder = GetUploadsPath();
-                var filePath = Path.Combine(uploadsFolder, fileName);
+            DeleteUploadedFile(document);
+            context.MarkdownDocuments.Remove(document);
+            await context.SaveChangesAsync(cancellationToken);
 
-                if (System.IO.File.Exists(filePath))
-                {
-                    System.IO.File.Delete(filePath);
-                    logger.LogInformation("Deleted file: {FilePath}", filePath);
-                }
-                else
-                {
-                    logger.LogWarning("File does not exist, skipping deletion: {FilePath}", filePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error occurred while deleting file: {FileUrl}", document.FileUrl);
-                // Continue to delete database record even if file deletion fails
-            }
+            logger.LogInformation("Deleted Markdown document: {FileName}, ID: {Id}", document.FileName, document.Id);
+
+            return NoContent();
         }
 
-        // Delete database record
-        context.MarkdownDocuments.Remove(document);
-        await context.SaveChangesAsync();
+        if (string.IsNullOrWhiteSpace(document.RagDocumentId))
+        {
+            return Conflict(new { error = "Document is missing RagDocumentId" });
+        }
 
-        logger.LogInformation("Deleted Markdown document: {FileName}, ID: {Id}", document.FileName, document.Id);
+        var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
+            document.Id,
+            document.RagDocumentId,
+            document.FileUrl ?? document.FileName,
+            deleteLlmCache,
+            cancellationToken);
 
-        return NoContent();
+        if (taskId is null)
+        {
+            return Conflict(new { error = "Document has active RAG task" });
+        }
+
+        document.RagStatus = "Deleting";
+        document.RagErrorMessage = null;
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Document deletion task accepted: DocumentId={DocumentId}, TaskId={TaskId}",
+            document.Id,
+            taskId);
+
+        return Accepted(new MarkdownDocumentDeleteResult
+        {
+            Accepted = true,
+            DocumentId = document.Id,
+            RagDocumentId = document.RagDocumentId,
+            TaskId = taskId
+        });
+    }
+
+    private void DeleteUploadedFile(MarkdownDocument document)
+    {
+        if (string.IsNullOrWhiteSpace(document.FileUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            var fileName = document.FileUrl;
+            if (Uri.TryCreate(document.FileUrl, UriKind.Absolute, out var uri))
+            {
+                fileName = uri.LocalPath;
+            }
+
+            fileName = Path.GetFileName(fileName.Replace('\\', '/'));
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                logger.LogWarning("Cannot determine uploaded file name, skipping deletion: {FileUrl}", document.FileUrl);
+                return;
+            }
+
+            var uploadsFolder = GetUploadsPath();
+            var filePath = Path.Combine(uploadsFolder, fileName);
+
+            if (System.IO.File.Exists(filePath))
+            {
+                System.IO.File.Delete(filePath);
+                logger.LogInformation("Deleted file: {FilePath}", filePath);
+            }
+            else
+            {
+                logger.LogWarning("File does not exist, skipping deletion: {FilePath}", filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error occurred while deleting file: {FileUrl}", document.FileUrl);
+        }
     }
 
     /// <summary>

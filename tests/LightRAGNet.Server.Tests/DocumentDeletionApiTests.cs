@@ -1,7 +1,11 @@
+using System.Net;
+using System.Net.Http.Json;
 using FluentAssertions;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Services.TaskQueue;
+using LightRAGNet.Share.Models;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,6 +13,185 @@ namespace LightRAGNet.Server.Tests;
 
 public sealed class DocumentDeletionApiTests
 {
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnly_ReturnsNoContentAndRemovesRow()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 1,
+            FileName = "local.md",
+            Content = "content"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/1");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(1);
+        document.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 2,
+            FileName = "indexed.md",
+            Content = "content",
+            FileUrl = "/uploads/indexed.md",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-indexed",
+            RagStatus = "Completed",
+            RagErrorMessage = "old error"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/2?deleteLlmCache=true");
+        var result = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        result.Should().NotBeNull();
+        result!.Accepted.Should().BeTrue();
+        result.DocumentId.Should().Be(2);
+        result.RagDocumentId.Should().Be("doc-indexed");
+        result.TaskId.Should().NotBeNullOrWhiteSpace();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(2);
+        document.Should().NotBeNull();
+        document!.RagStatus.Should().Be("Deleting");
+        document.RagErrorMessage.Should().BeNull();
+
+        var taskQueue = scope.ServiceProvider.GetRequiredService<IRagTaskQueueService>();
+        var task = await taskQueue.GetTaskAsync(result.TaskId!);
+        task.Should().NotBeNull();
+        task!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+        task.DeleteLlmCache.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Processing_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 3,
+            FileName = "processing.md",
+            Content = "content",
+            RagStatus = "Processing"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/3");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Pending_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 8,
+            FileName = "pending.md",
+            Content = "content",
+            RagStatus = "Pending"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/8");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Deleting_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 4,
+            FileName = "deleting.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-deleting",
+            RagStatus = "Deleting"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/4");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_DeletionFailed_ReturnsAcceptedAndClearsError()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 5,
+            FileName = "retry.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-retry",
+            RagStatus = "DeletionFailed",
+            RagErrorMessage = "previous failure"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/5");
+        var result = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        result.Should().NotBeNull();
+        result!.Accepted.Should().BeTrue();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(5);
+        document.Should().NotBeNull();
+        document!.RagStatus.Should().Be("Deleting");
+        document.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Missing_ReturnsNotFound()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/404");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_IndexedWithoutRagDocumentId_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 6,
+            FileName = "missing-rag-id.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagStatus = "Completed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/6");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
     [Fact]
     public async Task DeleteTaskFailure_KeepsMarkdownRowAndMarksDeletionFailed()
     {
@@ -41,5 +224,13 @@ public sealed class DocumentDeletionApiTests
         document.Should().NotBeNull();
         document!.RagStatus.Should().Be("DeletionFailed");
         document.RagErrorMessage.Should().Be("delete failed");
+    }
+
+    private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.MarkdownDocuments.Add(document);
+        await context.SaveChangesAsync();
     }
 }
