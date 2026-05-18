@@ -57,6 +57,9 @@ public sealed class DocumentDeletionApiTests
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         result.Should().NotBeNull();
         result!.Accepted.Should().BeTrue();
+        result.DeletedImmediately.Should().BeFalse();
+        result.Status.Should().Be("Deleting");
+        result.Message.Should().Be("Document deletion has been queued.");
         result.DocumentId.Should().Be(2);
         result.RagDocumentId.Should().Be("doc-indexed");
         result.TaskId.Should().NotBeNullOrWhiteSpace();
@@ -153,6 +156,7 @@ public sealed class DocumentDeletionApiTests
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         result.Should().NotBeNull();
         result!.Accepted.Should().BeTrue();
+        result.TaskId.Should().NotBeNullOrWhiteSpace();
 
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -160,6 +164,13 @@ public sealed class DocumentDeletionApiTests
         document.Should().NotBeNull();
         document!.RagStatus.Should().Be("Deleting");
         document.RagErrorMessage.Should().BeNull();
+
+        var taskQueue = scope.ServiceProvider.GetRequiredService<IRagTaskQueueService>();
+        var task = await taskQueue.GetTaskAsync(result.TaskId!);
+        task.Should().NotBeNull();
+        task!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+        task.DeleteLlmCache.Should().BeFalse();
+        task.RagDocumentId.Should().Be("doc-retry");
     }
 
     [Fact]

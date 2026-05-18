@@ -366,6 +366,9 @@ public class MarkdownDocumentsController(
         return Accepted(new MarkdownDocumentDeleteResult
         {
             Accepted = true,
+            DeletedImmediately = false,
+            Status = "Deleting",
+            Message = "Document deletion has been queued.",
             DocumentId = document.Id,
             RagDocumentId = document.RagDocumentId,
             TaskId = taskId
