@@ -97,6 +97,12 @@ public class RagTaskProcessorService(
 
         try
         {
+            if (task.OperationType == RagTaskOperationType.DeleteDocument)
+            {
+                await ProcessDeleteTaskAsync(task, lightRAG, cancellationToken);
+                return;
+            }
+
             // Call RAG processing
             var docId = await lightRAG.InsertAsync(
                 task.Content,
@@ -155,6 +161,43 @@ public class RagTaskProcessorService(
         {
             lightRAG.TaskStateChanged -= progressHandler;
         }
+    }
+
+    private async Task ProcessDeleteTaskAsync(
+        RagTask task,
+        LightRAG lightRAG,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(task.RagDocumentId))
+        {
+            throw new InvalidOperationException("Delete task requires RagDocumentId.");
+        }
+
+        var result = await lightRAG.DeleteDocumentAsync(
+            task.RagDocumentId,
+            task.DeleteLlmCache,
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            var message = string.IsNullOrWhiteSpace(result.Message)
+                ? "Document deletion failed."
+                : result.Message;
+            var stageSuffix = string.IsNullOrWhiteSpace(result.Stage)
+                ? string.Empty
+                : $" Stage: {result.Stage}.";
+
+            throw new InvalidOperationException($"{message}{stageSuffix}");
+        }
+
+        task.Status = RagTaskStatus.Completed;
+        task.CompletedAt = DateTime.UtcNow;
+        task.CurrentStage = TaskStage.Completed;
+
+        await taskQueue.UpdateTaskStatusAsync(
+            task.TaskId,
+            RagTaskStatus.Completed,
+            cancellationToken: cancellationToken);
     }
 
     private async Task RestoreTasksAsync(CancellationToken cancellationToken)

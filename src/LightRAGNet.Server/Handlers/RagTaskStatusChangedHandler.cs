@@ -39,6 +39,25 @@ public class RagTaskStatusChangedHandler(
                 return;
             }
 
+            if (task.OperationType == RagTaskOperationType.DeleteDocument)
+            {
+                document.RagStatus = task.Status switch
+                {
+                    RagTaskStatus.Pending or RagTaskStatus.Processing => "Deleting",
+                    RagTaskStatus.Failed => "DeletionFailed",
+                    RagTaskStatus.Completed => "Deleted",
+                    _ => task.Status.ToString()
+                };
+                document.RagErrorMessage = task.ErrorMessage;
+                document.RagDocumentId = task.RagDocumentId ?? document.RagDocumentId;
+
+                await context.SaveChangesAsync(cancellationToken);
+
+                logger.LogDebug("Document deletion status updated: DocumentId={DocumentId}, Status={Status}",
+                    task.DocumentId, document.RagStatus);
+                return;
+            }
+
             document.RagStatus = task.Status.ToString();
             document.RagErrorMessage = task.ErrorMessage;
             document.RagDocumentId = task.RagDocumentId;
