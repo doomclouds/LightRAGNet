@@ -2360,7 +2360,12 @@ Test should upsert one vector into `chunks`, delete it, then assert `GetByIdAsyn
 
 - [ ] **Step 3: Add Neo4j source pruning round-trip**
 
-Test should upsert node/edge with `source_id = "chunk-a<SEP>chunk-b"`, update with pruned `source_id = "chunk-b"`, then assert graph read returns `chunk-b`.
+Test should seed lifecycle/KV deletion metadata, upsert real Neo4j node/edge records
+with `source_id = "chunk-a<SEP>chunk-b"`, invoke
+`DocumentDeletionService.DeleteAsync` for `chunk-a`, then assert Neo4j reads return
+`source_id = "chunk-b"` for both the retained node and retained edge. This keeps
+the integration test on the actual deletion/pruning path instead of proving only
+that `UpsertNodeAsync` or `UpsertEdgeAsync` can overwrite properties.
 
 - [ ] **Step 4: Verify optional tests**
 
