@@ -68,6 +68,13 @@
                             <MudText Typo="Typo.caption" Class="mt-1">@context.RagProgress%</MudText>
                         }
 
+                        @if (context.RagStatus == "DeletionFailed" && !string.IsNullOrWhiteSpace(context.RagErrorMessage))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1">
+                                Error: @GetShortErrorMessage(context.RagErrorMessage)
+                            </MudText>
+                        }
+
                         @if (context.RagAddedTime.HasValue)
                         {
                             <MudText Typo="Typo.caption" Class="mt-1">
@@ -211,6 +218,7 @@
             {
                 document.RagStatus = "DeletionFailed";
                 document.RagErrorMessage = update.ErrorMessage;
+                Snackbar.Add($"Document deletion failed: {GetShortErrorMessage(update.ErrorMessage)}", Severity.Error);
                 await InvokeAsync(StateHasChanged);
                 return;
             }
@@ -349,6 +357,17 @@
         }
 
         return "Are you sure you want to delete this local document?";
+    }
+
+    private static string GetShortErrorMessage(string? errorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(errorMessage))
+            return "Unknown error";
+
+        const int maxLength = 120;
+        return errorMessage.Length <= maxLength
+            ? errorMessage
+            : $"{errorMessage[..maxLength]}...";
     }
 
     private async Task DeleteDocument(MarkdownDocumentDto document)
