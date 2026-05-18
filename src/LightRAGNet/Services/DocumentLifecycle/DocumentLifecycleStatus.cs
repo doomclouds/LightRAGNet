@@ -30,7 +30,10 @@ public static class DocumentLifecycleStatusExtensions
 
     public static DocumentLifecycleStatus FromWireValue(string? value)
     {
-        return value?.Trim().ToLowerInvariant() switch
+        var normalized = value?.Trim().ToLowerInvariant();
+        var displayValue = value is null ? "<null>" : value.Length == 0 ? "<empty>" : value;
+
+        return normalized switch
         {
             "pending" => DocumentLifecycleStatus.Pending,
             "processing" => DocumentLifecycleStatus.Processing,
@@ -39,7 +42,7 @@ public static class DocumentLifecycleStatusExtensions
             "deleting" => DocumentLifecycleStatus.Deleting,
             "deleted" => DocumentLifecycleStatus.Deleted,
             "deletion_failed" => DocumentLifecycleStatus.DeletionFailed,
-            _ => DocumentLifecycleStatus.Pending
+            _ => throw new ArgumentException($"Unknown lifecycle status wire value: '{displayValue}'.", nameof(value))
         };
     }
 }

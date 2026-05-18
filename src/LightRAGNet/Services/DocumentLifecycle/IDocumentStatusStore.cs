@@ -15,9 +15,4 @@ public interface IDocumentStatusStore
         string workspace,
         string docId,
         CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<DocumentStatusRecord>> GetByStatusAsync(
-        string workspace,
-        DocumentLifecycleStatus status,
-        CancellationToken cancellationToken = default);
 }

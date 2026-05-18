@@ -85,7 +85,10 @@ public static class DocumentLifecycleStatusExtensions
 
     public static DocumentLifecycleStatus FromWireValue(string? value)
     {
-        return value?.Trim().ToLowerInvariant() switch
+        var normalized = value?.Trim().ToLowerInvariant();
+        var displayValue = value is null ? "<null>" : value.Length == 0 ? "<empty>" : value;
+
+        return normalized switch
         {
             "pending" => DocumentLifecycleStatus.Pending,
             "processing" => DocumentLifecycleStatus.Processing,
@@ -94,7 +97,7 @@ public static class DocumentLifecycleStatusExtensions
             "deleting" => DocumentLifecycleStatus.Deleting,
             "deleted" => DocumentLifecycleStatus.Deleted,
             "deletion_failed" => DocumentLifecycleStatus.DeletionFailed,
-            _ => DocumentLifecycleStatus.Pending
+            _ => throw new ArgumentException($"Unknown lifecycle status wire value: '{displayValue}'.", nameof(value))
         };
     }
 }
@@ -206,11 +209,6 @@ public interface IDocumentStatusStore
         string workspace,
         string docId,
         CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<DocumentStatusRecord>> GetByStatusAsync(
-        string workspace,
-        DocumentLifecycleStatus status,
-        CancellationToken cancellationToken = default);
 }
 ```
 
@@ -273,19 +271,6 @@ internal sealed class InMemoryDocumentStatusStore : IDocumentStatusStore
     {
         records.Remove((workspace, docId));
         return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<DocumentStatusRecord>> GetByStatusAsync(
-        string workspace,
-        DocumentLifecycleStatus status,
-        CancellationToken cancellationToken = default)
-    {
-        IReadOnlyList<DocumentStatusRecord> result = records.Values
-            .Where(record => record.Workspace == workspace && record.Status == status)
-            .Select(record => Clone(record)!)
-            .ToList();
-
-        return Task.FromResult(result);
     }
 
     private static DocumentStatusRecord? Clone(DocumentStatusRecord? record)
@@ -843,6 +828,15 @@ public void DocumentLifecycleStatus_FromWireValue_ParsesPythonStyleValues()
     DocumentLifecycleStatusExtensions.FromWireValue("failed").Should().Be(DocumentLifecycleStatus.Failed);
     DocumentLifecycleStatusExtensions.FromWireValue("deletion_failed").Should().Be(DocumentLifecycleStatus.DeletionFailed);
 }
+
+[Fact]
+public void DocumentLifecycleStatus_FromWireValue_WhenUnknown_Throws()
+{
+    var act = () => DocumentLifecycleStatusExtensions.FromWireValue("unknown");
+
+    act.Should().Throw<ArgumentException>()
+        .WithMessage("*unknown*");
+}
 ```
 
 Run:
@@ -929,14 +923,6 @@ public sealed class KvDocumentStatusStore(
     public Task DeleteAsync(string workspace, string docId, CancellationToken cancellationToken = default)
     {
         return store.DeleteAsync([MakeKey(workspace, docId)], cancellationToken);
-    }
-
-    public Task<IReadOnlyList<DocumentStatusRecord>> GetByStatusAsync(
-        string workspace,
-        DocumentLifecycleStatus status,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<IReadOnlyList<DocumentStatusRecord>>([]);
     }
 
     private static string MakeKey(string workspace, string docId)
