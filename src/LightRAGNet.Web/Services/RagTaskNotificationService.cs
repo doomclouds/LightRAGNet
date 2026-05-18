@@ -109,54 +109,16 @@ public class RagTaskNotificationService(
             {
                 logger.LogInformation("Received task status update: TaskId={TaskId}, Status={Status}, Progress={Progress}, Stage={Stage}", 
                     update.TaskId, update.Status, update.Progress, update.CurrentStage);
-                
-                // Execute asynchronously, don't wait for completion
-                if (TaskStatusUpdated != null)
-                {
-                    var tasks = TaskStatusUpdated.GetInvocationList()
-                        .Cast<Func<object, TaskStatusUpdate, Task>>()
-                        .Select(handler =>
-                        {
-                            try
-                            {
-                                return handler(this, update);
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogError(ex, "Error calling task status update event handler: TaskId={TaskId}", update.TaskId);
-                                return Task.CompletedTask;
-                            }
-                        });
 
-                    Task.WhenAll(tasks);
-                }
+                _ = NotifyTaskStatusHandlersAsync(update);
             });
 
             // Register handler for receiving data cleared events
             _hubConnection.On("DataCleared", () =>
             {
                 logger.LogInformation("Received data cleared event, notifying frontend to refresh");
-                
-                // Execute asynchronously, don't wait for completion
-                if (DataCleared != null)
-                {
-                    var tasks = DataCleared.GetInvocationList()
-                        .Cast<Func<object, EventArgs, Task>>()
-                        .Select(handler =>
-                        {
-                            try
-                            {
-                                return handler(this, EventArgs.Empty);
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogError(ex, "Error calling data cleared event handler");
-                                return Task.CompletedTask;
-                            }
-                        });
-                    
-                    Task.WhenAll(tasks);
-                }
+
+                _ = NotifyDataClearedHandlersAsync();
             });
 
             // Listen to connection state changes
@@ -292,6 +254,44 @@ public class RagTaskNotificationService(
         else
         {
             logger.LogWarning("Cannot join task groups: SignalR connection not established, current state: {State}", _hubConnection?.State);
+        }
+    }
+
+    private async Task NotifyTaskStatusHandlersAsync(TaskStatusUpdate update)
+    {
+        try
+        {
+            var handlers = TaskStatusUpdated?.GetInvocationList()
+                .Cast<Func<object, TaskStatusUpdate, Task>>()
+                .ToArray();
+
+            if (handlers is null || handlers.Length == 0)
+                return;
+
+            await Task.WhenAll(handlers.Select(handler => handler(this, update)));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error calling task status update event handlers: TaskId={TaskId}", update.TaskId);
+        }
+    }
+
+    private async Task NotifyDataClearedHandlersAsync()
+    {
+        try
+        {
+            var handlers = DataCleared?.GetInvocationList()
+                .Cast<Func<object, EventArgs, Task>>()
+                .ToArray();
+
+            if (handlers is null || handlers.Length == 0)
+                return;
+
+            await Task.WhenAll(handlers.Select(handler => handler(this, EventArgs.Empty)));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error calling data cleared event handlers");
         }
     }
 }

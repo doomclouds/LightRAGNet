@@ -196,39 +196,40 @@
 
     private async Task OnTaskStatusUpdated(object? sender, TaskStatusUpdate update)
     {
-        // Update corresponding document status in document list
-        var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
         if (update.OperationType == "DeleteDocument")
         {
-            if (update.Status == "Completed")
+            await InvokeAsync(async () =>
             {
-                RemoveDocumentFromCurrentPage(update.DocumentId);
+                var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
 
-                await InvokeAsync(async () =>
+                if (update.Status == "Completed")
                 {
+                    RemoveDocumentFromCurrentPage(update.DocumentId);
                     await DebouncedReloadServerDataAsync();
-                });
-                return;
-            }
+                    return;
+                }
 
-            if (document == null)
-                return;
+                if (document == null)
+                    return;
 
-            if (update.Status == "Failed")
-            {
-                document.RagStatus = "DeletionFailed";
-                document.RagErrorMessage = update.ErrorMessage;
-                Snackbar.Add($"Document deletion failed: {GetShortErrorMessage(update.ErrorMessage)}", Severity.Error);
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
+                if (update.Status == "Failed")
+                {
+                    document.RagStatus = "DeletionFailed";
+                    document.RagErrorMessage = update.ErrorMessage;
+                    Snackbar.Add($"Document deletion failed: {GetShortErrorMessage(update.ErrorMessage)}", Severity.Error);
+                    StateHasChanged();
+                    return;
+                }
 
-            document.RagStatus = "Deleting";
-            document.RagCurrentStage = update.CurrentStage;
-            await InvokeAsync(StateHasChanged);
+                document.RagStatus = "Deleting";
+                document.RagCurrentStage = update.CurrentStage;
+                StateHasChanged();
+            });
             return;
         }
 
+        // Update corresponding document status in document list
+        var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
         if (document != null)
         {
             var oldStatus = document.RagStatus;
@@ -372,6 +373,7 @@
 
     private async Task DeleteDocument(MarkdownDocumentDto document)
     {
+        var documentId = document.Id;
         var result = await DialogService.ShowMessageBox(
             "Confirm Delete",
             GetDeleteConfirmationMessage(document),
@@ -383,13 +385,33 @@
 
         if (result == true)
         {
+            MarkdownDocumentDto? currentDocument = null;
+            string? previousStatus = null;
+            string? previousErrorMessage = null;
+            var localStateChanged = false;
+
             try
             {
-                var deleteResult = await ApiClient.DeleteMarkdownDocumentAsync(document.Id);
+                currentDocument = _documents.FirstOrDefault(d => d.Id == documentId);
+                if (currentDocument == null)
+                {
+                    Snackbar.Add("Document is no longer available", Severity.Info);
+                    return;
+                }
+
+                previousStatus = currentDocument.RagStatus;
+                previousErrorMessage = currentDocument.RagErrorMessage;
+                currentDocument.RagStatus = "Deleting";
+                currentDocument.RagErrorMessage = null;
+                localStateChanged = true;
+                StateHasChanged();
+
+                var deleteResult = await ApiClient.DeleteMarkdownDocumentAsync(currentDocument.Id);
 
                 if (deleteResult.DeletedImmediately)
                 {
-                    RemoveDocumentFromCurrentPage(document.Id);
+                    RemoveDocumentFromCurrentPage(currentDocument.Id);
+                    localStateChanged = false;
                     Snackbar.Add("Document deleted successfully", Severity.Success);
 
                     var remainingCount = await ApiClient.GetMarkdownDocumentsCountAsync();
@@ -406,25 +428,42 @@
                 }
                 else if (deleteResult.Accepted)
                 {
-                    document.RagStatus = "Deleting";
-                    document.RagErrorMessage = null;
                     Snackbar.Add("Document deletion queued", Severity.Info);
                     StateHasChanged();
                 }
                 else if (deleteResult.Conflict)
                 {
+                    RestoreDocumentDeletionState(currentDocument, previousStatus, previousErrorMessage);
                     Snackbar.Add("Document has an active RAG task", Severity.Warning);
+                    StateHasChanged();
                 }
                 else
                 {
+                    RestoreDocumentDeletionState(currentDocument, previousStatus, previousErrorMessage);
                     Snackbar.Add($"Failed to delete document: {deleteResult.ErrorMessage}", Severity.Error);
+                    StateHasChanged();
                 }
             }
             catch (Exception ex)
             {
+                if (localStateChanged && currentDocument != null)
+                {
+                    RestoreDocumentDeletionState(currentDocument, previousStatus, previousErrorMessage);
+                    StateHasChanged();
+                }
+
                 Snackbar.Add($"Failed to delete document: {ex.Message}", Severity.Error);
             }
         }
+    }
+
+    private static void RestoreDocumentDeletionState(
+        MarkdownDocumentDto document,
+        string? previousStatus,
+        string? previousErrorMessage)
+    {
+        document.RagStatus = previousStatus;
+        document.RagErrorMessage = previousErrorMessage;
     }
 
     private void RemoveDocumentFromCurrentPage(int id)
