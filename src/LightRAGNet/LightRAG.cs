@@ -443,7 +443,7 @@ public class LightRAG(
                 plan.Workspace,
                 docId,
                 plan.ChunkIds,
-                deleteLlmCache),
+                plan.DeleteLlmCache),
             cancellationToken);
     }
 
