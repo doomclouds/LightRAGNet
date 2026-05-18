@@ -25,6 +25,11 @@ public sealed class DocumentLifecycleService
         _logger = logger;
     }
 
+    public string GetDefaultWorkspace()
+    {
+        return NormalizeWorkspace(_options.Workspace);
+    }
+
     public async Task<DocumentIngestionResult> PrepareIngestionAsync(
         string content,
         string? docId = null,
@@ -32,7 +37,7 @@ public sealed class DocumentLifecycleService
         string? trackId = null,
         CancellationToken cancellationToken = default)
     {
-        var workspace = NormalizeWorkspace(_options.Workspace);
+        var workspace = GetDefaultWorkspace();
         var resolvedDocId = string.IsNullOrWhiteSpace(docId)
             ? HashUtils.ComputeMd5Hash(content, "doc-")
             : docId;

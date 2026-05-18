@@ -92,6 +92,20 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
+    public void GetDefaultWorkspace_ReturnsNormalizedConfiguredWorkspace()
+    {
+        CreateService(new InMemoryDocumentStatusStore(), workspace: " workspace-a ")
+            .GetDefaultWorkspace()
+            .Should()
+            .Be("workspace-a");
+
+        CreateService(new InMemoryDocumentStatusStore(), workspace: " ")
+            .GetDefaultWorkspace()
+            .Should()
+            .Be("_");
+    }
+
+    [Fact]
     public async Task StartProcessing_PendingDocument_MarksProcessing()
     {
         var store = new InMemoryDocumentStatusStore();

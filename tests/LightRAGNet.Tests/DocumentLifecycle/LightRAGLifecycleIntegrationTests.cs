@@ -2,6 +2,8 @@ using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Models;
+using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
@@ -144,6 +146,101 @@ public sealed class LightRAGLifecycleIntegrationTests
         status.ChunkSnapshots.Should().OnlyContain(snapshot => snapshot.FilePath == "failing.md");
     }
 
+    [Fact]
+    public async Task DeleteDocumentAsync_ProcessedDocument_UsesLifecycleChunkIdsAndDeletesStorage()
+    {
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = CreateLifecycleService(statusStore);
+        await lifecycleService.PrepareIngestionAsync("alpha beta gamma", docId: "doc-delete", filePath: "delete.md");
+        await lifecycleService.RecordChunksAsync("workspace-a", "doc-delete",
+        [
+            new Chunk
+            {
+                Id = "chunk-a",
+                Content = "alpha",
+                FullDocId = "doc-delete",
+                FilePath = "delete.md",
+                Tokens = 1,
+                ChunkOrderIndex = 0
+            }
+        ]);
+        await lifecycleService.MarkProcessedAsync("workspace-a", "doc-delete");
+        var textChunks = new InMemoryKvStore();
+        textChunks.Seed("chunk-a", new() { ["content"] = "alpha" });
+        var fullDocs = new InMemoryKvStore();
+        fullDocs.Seed("doc-delete", new() { ["content"] = "alpha beta gamma" });
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Content = "alpha",
+            Vector = [1.0f, 0.5f]
+        });
+        var emittedStages = new List<TaskStage>();
+        var deletingDocumentObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rag = CreateLightRag(
+            lifecycleService,
+            textChunksStore: textChunks,
+            fullDocsStore: fullDocs,
+            vectorStore: vectorStore);
+        rag.TaskStateChanged += (_, state) =>
+        {
+            emittedStages.Add(state.Stage);
+            if (state.Stage == TaskStage.DeletingDocument && state.DocId == "doc-delete")
+            {
+                deletingDocumentObserved.TrySetResult();
+            }
+        };
+
+        var result = await rag.DeleteDocumentAsync("doc-delete");
+        await deletingDocumentObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        result.Found.Should().BeTrue();
+        result.Succeeded.Should().BeTrue();
+        result.Workspace.Should().Be("workspace-a");
+        emittedStages.Should().Contain(TaskStage.DeletingDocument);
+        textChunks.Items.Should().NotContainKey("chunk-a");
+        fullDocs.Items.Should().NotContainKey("doc-delete");
+        vectorStore.Get("chunks", "chunk-a").Should().BeNull();
+        var status = await statusStore.GetAsync("workspace-a", "doc-delete");
+        status.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteDocumentAsync_UnknownDocument_ReturnsNotFoundWithoutDeletingStorage()
+    {
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = CreateLifecycleService(statusStore);
+        var textChunks = new InMemoryKvStore();
+        textChunks.Seed("chunk-a", new() { ["content"] = "alpha" });
+        var fullDocs = new InMemoryKvStore();
+        fullDocs.Seed("doc-existing", new() { ["content"] = "alpha beta" });
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Content = "alpha",
+            Vector = [1.0f, 0.5f]
+        });
+        var rag = CreateLightRag(
+            lifecycleService,
+            textChunksStore: textChunks,
+            fullDocsStore: fullDocs,
+            vectorStore: vectorStore);
+
+        var result = await rag.DeleteDocumentAsync("missing-doc");
+
+        result.Found.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Workspace.Should().Be("workspace-a");
+        textChunks.DeleteCalls.Should().BeEmpty();
+        fullDocs.DeleteCalls.Should().BeEmpty();
+        vectorStore.DeleteCalls.Should().BeEmpty();
+        textChunks.Items.Should().ContainKey("chunk-a");
+        fullDocs.Items.Should().ContainKey("doc-existing");
+        vectorStore.Get("chunks", "chunk-a").Should().NotBeNull();
+    }
+
     private static LightRAG CreateLightRag(
         DocumentLifecycleService lifecycleService,
         IKVStore? textChunksStore = null,
@@ -221,6 +318,20 @@ public sealed class LightRAGLifecycleIntegrationTests
             options,
             loggerFactory);
 
+        var documentDeletionService = new DocumentDeletionService(
+            vectorStore,
+            graphStore,
+            embeddingService,
+            textChunksStore,
+            fullDocsStore,
+            fullEntitiesStore,
+            fullRelationsStore,
+            entityChunksStore,
+            relationChunksStore,
+            llmCacheStore,
+            lifecycleService,
+            NullLogger<DocumentDeletionService>.Instance);
+
         return new LightRAG(
             llmService,
             vectorStore,
@@ -236,6 +347,7 @@ public sealed class LightRAGLifecycleIntegrationTests
             relationChunksStore,
             llmCacheStore,
             lifecycleService,
+            documentDeletionService,
             NullLogger<LightRAG>.Instance);
     }
 
