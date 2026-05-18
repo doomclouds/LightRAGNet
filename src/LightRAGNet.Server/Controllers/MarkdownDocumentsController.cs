@@ -397,16 +397,26 @@ public class MarkdownDocumentsController(
                 return;
             }
 
-            var uploadedPath = localPath[uploadsPrefix.Length..];
-            var fileName = Path.GetFileName(uploadedPath);
-            if (string.IsNullOrWhiteSpace(fileName))
+            var uploadedPath = Uri.UnescapeDataString(localPath[uploadsPrefix.Length..])
+                .Replace('\\', '/');
+            if (string.IsNullOrWhiteSpace(uploadedPath) ||
+                uploadedPath.Contains('/') ||
+                uploadedPath is "." or "..")
             {
-                logger.LogWarning("Cannot determine uploaded file name, skipping deletion: {FileUrl}", document.FileUrl);
+                logger.LogWarning("File URL contains an invalid uploaded file path, skipping deletion: {FileUrl}", document.FileUrl);
                 return;
             }
 
+            var fileName = uploadedPath;
             var uploadsFolder = GetUploadsPath();
-            var filePath = Path.Combine(uploadsFolder, fileName);
+            var uploadsRoot = Path.GetFullPath(uploadsFolder)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var filePath = Path.GetFullPath(Path.Combine(uploadsFolder, fileName));
+            if (!filePath.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogWarning("Resolved file path is outside uploads folder, skipping deletion: {FilePath}", filePath);
+                return;
+            }
 
             if (System.IO.File.Exists(filePath))
             {

@@ -37,16 +37,17 @@ public sealed class DocumentDeletionApiTests
     [Fact]
     public async Task DeleteMarkdownDocument_LocalOnlyWithRelativeUploadsPath_ReturnsNoContentAndDeletesFile()
     {
-        var filePath = await CreateUploadedFileAsync("relative.md");
+        var fileName = CreateUniqueUploadFileName("relative");
+        var filePath = await CreateUploadedFileAsync(fileName);
         try
         {
             using var factory = new LightRagServerFactory();
             await SeedDocumentAsync(factory, new MarkdownDocument
             {
                 Id = 9,
-                FileName = "relative.md",
+                FileName = fileName,
                 Content = "content",
-                FileUrl = "/uploads/relative.md"
+                FileUrl = $"/uploads/{fileName}"
             });
             using var client = factory.CreateClient();
 
@@ -64,16 +65,17 @@ public sealed class DocumentDeletionApiTests
     [Fact]
     public async Task DeleteMarkdownDocument_LocalOnlyWithFullUploadsUrl_ReturnsNoContentAndDeletesFile()
     {
-        var filePath = await CreateUploadedFileAsync("full.md");
+        var fileName = CreateUniqueUploadFileName("full");
+        var filePath = await CreateUploadedFileAsync(fileName);
         try
         {
             using var factory = new LightRagServerFactory();
             await SeedDocumentAsync(factory, new MarkdownDocument
             {
                 Id = 10,
-                FileName = "full.md",
+                FileName = fileName,
                 Content = "content",
-                FileUrl = "http://localhost/uploads/full.md"
+                FileUrl = $"http://localhost/uploads/{fileName}"
             });
             using var client = factory.CreateClient();
 
@@ -91,20 +93,49 @@ public sealed class DocumentDeletionApiTests
     [Fact]
     public async Task DeleteMarkdownDocument_LocalOnlyWithNonUploadsPath_ReturnsNoContentAndKeepsUploadsFile()
     {
-        var filePath = await CreateUploadedFileAsync("keep.md");
+        var fileName = CreateUniqueUploadFileName("keep");
+        var filePath = await CreateUploadedFileAsync(fileName);
         try
         {
             using var factory = new LightRagServerFactory();
             await SeedDocumentAsync(factory, new MarkdownDocument
             {
                 Id = 11,
-                FileName = "keep.md",
+                FileName = fileName,
                 Content = "content",
-                FileUrl = "/docs/keep.md"
+                FileUrl = $"/docs/{fileName}"
             });
             using var client = factory.CreateClient();
 
             var response = await client.DeleteAsync("/api/MarkdownDocuments/11");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            File.Exists(filePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithTraversalUploadsPath_ReturnsNoContentAndKeepsUploadsFile()
+    {
+        var fileName = CreateUniqueUploadFileName("keep-traversal");
+        var filePath = await CreateUploadedFileAsync(fileName);
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 12,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"/uploads/../{fileName}"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.DeleteAsync("/api/MarkdownDocuments/12");
 
             response.StatusCode.Should().Be(HttpStatusCode.NoContent);
             File.Exists(filePath).Should().BeTrue();
@@ -334,6 +365,11 @@ public sealed class DocumentDeletionApiTests
         DeleteFileIfExists(filePath);
         await File.WriteAllTextAsync(filePath, "content");
         return filePath;
+    }
+
+    private static string CreateUniqueUploadFileName(string prefix)
+    {
+        return $"{prefix}-{Guid.NewGuid():N}.md";
     }
 
     private static void DeleteFileIfExists(string filePath)
