@@ -67,6 +67,7 @@ When `compound-development-asset` and `write-superpowers-problem` are available,
 - `find_related_assets.py`: find matching specs, plans, archives, problems, and inbox notes before creating a new asset.
 - `suggest_asset_route.py`: get a first-pass route suggestion: `none`, `inbox`, `update-existing`, `new-problem`, `archive`, or `both`.
 - `check_indexes.py`: validate archive/problem/inbox index order, dead links, duplicate entries, and orphan files.
+- `check_completion_gate.py`: check close-out evidence, reviewer/subagent asset candidates, src/tests relayout leftovers, and solution-folder drift.
 - `archive-superpowers-feature/scripts/validate_archive_asset.py`: validate formal archive assets.
 - `write-superpowers-problem/scripts/validate_problem_asset.py`: validate formal problem assets and inbox notes.
 - `write-superpowers-problem/scripts/inspect_inbox_lifecycle.py`: inspect related inbox lifecycle status and revisit candidates.
@@ -101,6 +102,13 @@ This gate belongs at task boundaries, not inside every small edit. Use it before
 ### Problem Archiving Ownership
 
 Only the main agent should execute the problem-archiving gate. Subagents may report candidate lessons, suspicious behavior, failed approaches, review findings, or tool quirks, but they should not write or promote problem/inbox/archive assets unless the main agent explicitly delegates that asset-writing task.
+
+Reviewer and subagent handoffs should include this field when useful:
+
+```text
+asset_candidates:
+  - <none | candidate lesson, failed approach, tool quirk, review finding>
+```
 
 During the gate, the main agent should collect candidates from:
 
@@ -139,5 +147,9 @@ At the end of the gate, report the route decision compactly:
 - `new-problem`: formal problem asset, with validation evidence
 - `archive` or `both`: only when the route also includes completed requirement history
 
-Before final close-out on meaningful work, confirm whether any new or updated asset is needed.
+Before final close-out on meaningful work, include an auditable `asset_gate:`
+block with `event_type`, `route`, `reason`, `evidence`, `related_assets`,
+`asset_candidates`, `deferred_signals`, and `next_step`. If no candidates exist,
+write `asset_candidates: none` explicitly.
 <!-- asset-compounding-guidance:end -->
+
