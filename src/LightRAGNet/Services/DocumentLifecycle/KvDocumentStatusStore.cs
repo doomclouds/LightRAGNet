@@ -18,24 +18,27 @@ public sealed class KvDocumentStatusStore(
         return data is null ? null : FromDictionary(data);
     }
 
-    public Task UpsertAsync(
+    public async Task UpsertAsync(
         DocumentStatusRecord record,
         CancellationToken cancellationToken = default)
     {
-        return store.UpsertAsync(
+        await store.UpsertAsync(
             new Dictionary<string, Dictionary<string, object>>
             {
                 [MakeKey(record.Workspace, record.DocId)] = ToDictionary(record)
             },
             cancellationToken);
+
+        await store.IndexDoneCallbackAsync(cancellationToken);
     }
 
-    public Task DeleteAsync(
+    public async Task DeleteAsync(
         string workspace,
         string docId,
         CancellationToken cancellationToken = default)
     {
-        return store.DeleteAsync([MakeKey(workspace, docId)], cancellationToken);
+        await store.DeleteAsync([MakeKey(workspace, docId)], cancellationToken);
+        await store.IndexDoneCallbackAsync(cancellationToken);
     }
 
     private static string MakeKey(string workspace, string docId)
