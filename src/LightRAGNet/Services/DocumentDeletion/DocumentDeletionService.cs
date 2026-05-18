@@ -3,6 +3,7 @@ using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace LightRAGNet.Services.DocumentDeletion;
 
@@ -76,10 +77,10 @@ public sealed class DocumentDeletionService
                 cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteChunkVectors;
-            await _vectorStore.DeleteAsync("chunks", impact.ChunkIdsToDelete, cancellationToken);
+            await DeleteVectorsAsync("chunks", impact.ChunkIdsToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteTextChunks;
-            await _textChunksStore.DeleteAsync(impact.ChunkIdsToDelete, cancellationToken);
+            await DeleteKvRecordsAsync(_textChunksStore, impact.ChunkIdsToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteGraphRelations;
             if (impact.RelationsToDelete.Count > 0)
@@ -114,13 +115,13 @@ public sealed class DocumentDeletionService
             }
 
             currentStage = DocumentDeletionStage.DeleteRelationVectors;
-            await _vectorStore.DeleteAsync(
+            await DeleteVectorsAsync(
                 "relationships",
                 impact.RelationsToDelete.Select(relation => relation.RelationKey),
                 cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteEntityVectors;
-            await _vectorStore.DeleteAsync("entities", impact.EntityIdsToDelete, cancellationToken);
+            await DeleteVectorsAsync("entities", impact.EntityIdsToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.UpdateRelationVectors;
             if (impact.RelationUpdates.Count > 0)
@@ -141,41 +142,38 @@ public sealed class DocumentDeletionService
             }
 
             currentStage = DocumentDeletionStage.DeleteRelationTracking;
-            await _relationChunksStore.DeleteAsync(
+            await DeleteKvRecordsAsync(
+                _relationChunksStore,
                 impact.RelationsToDelete.Select(relation => relation.RelationKey),
                 cancellationToken);
-            if (impact.RelationUpdates.Count > 0)
-            {
-                await _relationChunksStore.UpsertAsync(
-                    impact.RelationUpdates.ToDictionary(
-                        update => update.RelationKey,
-                        update => CreateTrackingRecord(update.RemainingChunkIds),
-                        StringComparer.Ordinal),
-                    cancellationToken);
-            }
+            await UpsertKvRecordsAsync(
+                _relationChunksStore,
+                impact.RelationUpdates.ToDictionary(
+                    update => update.RelationKey,
+                    update => CreateTrackingRecord(update.RemainingChunkIds),
+                    StringComparer.Ordinal),
+                cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteEntityTracking;
-            await _entityChunksStore.DeleteAsync(impact.EntityIdsToDelete, cancellationToken);
-            if (impact.EntityUpdates.Count > 0)
-            {
-                await _entityChunksStore.UpsertAsync(
-                    impact.EntityUpdates.ToDictionary(
-                        update => update.EntityName,
-                        update => CreateTrackingRecord(update.RemainingChunkIds),
-                        StringComparer.Ordinal),
-                    cancellationToken);
-            }
+            await DeleteKvRecordsAsync(_entityChunksStore, impact.EntityIdsToDelete, cancellationToken);
+            await UpsertKvRecordsAsync(
+                _entityChunksStore,
+                impact.EntityUpdates.ToDictionary(
+                    update => update.EntityName,
+                    update => CreateTrackingRecord(update.RemainingChunkIds),
+                    StringComparer.Ordinal),
+                cancellationToken);
 
             if (request.DeleteLlmCache && impact.LlmCacheIdsToDelete.Count > 0)
             {
                 currentStage = DocumentDeletionStage.DeleteLlmCache;
-                await _llmCacheStore.DeleteAsync(impact.LlmCacheIdsToDelete, cancellationToken);
+                await DeleteKvRecordsAsync(_llmCacheStore, impact.LlmCacheIdsToDelete, cancellationToken);
             }
 
             currentStage = DocumentDeletionStage.DeleteDocumentMetadata;
-            await _fullDocsStore.DeleteAsync([request.DocId], cancellationToken);
-            await _fullEntitiesStore.DeleteAsync([request.DocId], cancellationToken);
-            await _fullRelationsStore.DeleteAsync([request.DocId], cancellationToken);
+            await DeleteKvRecordsAsync(_fullDocsStore, [request.DocId], cancellationToken);
+            await DeleteKvRecordsAsync(_fullEntitiesStore, [request.DocId], cancellationToken);
+            await DeleteKvRecordsAsync(_fullRelationsStore, [request.DocId], cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteDocStatus;
             await _lifecycleService.MarkDeletionSucceededAsync(
@@ -190,6 +188,10 @@ public sealed class DocumentDeletionService
                 Succeeded: true,
                 currentStage,
                 "Document deletion completed.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -246,6 +248,7 @@ public sealed class DocumentDeletionService
         var fullRelations = await _fullRelationsStore.GetByIdAsync(docId, cancellationToken);
         var entityNames = ReadStringList(fullEntities, "entity_names");
         var relationPairs = ReadRelationPairs(fullRelations);
+        var protectedEntityChunks = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
         foreach (var (sourceId, targetId) in relationPairs)
         {
@@ -266,6 +269,9 @@ public sealed class DocumentDeletionService
             var remainingChunkIds = relationChunkIds
                 .Where(chunkId => !deletedChunkIds.Contains(chunkId))
                 .ToList();
+            ProtectRelationEndpoint(protectedEntityChunks, sourceId, remainingChunkIds);
+            ProtectRelationEndpoint(protectedEntityChunks, targetId, remainingChunkIds);
+
             if (remainingChunkIds.Count != relationChunkIds.Count)
             {
                 impact.RelationUpdates.Add(await CreateRelationUpdateAsync(
@@ -289,6 +295,17 @@ public sealed class DocumentDeletionService
 
             if (entityChunkIds.All(deletedChunkIds.Contains))
             {
+                if (protectedEntityChunks.TryGetValue(entityName, out var protectedChunks) &&
+                    protectedChunks.Count > 0)
+                {
+                    impact.EntityUpdates.Add(await CreateEntityUpdateAsync(
+                        entityName,
+                        protectedChunks.ToList(),
+                        deletedChunkIds,
+                        cancellationToken));
+                    continue;
+                }
+
                 impact.EntityIdsToDelete.Add(entityName);
                 continue;
             }
@@ -296,6 +313,17 @@ public sealed class DocumentDeletionService
             var remainingChunkIds = entityChunkIds
                 .Where(chunkId => !deletedChunkIds.Contains(chunkId))
                 .ToList();
+            if (protectedEntityChunks.TryGetValue(entityName, out var additionalChunks))
+            {
+                foreach (var chunkId in additionalChunks)
+                {
+                    if (!remainingChunkIds.Contains(chunkId, StringComparer.Ordinal))
+                    {
+                        remainingChunkIds.Add(chunkId);
+                    }
+                }
+            }
+
             if (remainingChunkIds.Count != entityChunkIds.Count)
             {
                 impact.EntityUpdates.Add(await CreateEntityUpdateAsync(
@@ -307,6 +335,23 @@ public sealed class DocumentDeletionService
         }
 
         return impact;
+    }
+
+    private static void ProtectRelationEndpoint(
+        Dictionary<string, HashSet<string>> protectedEntityChunks,
+        string entityName,
+        IReadOnlyList<string> remainingChunkIds)
+    {
+        if (!protectedEntityChunks.TryGetValue(entityName, out var chunkIds))
+        {
+            chunkIds = new HashSet<string>(StringComparer.Ordinal);
+            protectedEntityChunks[entityName] = chunkIds;
+        }
+
+        foreach (var chunkId in remainingChunkIds)
+        {
+            chunkIds.Add(chunkId);
+        }
     }
 
     private async Task<EntityReferenceUpdate> CreateEntityUpdateAsync(
@@ -410,9 +455,18 @@ public sealed class DocumentDeletionService
 
     private static string GetString(Dictionary<string, object> data, string key)
     {
-        return data.TryGetValue(key, out var value)
-            ? value?.ToString() ?? string.Empty
-            : string.Empty;
+        if (!data.TryGetValue(key, out var value) || value is null)
+        {
+            return string.Empty;
+        }
+
+        return value switch
+        {
+            JsonElement json when json.ValueKind == JsonValueKind.String => json.GetString() ?? string.Empty,
+            JsonElement json when json.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined => string.Empty,
+            JsonElement json => json.ToString(),
+            _ => value.ToString() ?? string.Empty
+        };
     }
 
     private static IReadOnlyList<string> ReadStringList(Dictionary<string, object>? data, string key)
@@ -424,6 +478,7 @@ public sealed class DocumentDeletionService
 
         return value switch
         {
+            JsonElement json => ReadJsonStringList(json),
             IEnumerable<string> strings => strings
                 .Select(item => item.Trim())
                 .Where(item => item.Length > 0)
@@ -437,6 +492,30 @@ public sealed class DocumentDeletionService
         };
     }
 
+    private static IReadOnlyList<string> ReadJsonStringList(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Array => value.EnumerateArray()
+                .Select(ReadJsonScalar)
+                .Where(item => item.Length > 0)
+                .ToList(),
+            JsonValueKind.String => string.IsNullOrWhiteSpace(value.GetString()) ? [] : [value.GetString()!.Trim()],
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => [value.ToString()],
+            _ => []
+        };
+    }
+
+    private static string ReadJsonScalar(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString()?.Trim() ?? string.Empty,
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => value.ToString(),
+            _ => string.Empty
+        };
+    }
+
     private static IReadOnlyList<(string SourceId, string TargetId)> ReadRelationPairs(Dictionary<string, object>? data)
     {
         if (data is null || !data.TryGetValue("relation_pairs", out var value))
@@ -445,27 +524,111 @@ public sealed class DocumentDeletionService
         }
 
         var pairs = new List<(string SourceId, string TargetId)>();
-        if (value is IEnumerable<object> objects)
+        foreach (var values in ReadRelationPairValues(value))
         {
-            foreach (var item in objects)
+            if (values.Count >= 2)
             {
-                var values = item switch
-                {
-                    IEnumerable<string> strings => strings.ToList(),
-                    IEnumerable<object> nestedObjects => nestedObjects
-                        .Select(nested => nested?.ToString() ?? string.Empty)
-                        .ToList(),
-                    string relationKey => GraphSourceReferenceParser.Split(relationKey).ToList(),
-                    _ => []
-                };
-
-                if (values.Count >= 2)
-                {
-                    pairs.Add((values[0], values[1]));
-                }
+                pairs.Add((values[0], values[1]));
             }
         }
 
         return pairs;
+    }
+
+    private static IEnumerable<IReadOnlyList<string>> ReadRelationPairValues(object value)
+    {
+        if (value is JsonElement json)
+        {
+            if (json.ValueKind != JsonValueKind.Array)
+            {
+                yield break;
+            }
+
+            foreach (var item in json.EnumerateArray())
+            {
+                yield return ReadRelationPairItem(item);
+            }
+
+            yield break;
+        }
+
+        if (value is IEnumerable<object> objects)
+        {
+            foreach (var item in objects)
+            {
+                yield return ReadRelationPairItem(item);
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> ReadRelationPairItem(object item)
+    {
+        return item switch
+        {
+            JsonElement json => ReadRelationPairItem(json),
+            IEnumerable<string> strings => strings.ToList(),
+            IEnumerable<object> nestedObjects => nestedObjects
+                .Select(nested => nested?.ToString() ?? string.Empty)
+                .Where(value => value.Length > 0)
+                .ToList(),
+            string relationKey => GraphSourceReferenceParser.Split(relationKey).ToList(),
+            _ => []
+        };
+    }
+
+    private static IReadOnlyList<string> ReadRelationPairItem(JsonElement item)
+    {
+        return item.ValueKind switch
+        {
+            JsonValueKind.Array => item.EnumerateArray()
+                .Select(ReadJsonScalar)
+                .Where(value => value.Length > 0)
+                .ToList(),
+            JsonValueKind.String => GraphSourceReferenceParser.Split(item.GetString()).ToList(),
+            _ => []
+        };
+    }
+
+    private async Task DeleteVectorsAsync(
+        string collection,
+        IEnumerable<string> ids,
+        CancellationToken cancellationToken)
+    {
+        var idsList = ids.ToList();
+        if (idsList.Count == 0)
+        {
+            return;
+        }
+
+        await _vectorStore.DeleteAsync(collection, idsList, cancellationToken);
+    }
+
+    private static async Task DeleteKvRecordsAsync(
+        IKVStore store,
+        IEnumerable<string> ids,
+        CancellationToken cancellationToken)
+    {
+        var idsList = ids.ToList();
+        if (idsList.Count == 0)
+        {
+            return;
+        }
+
+        await store.DeleteAsync(idsList, cancellationToken);
+        await store.IndexDoneCallbackAsync(cancellationToken);
+    }
+
+    private static async Task UpsertKvRecordsAsync(
+        IKVStore store,
+        Dictionary<string, Dictionary<string, object>> data,
+        CancellationToken cancellationToken)
+    {
+        if (data.Count == 0)
+        {
+            return;
+        }
+
+        await store.UpsertAsync(data, cancellationToken);
+        await store.IndexDoneCallbackAsync(cancellationToken);
     }
 }

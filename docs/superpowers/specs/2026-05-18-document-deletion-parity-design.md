@@ -120,6 +120,8 @@ KV stores:
 - `llm_cache`: delete collected cache ids only when requested.
 - `doc_status`: delete only after all RAG storage deletion succeeds.
 
+Every successful KV mutation must be persisted with `IndexDoneCallbackAsync`, because `JsonKVStore` keeps changes in memory until that callback. Deletion logic must also parse `JsonElement` values produced by a persisted/reloaded `JsonKVStore`.
+
 Vector stores:
 
 - `chunks`: delete chunk ids.
@@ -130,6 +132,7 @@ Graph store:
 
 - Delete relations that have no remaining source chunks.
 - Delete nodes that have no remaining source chunks.
+- Keep an entity if any retained relation still references it, even when the entity's own tracking only lists deleted chunks; update its tracking/source ids from the retained relation chunks.
 - Update retained nodes/edges with pruned `source_id`.
 - Preserve node/edge properties not owned by deletion logic.
 

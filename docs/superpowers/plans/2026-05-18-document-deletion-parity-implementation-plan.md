@@ -1010,10 +1010,10 @@ Implement `DeleteAsync` for the first test:
 4. Read all referenced `entity_chunks`, `relation_chunks`, graph nodes, and graph edges needed to decide delete vs update.
 5. Compute a `DocumentDeletionImpact` before any destructive storage call.
 6. Delete chunk vectors from `chunks`.
-7. Delete text chunks.
+7. Delete text chunks and persist the KV mutation with `IndexDoneCallbackAsync`.
 8. Delete graph relations/entities whose tracking chunks are all deleted.
-9. Update retained graph references, vectors, and tracking from the precomputed impact.
-10. Delete full docs, full entities, full relations.
+9. Update retained graph references, vectors, and tracking from the precomputed impact, persisting each KV tracking mutation as it is applied.
+10. Delete full docs, full entities, and full relations, persisting each KV mutation as it is applied.
 11. Mark deletion succeeded.
 
 Use helper conversion methods inside the service:
@@ -1022,7 +1022,7 @@ Use helper conversion methods inside the service:
 private static IReadOnlyList<string> ReadStringList(Dictionary<string, object>? data, string key)
 ```
 
-It must support `List<object>`, `List<string>`, and `IEnumerable<object>`.
+It must support `List<object>`, `List<string>`, `IEnumerable<object>`, scalar strings, and `JsonElement` arrays/strings from reloaded `JsonKVStore` files. Relation pair parsing must also support nested `JsonElement` arrays.
 
 - [ ] **Step 5: Verify GREEN for first deletion test**
 
@@ -1148,6 +1148,36 @@ Implement `CollectLlmCacheIds` before deleting text chunks.
 Add:
 
 ```csharp
+[Fact]
+public async Task DeleteAsync_WhenUsingJsonKvStore_PersistsSuccessfulDeletion()
+{
+    // Seed JsonKVStore files, delete with DeleteLlmCache=true, then reload
+    // JsonKVStore instances from the same files and assert text chunk, full doc,
+    // and cache records stay deleted.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenJsonKvStoreReloadsArrays_ParsesJsonElementsForGraphImpact()
+{
+    // Seed and persist full_entities/full_relations/entity_chunks/relation_chunks,
+    // reload JsonKVStore files, then delete and assert graph/vector/tracking
+    // owned entity/relation deletion still happens.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenCancellationIsRequested_PropagatesAndDoesNotMarkDeletionFailed()
+{
+    // Use a canceled token and assert OperationCanceledException propagates
+    // without recording DeletionFailed.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenDeletedEntityIsEndpointOfRetainedRelation_RetainsAndUpdatesEntity()
+{
+    // Entity tracking lists only deleted chunks, but a retained relation still
+    // references the entity. Assert the entity is updated, not deleted.
+}
+
 [Fact]
 public async Task DeleteAsync_WhenImpactAnalysisFails_DoesNotRunDestructiveDeletes()
 {

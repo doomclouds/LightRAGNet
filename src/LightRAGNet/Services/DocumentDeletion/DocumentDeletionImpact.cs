@@ -1,6 +1,6 @@
-namespace LightRAGNet.Services.DocumentDeletion;
-
 using LightRAGNet.Core.Interfaces;
+
+namespace LightRAGNet.Services.DocumentDeletion;
 
 public sealed class DocumentDeletionImpact
 {
