@@ -406,6 +406,11 @@ public class MarkdownDocumentsController(
                 fileUrl,
                 cancellationToken: HttpContext.RequestAborted);
 
+            if (taskId is null)
+            {
+                return BadRequest(new { error = "Document is being processed", message = "This document currently has an active RAG task, please wait for it to complete." });
+            }
+
             logger.LogInformation("Document added to RAG processing queue: DocumentId={DocumentId}, TaskId={TaskId}",
                 document.Id, taskId);
 

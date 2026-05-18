@@ -10,7 +10,7 @@ public interface IRagTaskQueueService
     /// <summary>
     /// Add document to processing queue
     /// </summary>
-    Task<string> EnqueueTaskAsync(int documentId, string content, string filePath, CancellationToken cancellationToken = default);
+    Task<string?> EnqueueTaskAsync(int documentId, string content, string filePath, CancellationToken cancellationToken = default);
 
     Task<string?> EnqueueDeletionTaskAsync(
         int documentId,

@@ -39,7 +39,7 @@ public class RagTaskQueueService(
         }
     }
 
-    public async Task<string> EnqueueTaskAsync(int documentId, string content, string filePath, CancellationToken cancellationToken = default)
+    public async Task<string?> EnqueueTaskAsync(int documentId, string content, string filePath, CancellationToken cancellationToken = default)
     {
         await EnsureTasksLoadedAsync(cancellationToken);
 
@@ -61,6 +61,16 @@ public class RagTaskQueueService(
         await _lock.WaitAsync(cancellationToken);
         try
         {
+            var hasActiveTask = _tasks.Values.Any(t =>
+                t.DocumentId == documentId &&
+                (t.Status == RagTaskStatus.Pending || t.Status == RagTaskStatus.Processing));
+
+            if (hasActiveTask)
+            {
+                logger.LogWarning("Cannot enqueue index task for document {DocumentId}; active task exists.", documentId);
+                return null;
+            }
+
             _tasks.TryAdd(taskId, task);
             await stateStore.SaveTaskStateAsync(task, cancellationToken);
             logger.LogInformation("Task added to queue: {TaskId}, DocumentId: {DocumentId}", taskId, documentId);
