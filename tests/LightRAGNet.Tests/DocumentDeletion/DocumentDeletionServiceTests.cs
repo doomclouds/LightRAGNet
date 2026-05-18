@@ -113,6 +113,26 @@ public sealed class DocumentDeletionServiceTests
         status.Metadata["deletion_failure_stage"].Should().Be(DocumentDeletionStage.DeleteChunkVectors);
     }
 
+    [Fact]
+    public async Task DeleteAsync_WhenImpactAnalysisFails_DoesNotRunDestructiveDeletes()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        fixture.FullRelations.Seed("doc-1", new()
+        {
+            ["relation_pairs"] = new List<object> { new List<object> { "ALPHA", "BETA" } },
+            ["count"] = 1
+        });
+        fixture.RelationChunks.ThrowOnGetKey = "ALPHA<SEP>BETA";
+
+        var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+        result.Succeeded.Should().BeFalse();
+        result.Stage.Should().Be(DocumentDeletionStage.AnalyzeGraphReferences);
+        fixture.VectorStore.DeleteCalls.Should().NotContain(call => call.Collection == "chunks");
+        fixture.TextChunks.DeleteCalls.Should().BeEmpty();
+        fixture.FullDocs.DeleteCalls.Should().BeEmpty();
+    }
+
     private sealed class DocumentDeletionFixture
     {
         private DocumentDeletionFixture(

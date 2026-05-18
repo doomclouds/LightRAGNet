@@ -69,121 +69,107 @@ public sealed class DocumentDeletionService
             collectedCacheIds = await CollectLlmCacheIdsAsync(request.ChunkIds, cancellationToken);
 
             currentStage = DocumentDeletionStage.AnalyzeGraphReferences;
-            var fullEntities = await _fullEntitiesStore.GetByIdAsync(request.DocId, cancellationToken);
-            var fullRelations = await _fullRelationsStore.GetByIdAsync(request.DocId, cancellationToken);
-            var entityNames = ReadStringList(fullEntities, "entity_names");
-            var relationPairs = ReadRelationPairs(fullRelations);
+            var impact = await AnalyzeImpactAsync(
+                request.DocId,
+                request.ChunkIds,
+                collectedCacheIds,
+                cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteChunkVectors;
-            await _vectorStore.DeleteAsync("chunks", request.ChunkIds, cancellationToken);
+            await _vectorStore.DeleteAsync("chunks", impact.ChunkIdsToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteTextChunks;
-            await _textChunksStore.DeleteAsync(request.ChunkIds, cancellationToken);
-
-            var relationsToDelete = new List<(string SourceId, string TargetId, string RelationKey)>();
-            var relationsToUpdate = new List<(string SourceId, string TargetId, string RelationKey, IReadOnlyList<string> RemainingChunkIds)>();
-            foreach (var (sourceId, targetId) in relationPairs)
-            {
-                var relationKey = GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId);
-                var tracking = await _relationChunksStore.GetByIdAsync(relationKey, cancellationToken);
-                var chunkIds = ReadStringList(tracking, "chunk_ids");
-                if (chunkIds.Count > 0 && chunkIds.All(deletedChunkIds.Contains))
-                {
-                    relationsToDelete.Add((sourceId, targetId, relationKey));
-                }
-                else if (chunkIds.Count > 0)
-                {
-                    var remainingChunkIds = chunkIds
-                        .Where(chunkId => !deletedChunkIds.Contains(chunkId))
-                        .ToList();
-                    if (remainingChunkIds.Count != chunkIds.Count)
-                    {
-                        relationsToUpdate.Add((sourceId, targetId, relationKey, remainingChunkIds));
-                    }
-                }
-            }
+            await _textChunksStore.DeleteAsync(impact.ChunkIdsToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteGraphRelations;
-            if (relationsToDelete.Count > 0)
+            if (impact.RelationsToDelete.Count > 0)
             {
                 await _graphStore.RemoveEdgesAsync(
-                    relationsToDelete.Select(relation => (relation.SourceId, relation.TargetId)).ToList(),
+                    impact.RelationsToDelete.Select(relation => (relation.SourceId, relation.TargetId)).ToList(),
+                    cancellationToken);
+            }
+
+            currentStage = DocumentDeletionStage.DeleteGraphEntities;
+            foreach (var entityName in impact.EntityIdsToDelete)
+            {
+                await _graphStore.DeleteNodeAsync(entityName, cancellationToken);
+            }
+
+            currentStage = DocumentDeletionStage.UpdateGraphReferences;
+            foreach (var relation in impact.RelationUpdates)
+            {
+                await _graphStore.UpsertEdgeAsync(
+                    relation.SourceId,
+                    relation.TargetId,
+                    relation.UpdatedProperties,
+                    cancellationToken);
+            }
+
+            foreach (var entity in impact.EntityUpdates)
+            {
+                await _graphStore.UpsertNodeAsync(
+                    entity.EntityName,
+                    entity.UpdatedProperties,
                     cancellationToken);
             }
 
             currentStage = DocumentDeletionStage.DeleteRelationVectors;
             await _vectorStore.DeleteAsync(
                 "relationships",
-                relationsToDelete.Select(relation => relation.RelationKey),
+                impact.RelationsToDelete.Select(relation => relation.RelationKey),
                 cancellationToken);
+
+            currentStage = DocumentDeletionStage.DeleteEntityVectors;
+            await _vectorStore.DeleteAsync("entities", impact.EntityIdsToDelete, cancellationToken);
+
+            currentStage = DocumentDeletionStage.UpdateRelationVectors;
+            if (impact.RelationUpdates.Count > 0)
+            {
+                await _vectorStore.UpsertAsync(
+                    "relationships",
+                    impact.RelationUpdates.Select(update => update.VectorDocument),
+                    cancellationToken);
+            }
+
+            currentStage = DocumentDeletionStage.UpdateEntityVectors;
+            if (impact.EntityUpdates.Count > 0)
+            {
+                await _vectorStore.UpsertAsync(
+                    "entities",
+                    impact.EntityUpdates.Select(update => update.VectorDocument),
+                    cancellationToken);
+            }
 
             currentStage = DocumentDeletionStage.DeleteRelationTracking;
             await _relationChunksStore.DeleteAsync(
-                relationsToDelete.Select(relation => relation.RelationKey),
+                impact.RelationsToDelete.Select(relation => relation.RelationKey),
                 cancellationToken);
-
-            currentStage = DocumentDeletionStage.UpdateGraphReferences;
-            foreach (var relation in relationsToUpdate)
+            if (impact.RelationUpdates.Count > 0)
             {
-                await UpdateRelationAsync(
-                    relation.SourceId,
-                    relation.TargetId,
-                    relation.RelationKey,
-                    relation.RemainingChunkIds,
-                    deletedChunkIds,
-                    stage => currentStage = stage,
+                await _relationChunksStore.UpsertAsync(
+                    impact.RelationUpdates.ToDictionary(
+                        update => update.RelationKey,
+                        update => CreateTrackingRecord(update.RemainingChunkIds),
+                        StringComparer.Ordinal),
                     cancellationToken);
             }
-
-            var entitiesToDelete = new List<string>();
-            var entitiesToUpdate = new List<(string EntityName, IReadOnlyList<string> RemainingChunkIds)>();
-            foreach (var entityName in entityNames)
-            {
-                var tracking = await _entityChunksStore.GetByIdAsync(entityName, cancellationToken);
-                var chunkIds = ReadStringList(tracking, "chunk_ids");
-                if (chunkIds.Count > 0 && chunkIds.All(deletedChunkIds.Contains))
-                {
-                    entitiesToDelete.Add(entityName);
-                }
-                else if (chunkIds.Count > 0)
-                {
-                    var remainingChunkIds = chunkIds
-                        .Where(chunkId => !deletedChunkIds.Contains(chunkId))
-                        .ToList();
-                    if (remainingChunkIds.Count != chunkIds.Count)
-                    {
-                        entitiesToUpdate.Add((entityName, remainingChunkIds));
-                    }
-                }
-            }
-
-            currentStage = DocumentDeletionStage.DeleteGraphEntities;
-            foreach (var entityName in entitiesToDelete)
-            {
-                await _graphStore.DeleteNodeAsync(entityName, cancellationToken);
-            }
-
-            currentStage = DocumentDeletionStage.DeleteEntityVectors;
-            await _vectorStore.DeleteAsync("entities", entitiesToDelete, cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteEntityTracking;
-            await _entityChunksStore.DeleteAsync(entitiesToDelete, cancellationToken);
-
-            currentStage = DocumentDeletionStage.UpdateGraphReferences;
-            foreach (var entity in entitiesToUpdate)
+            await _entityChunksStore.DeleteAsync(impact.EntityIdsToDelete, cancellationToken);
+            if (impact.EntityUpdates.Count > 0)
             {
-                await UpdateEntityAsync(
-                    entity.EntityName,
-                    entity.RemainingChunkIds,
-                    deletedChunkIds,
-                    stage => currentStage = stage,
+                await _entityChunksStore.UpsertAsync(
+                    impact.EntityUpdates.ToDictionary(
+                        update => update.EntityName,
+                        update => CreateTrackingRecord(update.RemainingChunkIds),
+                        StringComparer.Ordinal),
                     cancellationToken);
             }
 
-            if (request.DeleteLlmCache && collectedCacheIds.Count > 0)
+            if (request.DeleteLlmCache && impact.LlmCacheIdsToDelete.Count > 0)
             {
                 currentStage = DocumentDeletionStage.DeleteLlmCache;
-                await _llmCacheStore.DeleteAsync(collectedCacheIds, cancellationToken);
+                await _llmCacheStore.DeleteAsync(impact.LlmCacheIdsToDelete, cancellationToken);
             }
 
             currentStage = DocumentDeletionStage.DeleteDocumentMetadata;
@@ -245,14 +231,90 @@ public sealed class DocumentDeletionService
         return cacheIds;
     }
 
-    private async Task UpdateEntityAsync(
+    private async Task<DocumentDeletionImpact> AnalyzeImpactAsync(
+        string docId,
+        IReadOnlyList<string> chunkIds,
+        IReadOnlyList<string> llmCacheIds,
+        CancellationToken cancellationToken)
+    {
+        var deletedChunkIds = chunkIds.ToHashSet(StringComparer.Ordinal);
+        var impact = new DocumentDeletionImpact();
+        impact.ChunkIdsToDelete.AddRange(chunkIds);
+        impact.LlmCacheIdsToDelete.AddRange(llmCacheIds);
+
+        var fullEntities = await _fullEntitiesStore.GetByIdAsync(docId, cancellationToken);
+        var fullRelations = await _fullRelationsStore.GetByIdAsync(docId, cancellationToken);
+        var entityNames = ReadStringList(fullEntities, "entity_names");
+        var relationPairs = ReadRelationPairs(fullRelations);
+
+        foreach (var (sourceId, targetId) in relationPairs)
+        {
+            var relationKey = GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId);
+            var tracking = await _relationChunksStore.GetByIdAsync(relationKey, cancellationToken);
+            var relationChunkIds = ReadStringList(tracking, "chunk_ids");
+            if (relationChunkIds.Count == 0)
+            {
+                continue;
+            }
+
+            if (relationChunkIds.All(deletedChunkIds.Contains))
+            {
+                impact.RelationsToDelete.Add(new RelationReferenceDelete(sourceId, targetId, relationKey));
+                continue;
+            }
+
+            var remainingChunkIds = relationChunkIds
+                .Where(chunkId => !deletedChunkIds.Contains(chunkId))
+                .ToList();
+            if (remainingChunkIds.Count != relationChunkIds.Count)
+            {
+                impact.RelationUpdates.Add(await CreateRelationUpdateAsync(
+                    sourceId,
+                    targetId,
+                    relationKey,
+                    remainingChunkIds,
+                    deletedChunkIds,
+                    cancellationToken));
+            }
+        }
+
+        foreach (var entityName in entityNames)
+        {
+            var tracking = await _entityChunksStore.GetByIdAsync(entityName, cancellationToken);
+            var entityChunkIds = ReadStringList(tracking, "chunk_ids");
+            if (entityChunkIds.Count == 0)
+            {
+                continue;
+            }
+
+            if (entityChunkIds.All(deletedChunkIds.Contains))
+            {
+                impact.EntityIdsToDelete.Add(entityName);
+                continue;
+            }
+
+            var remainingChunkIds = entityChunkIds
+                .Where(chunkId => !deletedChunkIds.Contains(chunkId))
+                .ToList();
+            if (remainingChunkIds.Count != entityChunkIds.Count)
+            {
+                impact.EntityUpdates.Add(await CreateEntityUpdateAsync(
+                    entityName,
+                    remainingChunkIds,
+                    deletedChunkIds,
+                    cancellationToken));
+            }
+        }
+
+        return impact;
+    }
+
+    private async Task<EntityReferenceUpdate> CreateEntityUpdateAsync(
         string entityName,
         IReadOnlyList<string> remainingChunkIds,
         ISet<string> deletedChunkIds,
-        Action<string> setStage,
         CancellationToken cancellationToken)
     {
-        setStage(DocumentDeletionStage.UpdateGraphReferences);
         var node = await _graphStore.GetNodeAsync(entityName, cancellationToken)
             ?? throw new InvalidOperationException($"Graph entity '{entityName}' was not found.");
 
@@ -267,22 +329,13 @@ public sealed class DocumentDeletionService
             updatedProperties["source_id"] = GraphSourceReferenceParser.Join(remainingChunkIds);
         }
 
-        await _graphStore.UpsertNodeAsync(entityName, updatedProperties, cancellationToken);
-        setStage(DocumentDeletionStage.DeleteEntityTracking);
-        await _entityChunksStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-        {
-            [entityName] = new()
-            {
-                ["chunk_ids"] = remainingChunkIds.ToList(),
-                ["count"] = remainingChunkIds.Count
-            }
-        }, cancellationToken);
-
         var description = GetString(updatedProperties, "description");
         var content = $"{entityName}\n{description}";
         var embedding = await _embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
-        setStage(DocumentDeletionStage.UpdateEntityVectors);
-        await _vectorStore.UpsertAsync("entities", [
+        return new EntityReferenceUpdate(
+            entityName,
+            remainingChunkIds,
+            updatedProperties,
             new VectorDocument
             {
                 Id = entityName,
@@ -294,20 +347,17 @@ public sealed class DocumentDeletionService
                     ["entity_name"] = entityName,
                     ["source_id"] = updatedProperties["source_id"].ToString() ?? string.Empty
                 }
-            }
-        ], cancellationToken);
+            });
     }
 
-    private async Task UpdateRelationAsync(
+    private async Task<RelationReferenceUpdate> CreateRelationUpdateAsync(
         string sourceId,
         string targetId,
         string relationKey,
         IReadOnlyList<string> remainingChunkIds,
         ISet<string> deletedChunkIds,
-        Action<string> setStage,
         CancellationToken cancellationToken)
     {
-        setStage(DocumentDeletionStage.UpdateGraphReferences);
         var edge = await _graphStore.GetEdgeAsync(sourceId, targetId, cancellationToken)
             ?? throw new InvalidOperationException($"Graph relation '{sourceId}<->{targetId}' was not found.");
 
@@ -322,23 +372,16 @@ public sealed class DocumentDeletionService
             updatedProperties["source_id"] = GraphSourceReferenceParser.Join(remainingChunkIds);
         }
 
-        await _graphStore.UpsertEdgeAsync(sourceId, targetId, updatedProperties, cancellationToken);
-        setStage(DocumentDeletionStage.DeleteRelationTracking);
-        await _relationChunksStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-        {
-            [relationKey] = new()
-            {
-                ["chunk_ids"] = remainingChunkIds.ToList(),
-                ["count"] = remainingChunkIds.Count
-            }
-        }, cancellationToken);
-
         var keywords = GetString(updatedProperties, "keywords");
         var description = GetString(updatedProperties, "description");
         var content = $"{sourceId}\n{targetId}\n{keywords}\n{description}";
         var embedding = await _embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
-        setStage(DocumentDeletionStage.UpdateRelationVectors);
-        await _vectorStore.UpsertAsync("relationships", [
+        return new RelationReferenceUpdate(
+            sourceId,
+            targetId,
+            relationKey,
+            remainingChunkIds,
+            updatedProperties,
             new VectorDocument
             {
                 Id = relationKey,
@@ -353,8 +396,16 @@ public sealed class DocumentDeletionService
                     ["keywords"] = keywords,
                     ["description"] = description
                 }
-            }
-        ], cancellationToken);
+            });
+    }
+
+    private static Dictionary<string, object> CreateTrackingRecord(IReadOnlyList<string> chunkIds)
+    {
+        return new Dictionary<string, object>
+        {
+            ["chunk_ids"] = chunkIds.ToList(),
+            ["count"] = chunkIds.Count
+        };
     }
 
     private static string GetString(Dictionary<string, object> data, string key)

@@ -105,6 +105,7 @@ delete_uploaded_file
 ```
 
 Stages are not all separate methods, but each destructive block records the current stage before executing.
+`DocumentDeletionStage` is the shared stage vocabulary for core and server deletion work. The core RAG deletion service executes only core storage stages through `delete_doc_status`; server/API code owns `delete_markdown_record` and `delete_uploaded_file`.
 
 ## Storage Semantics
 

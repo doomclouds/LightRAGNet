@@ -15,6 +15,7 @@ public sealed class InMemoryKvStore : IKVStore
 
     public string? ThrowOnDeleteKey { get; set; }
     public string? ThrowOnUpsertKey { get; set; }
+    public string? ThrowOnGetKey { get; set; }
 
     public void Seed(string id, Dictionary<string, object> value)
     {
@@ -26,6 +27,11 @@ public sealed class InMemoryKvStore : IKVStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (string.Equals(ThrowOnGetKey, id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Get failed for key '{id}'.");
+        }
+
         return Task.FromResult(items.TryGetValue(id, out var item) ? Clone(item) : null);
     }
 

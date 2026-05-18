@@ -20,4 +20,6 @@ public static class DocumentDeletionStage
     public const string DeleteLlmCache = "delete_llm_cache";
     public const string DeleteDocumentMetadata = "delete_document_metadata";
     public const string DeleteDocStatus = "delete_doc_status";
+    public const string DeleteMarkdownRecord = "delete_markdown_record";
+    public const string DeleteUploadedFile = "delete_uploaded_file";
 }

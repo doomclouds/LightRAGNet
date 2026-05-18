@@ -156,10 +156,12 @@ public static class DocumentDeletionStage
     public const string DeleteLlmCache = "delete_llm_cache";
     public const string DeleteDocumentMetadata = "delete_document_metadata";
     public const string DeleteDocStatus = "delete_doc_status";
+    public const string DeleteMarkdownRecord = "delete_markdown_record";
+    public const string DeleteUploadedFile = "delete_uploaded_file";
 }
 ```
 
-Server-only stages such as Markdown row/file deletion stay in server code, not the core RAG service.
+`DocumentDeletionStage` is the shared stage vocabulary for both core RAG deletion and server cleanup. The core `DocumentDeletionService` only executes core stages through `DeleteDocStatus`; server-only stages such as Markdown row/file deletion stay in server code and reuse `DeleteMarkdownRecord` / `DeleteUploadedFile`.
 
 ---
 
@@ -954,11 +956,30 @@ public sealed class DocumentDeletionImpact
 {
     public List<string> ChunkIdsToDelete { get; } = [];
     public List<string> EntityIdsToDelete { get; } = [];
-    public Dictionary<string, IReadOnlyList<string>> EntityIdsToUpdate { get; } = new(StringComparer.Ordinal);
-    public List<(string SourceId, string TargetId)> RelationsToDelete { get; } = [];
-    public Dictionary<(string SourceId, string TargetId), IReadOnlyList<string>> RelationsToUpdate { get; } = new();
+    public List<EntityReferenceUpdate> EntityUpdates { get; } = [];
+    public List<RelationReferenceDelete> RelationsToDelete { get; } = [];
+    public List<RelationReferenceUpdate> RelationUpdates { get; } = [];
     public List<string> LlmCacheIdsToDelete { get; } = [];
 }
+
+public sealed record EntityReferenceUpdate(
+    string EntityName,
+    IReadOnlyList<string> RemainingChunkIds,
+    Dictionary<string, object> UpdatedProperties,
+    VectorDocument VectorDocument);
+
+public sealed record RelationReferenceDelete(
+    string SourceId,
+    string TargetId,
+    string RelationKey);
+
+public sealed record RelationReferenceUpdate(
+    string SourceId,
+    string TargetId,
+    string RelationKey,
+    IReadOnlyList<string> RemainingChunkIds,
+    Dictionary<string, object> UpdatedProperties,
+    VectorDocument VectorDocument);
 ```
 
 `DocumentDeletionService` constructor dependencies:
@@ -984,15 +1005,16 @@ public DocumentDeletionService(
 Implement `DeleteAsync` for the first test:
 
 1. Mark deletion started.
-2. Delete chunk vectors from `chunks`.
-3. Delete text chunks.
-4. Load `full_entities[docId]` and `full_relations[docId]`.
-5. For each entity, check `entity_chunks[entityName].chunk_ids`.
-6. If all source ids are in deleted chunk ids, delete graph node, entity vector, and tracking.
-7. For each relation pair, check `relation_chunks[relationKey].chunk_ids`.
-8. If all source ids are deleted, remove graph edge, relationship vector, and tracking.
-9. Delete full docs, full entities, full relations.
-10. Mark deletion succeeded.
+2. Collect optional LLM cache ids from `text_chunks[chunkId].llm_cache_list`.
+3. Load `full_entities[docId]` and `full_relations[docId]`.
+4. Read all referenced `entity_chunks`, `relation_chunks`, graph nodes, and graph edges needed to decide delete vs update.
+5. Compute a `DocumentDeletionImpact` before any destructive storage call.
+6. Delete chunk vectors from `chunks`.
+7. Delete text chunks.
+8. Delete graph relations/entities whose tracking chunks are all deleted.
+9. Update retained graph references, vectors, and tracking from the precomputed impact.
+10. Delete full docs, full entities, full relations.
+11. Mark deletion succeeded.
 
 Use helper conversion methods inside the service:
 
@@ -1126,6 +1148,26 @@ Implement `CollectLlmCacheIds` before deleting text chunks.
 Add:
 
 ```csharp
+[Fact]
+public async Task DeleteAsync_WhenImpactAnalysisFails_DoesNotRunDestructiveDeletes()
+{
+    var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+    fixture.FullRelations.Seed("doc-1", new()
+    {
+        ["relation_pairs"] = new List<object> { new List<object> { "ALPHA", "BETA" } },
+        ["count"] = 1
+    });
+    fixture.RelationChunks.ThrowOnGetKey = "ALPHA<SEP>BETA";
+
+    var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+    result.Succeeded.Should().BeFalse();
+    result.Stage.Should().Be(DocumentDeletionStage.AnalyzeGraphReferences);
+    fixture.VectorStore.DeleteCalls.Should().NotContain(call => call.Collection == "chunks");
+    fixture.TextChunks.DeleteCalls.Should().BeEmpty();
+    fixture.FullDocs.DeleteCalls.Should().BeEmpty();
+}
+
 [Fact]
 public async Task DeleteAsync_WhenVectorDeleteFails_RecordsFailureStage()
 {
