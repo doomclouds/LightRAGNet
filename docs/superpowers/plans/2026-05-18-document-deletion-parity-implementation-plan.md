@@ -832,7 +832,7 @@ Do not add test-only methods to production types.
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~GraphSourceReferenceParserTests
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~GraphSourceReferenceParserTests|FullyQualifiedName~RelationBuilderTests|FullyQualifiedName~StorageUpdateStage|FullyQualifiedName~InMemoryKvStore|FullyQualifiedName~InMemoryVectorStore|FullyQualifiedName~InMemoryGraphStore"
 ```
 
 Expected GREEN:
@@ -844,7 +844,7 @@ Passed
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add src/LightRAGNet/Services/DocumentDeletion tests/LightRAGNet.Tests/DocumentDeletion tests/LightRAGNet.Tests/TestDoubles
+git add src/LightRAGNet/Services/DocumentDeletion src/LightRAGNet/Services/KnowledgeGraphMerge tests/LightRAGNet.Tests/DocumentDeletion tests/LightRAGNet.Tests/KnowledgeGraphMerge tests/LightRAGNet.Tests/TestDoubles docs/superpowers/plans/2026-05-18-document-deletion-parity-implementation-plan.md
 git commit -m "test: add deletion storage doubles"
 ```
 
