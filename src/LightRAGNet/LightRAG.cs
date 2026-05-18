@@ -111,7 +111,7 @@ public class LightRAG(
         docId = ingestion.DocId;
         filePath = ingestion.StatusRecord.FilePath;
 
-        if (ingestion.IsDuplicate)
+        if (ingestion.IsDuplicate && ingestion.StatusRecord.Status == DocumentLifecycleStatus.Processed)
         {
             logger.LogWarning("Document {DocId} already exists", docId);
             PostTaskState(new TaskState
