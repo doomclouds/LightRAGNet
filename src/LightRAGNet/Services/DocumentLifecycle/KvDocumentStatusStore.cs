@@ -29,6 +29,11 @@ public sealed class KvDocumentStatusStore(
         }
 
         var record = FromDictionary(legacyData);
+        if (record.Workspace != NormalizeWorkspace(workspace) || record.DocId != docId)
+        {
+            return null;
+        }
+
         await UpsertAsync(record, cancellationToken);
         await store.DeleteAsync([legacyKey], cancellationToken);
         await store.IndexDoneCallbackAsync(cancellationToken);

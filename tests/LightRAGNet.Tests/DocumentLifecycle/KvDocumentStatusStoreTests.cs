@@ -112,6 +112,49 @@ public sealed class KvDocumentStatusStoreTests
     }
 
     [Fact]
+    public async Task GetAsync_WithLegacyKeyCollision_DoesNotMigrateMismatchedPayload()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        const string collidingLegacyKey = "a:b:c";
+        const string ownerCurrentKey = "w3:a:bd1:c";
+        const string wrongLookupCurrentKey = "w1:ad3:b:c";
+
+        try
+        {
+            var kvStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await kvStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [collidingLegacyKey] = CreateRecordDictionary("a:b", "c", "owner.md")
+            });
+            await kvStore.IndexDoneCallbackAsync();
+            var statusStore = new KvDocumentStatusStore(kvStore);
+
+            var wrongLookup = await statusStore.GetAsync("a", "b:c");
+
+            wrongLookup.Should().BeNull();
+            (await kvStore.GetByIdAsync(wrongLookupCurrentKey)).Should().BeNull();
+            (await kvStore.GetByIdAsync(collidingLegacyKey)).Should().NotBeNull();
+
+            var ownerLookup = await statusStore.GetAsync("a:b", "c");
+
+            ownerLookup.Should().NotBeNull();
+            ownerLookup!.Workspace.Should().Be("a:b");
+            ownerLookup.DocId.Should().Be("c");
+            ownerLookup.FilePath.Should().Be("owner.md");
+            (await kvStore.GetByIdAsync(ownerCurrentKey)).Should().NotBeNull();
+            (await kvStore.GetByIdAsync(collidingLegacyKey)).Should().BeNull();
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
     public async Task DeleteAsync_RemovesCurrentAndLegacyKeys()
     {
         var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
@@ -206,10 +249,18 @@ public sealed class KvDocumentStatusStoreTests
 
     private static Dictionary<string, object> CreateLegacyRecordDictionary()
     {
+        return CreateRecordDictionary(LegacyWorkspace, LegacyDocId, "legacy.md");
+    }
+
+    private static Dictionary<string, object> CreateRecordDictionary(
+        string workspace,
+        string docId,
+        string filePath)
+    {
         return new Dictionary<string, object>
         {
-            ["doc_id"] = LegacyDocId,
-            ["workspace"] = LegacyWorkspace,
+            ["doc_id"] = docId,
+            ["workspace"] = workspace,
             ["status"] = "processed",
             ["content_summary"] = "legacy summary",
             ["content_length"] = 14,
@@ -222,10 +273,10 @@ public sealed class KvDocumentStatusStoreTests
                     ["chunk_id"] = "chunk-legacy",
                     ["tokens"] = 3,
                     ["chunk_order_index"] = 0,
-                    ["file_path"] = "legacy.md"
+                    ["file_path"] = filePath
                 }
             },
-            ["file_path"] = "legacy.md",
+            ["file_path"] = filePath,
             ["track_id"] = "track-legacy",
             ["error_msg"] = string.Empty,
             ["metadata"] = new Dictionary<string, object>
