@@ -347,7 +347,12 @@ public sealed class DocumentLifecycleServiceTests
         var store = new InMemoryDocumentStatusStore();
         var service = CreateService(store);
         await PrepareProcessedDocumentAsync(service);
-        await service.MarkDeletionFailedAsync("workspace-a", "doc-1", "delete_chunk_vectors", "qdrant failed");
+        await service.MarkDeletionFailedAsync(
+            "workspace-a",
+            "doc-1",
+            "delete_chunk_vectors",
+            "qdrant failed",
+            ["cache-a"]);
 
         await service.MarkDeletionStartedAsync("workspace-a", "doc-1");
 
@@ -357,6 +362,7 @@ public sealed class DocumentLifecycleServiceTests
         stored.ErrorMessage.Should().BeEmpty();
         stored.Metadata.Should().NotContainKey("deletion_failed");
         stored.Metadata.Should().NotContainKey("deletion_failure_stage");
+        stored.Metadata.Should().NotContainKey("deletion_llm_cache_ids");
     }
 
     [Fact]

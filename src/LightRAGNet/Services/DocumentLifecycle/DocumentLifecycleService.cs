@@ -266,6 +266,7 @@ public sealed class DocumentLifecycleService
         record.ErrorMessage = string.Empty;
         record.Metadata.Remove("deletion_failed");
         record.Metadata.Remove("deletion_failure_stage");
+        record.Metadata.Remove("deletion_llm_cache_ids");
         Touch(record);
         await _statusStore.UpsertAsync(record, cancellationToken);
     }
