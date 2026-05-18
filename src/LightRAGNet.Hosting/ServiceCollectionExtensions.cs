@@ -3,6 +3,7 @@ using LightRAGNet.Core.Utils;
 using LightRAGNet.Embedding;
 using LightRAGNet.LLM;
 using LightRAGNet.Rerank;
+using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.RetrievalContext;
@@ -146,6 +147,9 @@ public static class ServiceCollectionExtensions
                 return new JsonKVStore(Path.Combine(workingDir, $"{kvStoreName}.json"), logger);
             });
         }
+
+        services.AddSingleton<IDocumentStatusStore, KvDocumentStatusStore>();
+        services.AddSingleton<DocumentLifecycleService>();
 
         #endregion
 

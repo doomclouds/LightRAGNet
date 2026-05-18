@@ -16,6 +16,8 @@ public static class KVContracts
 
     public const string LLMCache = "llm_cache";
 
+    public const string DocStatus = "doc_status";
+
     public static IEnumerable<string> GetKVStoreNames()
     {
         yield return TextChunks;
@@ -25,5 +27,6 @@ public static class KVContracts
         yield return EntityChunks;
         yield return RelationChunks;
         yield return LLMCache;
+        yield return DocStatus;
     }
 }

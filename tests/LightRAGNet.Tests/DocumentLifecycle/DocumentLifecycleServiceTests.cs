@@ -11,6 +11,39 @@ namespace LightRAGNet.Tests.DocumentLifecycle;
 public sealed class DocumentLifecycleServiceTests
 {
     [Fact]
+    public void DocumentLifecycleStatus_ToWireValue_UsesPythonStyleValues()
+    {
+        DocumentLifecycleStatus.Pending.ToWireValue().Should().Be("pending");
+        DocumentLifecycleStatus.Processing.ToWireValue().Should().Be("processing");
+        DocumentLifecycleStatus.Processed.ToWireValue().Should().Be("processed");
+        DocumentLifecycleStatus.Failed.ToWireValue().Should().Be("failed");
+        DocumentLifecycleStatus.Deleting.ToWireValue().Should().Be("deleting");
+        DocumentLifecycleStatus.Deleted.ToWireValue().Should().Be("deleted");
+        DocumentLifecycleStatus.DeletionFailed.ToWireValue().Should().Be("deletion_failed");
+    }
+
+    [Fact]
+    public void DocumentLifecycleStatus_FromWireValue_ParsesPythonStyleValues()
+    {
+        DocumentLifecycleStatusExtensions.FromWireValue("pending").Should().Be(DocumentLifecycleStatus.Pending);
+        DocumentLifecycleStatusExtensions.FromWireValue("processing").Should().Be(DocumentLifecycleStatus.Processing);
+        DocumentLifecycleStatusExtensions.FromWireValue("processed").Should().Be(DocumentLifecycleStatus.Processed);
+        DocumentLifecycleStatusExtensions.FromWireValue("failed").Should().Be(DocumentLifecycleStatus.Failed);
+        DocumentLifecycleStatusExtensions.FromWireValue("deleting").Should().Be(DocumentLifecycleStatus.Deleting);
+        DocumentLifecycleStatusExtensions.FromWireValue("deleted").Should().Be(DocumentLifecycleStatus.Deleted);
+        DocumentLifecycleStatusExtensions.FromWireValue("deletion_failed").Should().Be(DocumentLifecycleStatus.DeletionFailed);
+    }
+
+    [Fact]
+    public void DocumentLifecycleStatus_FromWireValue_WhenUnknown_Throws()
+    {
+        var act = () => DocumentLifecycleStatusExtensions.FromWireValue("unknown");
+
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("*unknown*");
+    }
+
+    [Fact]
     public void PublicStateMutationMethods_ReturnTask()
     {
         var methodNames = new[]
