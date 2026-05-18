@@ -2,6 +2,7 @@ using FluentAssertions;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Tests.TestDoubles;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -87,6 +88,23 @@ public sealed class DocumentLifecycleServiceTests
         record.Should().NotBeNull();
         record!.Workspace.Should().Be("_");
         record.Status.Should().Be(DocumentLifecycleStatus.Processing);
+    }
+
+    [Fact]
+    public async Task StartProcessing_MissingDocument_LogsWarning()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var logger = new TestLogger();
+        var service = CreateService(store, logger: logger);
+
+        await service.StartProcessingAsync(" workspace-a ", "missing-doc");
+
+        var record = await store.GetAsync("workspace-a", "missing-doc");
+        record.Should().BeNull();
+        logger.Entries.Should().ContainSingle(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("workspace-a", StringComparison.Ordinal)
+            && entry.Message.Contains("missing-doc", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -285,7 +303,8 @@ public sealed class DocumentLifecycleServiceTests
 
     private static DocumentLifecycleService CreateService(
         InMemoryDocumentStatusStore store,
-        string workspace = "workspace-a")
+        string workspace = "workspace-a",
+        ILogger<DocumentLifecycleService>? logger = null)
     {
         return new DocumentLifecycleService(
             store,
@@ -293,7 +312,7 @@ public sealed class DocumentLifecycleServiceTests
             {
                 Workspace = workspace
             }),
-            NullLogger<DocumentLifecycleService>.Instance);
+            logger ?? NullLogger<DocumentLifecycleService>.Instance);
     }
 
     private static async Task PrepareProcessedDocumentAsync(DocumentLifecycleService service)
@@ -326,4 +345,41 @@ public sealed class DocumentLifecycleServiceTests
             }
         ];
     }
+
+    private sealed class TestLogger : ILogger<DocumentLifecycleService>
+    {
+        public List<LogEntry> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+        {
+            return NullScope.Instance;
+        }
+
+        public bool IsEnabled(LogLevel logLevel)
+        {
+            return true;
+        }
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+        }
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        public static readonly NullScope Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed record LogEntry(LogLevel Level, string Message);
 }

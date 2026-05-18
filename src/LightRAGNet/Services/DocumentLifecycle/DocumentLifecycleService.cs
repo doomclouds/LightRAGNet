@@ -84,6 +84,7 @@ public sealed class DocumentLifecycleService
         var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(StartProcessingAsync));
             return;
         }
 
@@ -105,6 +106,7 @@ public sealed class DocumentLifecycleService
         var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(RecordChunksAsync));
             return;
         }
 
@@ -132,6 +134,7 @@ public sealed class DocumentLifecycleService
         var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(MarkProcessedAsync));
             return;
         }
 
@@ -154,6 +157,7 @@ public sealed class DocumentLifecycleService
         var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(MarkFailedAsync));
             return;
         }
 
@@ -256,5 +260,14 @@ public sealed class DocumentLifecycleService
     private static void Touch(DocumentStatusRecord record)
     {
         record.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private void LogMissingStatusMutation(string workspace, string docId, string operation)
+    {
+        _logger.LogWarning(
+            "Document lifecycle status mutation {Operation} skipped because document {DocId} was not found in workspace {Workspace}.",
+            operation,
+            docId,
+            workspace);
     }
 }
