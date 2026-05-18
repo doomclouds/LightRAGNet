@@ -66,7 +66,7 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
-    public async Task CreatePending_NewDocument_WritesPendingStatus()
+    public async Task PrepareIngestion_WhenWorkspaceIsBlank_UsesDefaultWorkspace()
     {
         var store = new InMemoryDocumentStatusStore();
         var service = CreateService(store, workspace: " ");
@@ -303,17 +303,20 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
-    public async Task CreateDeletionPlan_AfterDeletionFailure_UsesPreservedChunkSnapshot()
+    public async Task CreateDeletionPlan_DeletionFailedDocument_RemainsRetryable()
     {
         var store = new InMemoryDocumentStatusStore();
         var service = CreateService(store);
-        await PrepareProcessedDocumentAsync(service);
+        await service.PrepareIngestionAsync("content", docId: "doc-1", filePath: "doc.md");
+        await service.StartProcessingAsync("workspace-a", "doc-1");
+        await service.RecordChunksAsync("workspace-a", "doc-1", CreateChunks("doc-1"));
         await service.MarkDeletionFailedAsync("workspace-a", "doc-1", "vectors", "delete failed");
 
         var plan = await service.CreateDeletionPlanAsync("workspace-a", "doc-1");
 
         plan.Found.Should().BeTrue();
         plan.ChunkIds.Should().Equal("chunk-1", "chunk-2");
+        plan.DeleteTextChunks.Should().BeTrue();
         plan.ChunkSnapshots.Should().Equal(
             new DocumentChunkSnapshot("chunk-1", 10, 0, "doc.md"),
             new DocumentChunkSnapshot("chunk-2", 8, 1, "doc.md"));
