@@ -70,4 +70,66 @@ public sealed class KvDocumentStatusStoreTests
             }
         }
     }
+
+    [Fact]
+    public async Task Upsert_WithColonDelimitedWorkspaceAndDocId_DoesNotCollide()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+
+        try
+        {
+            var statusStore = new KvDocumentStatusStore(
+                new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance));
+            var workspaceWithColon = new DocumentStatusRecord
+            {
+                DocId = "c",
+                Workspace = "a:b",
+                Status = DocumentLifecycleStatus.Pending,
+                ContentSummary = "workspace contains colon",
+                ContentLength = 24,
+                FilePath = "workspace-colon.md",
+                TrackId = "track-workspace",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var docIdWithColon = new DocumentStatusRecord
+            {
+                DocId = "b:c",
+                Workspace = "a",
+                Status = DocumentLifecycleStatus.Failed,
+                ContentSummary = "doc id contains colon",
+                ContentLength = 21,
+                FilePath = "docid-colon.md",
+                TrackId = "track-docid",
+                ErrorMessage = "separate failure",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+
+            await statusStore.UpsertAsync(workspaceWithColon);
+            await statusStore.UpsertAsync(docIdWithColon);
+
+            var first = await statusStore.GetAsync("a:b", "c");
+            var second = await statusStore.GetAsync("a", "b:c");
+
+            first.Should().NotBeNull();
+            first!.Workspace.Should().Be("a:b");
+            first.DocId.Should().Be("c");
+            first.FilePath.Should().Be("workspace-colon.md");
+            first.TrackId.Should().Be("track-workspace");
+            second.Should().NotBeNull();
+            second!.Workspace.Should().Be("a");
+            second.DocId.Should().Be("b:c");
+            second.FilePath.Should().Be("docid-colon.md");
+            second.TrackId.Should().Be("track-docid");
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
 }

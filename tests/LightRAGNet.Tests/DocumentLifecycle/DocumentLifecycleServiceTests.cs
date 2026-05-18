@@ -239,6 +239,45 @@ public sealed class DocumentLifecycleServiceTests
     }
 
     [Fact]
+    public async Task PrepareIngestion_FailedDocument_RefreshesRetryMetadataAndPreservesChunkSnapshots()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        var first = await service.PrepareIngestionAsync(
+            "old content",
+            docId: "doc-1",
+            filePath: "old.md",
+            trackId: "old-track");
+        await service.StartProcessingAsync("workspace-a", "doc-1");
+        await service.RecordChunksAsync("workspace-a", "doc-1", CreateChunks("doc-1"));
+        await service.MarkFailedAsync("workspace-a", "doc-1", "embedding", "old error");
+        var failed = await store.GetAsync("workspace-a", "doc-1");
+        failed.Should().NotBeNull();
+        await Task.Delay(10);
+
+        var retry = await service.PrepareIngestionAsync(
+            "  new replacement content  ",
+            docId: "doc-1",
+            filePath: "new.md",
+            trackId: "new-track");
+
+        retry.IsDuplicate.Should().BeFalse();
+        retry.StatusRecord.Status.Should().Be(DocumentLifecycleStatus.Pending);
+        retry.StatusRecord.ContentSummary.Should().Be("new replacement content");
+        retry.StatusRecord.ContentLength.Should().Be("  new replacement content  ".Length);
+        retry.StatusRecord.FilePath.Should().Be("new.md");
+        retry.StatusRecord.TrackId.Should().Be("new-track");
+        retry.StatusRecord.ErrorMessage.Should().BeEmpty();
+        retry.StatusRecord.Metadata.Should().NotContainKey("failure_stage");
+        retry.StatusRecord.CreatedAt.Should().Be(first.StatusRecord.CreatedAt);
+        retry.StatusRecord.UpdatedAt.Should().BeAfter(failed!.UpdatedAt);
+        retry.StatusRecord.ChunksList.Should().Equal("chunk-1", "chunk-2");
+        retry.StatusRecord.ChunkSnapshots.Should().Equal(
+            new DocumentChunkSnapshot("chunk-1", 10, 0, "doc.md"),
+            new DocumentChunkSnapshot("chunk-2", 8, 1, "doc.md"));
+    }
+
+    [Fact]
     public async Task DuplicateDocument_DifferentWorkspace_AllowsSeparateStatus()
     {
         var store = new InMemoryDocumentStatusStore();

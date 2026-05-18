@@ -43,25 +43,55 @@ public sealed class LightRAGLifecycleIntegrationTests
     {
         var statusStore = new InMemoryDocumentStatusStore();
         var lifecycleService = CreateLifecycleService(statusStore);
-        await lifecycleService.PrepareIngestionAsync("failed content", docId: "doc-retry", filePath: "retry.md");
+        await lifecycleService.PrepareIngestionAsync("old failed content", docId: "doc-retry", filePath: "old.md");
         await lifecycleService.MarkFailedAsync("workspace-a", "doc-retry", "process_chunks", "previous failure");
+        var textChunksStore = Substitute.For<IKVStore>();
         var fullDocsStore = Substitute.For<IKVStore>();
-        var rag = CreateLightRag(lifecycleService, fullDocsStore: fullDocsStore);
+        var vectorStore = Substitute.For<IVectorStore>();
+        var rag = CreateLightRag(
+            lifecycleService,
+            textChunksStore: textChunksStore,
+            fullDocsStore: fullDocsStore,
+            vectorStore: vectorStore);
+        var retryContent = "new retry alpha beta gamma delta";
 
         var result = await rag.InsertAsync(
-            "failed content",
+            retryContent,
             docId: "doc-retry",
-            filePath: "retry.md");
+            filePath: "new.md");
 
         result.Should().Be("doc-retry");
         await fullDocsStore.Received(1).UpsertAsync(
-            Arg.Is<Dictionary<string, Dictionary<string, object>>>(data => data.ContainsKey("doc-retry")),
+            Arg.Is<Dictionary<string, Dictionary<string, object>>>(data =>
+                data.ContainsKey("doc-retry")
+                && data["doc-retry"]["content"].Equals(retryContent)
+                && data["doc-retry"]["file_path"].Equals("new.md")),
+            Arg.Any<CancellationToken>());
+        await textChunksStore.Received(1).UpsertAsync(
+            Arg.Is<Dictionary<string, Dictionary<string, object>>>(data =>
+                data.Count > 0
+                && data.Values.All(chunk =>
+                    chunk["file_path"].Equals("new.md")
+                    && chunk["full_doc_id"].Equals("doc-retry"))),
+            Arg.Any<CancellationToken>());
+        await vectorStore.Received(1).UpsertAsync(
+            "chunks",
+            Arg.Is<IEnumerable<VectorDocument>>(documents =>
+                documents.Any()
+                && documents.All(document =>
+                    document.Metadata["file_path"].Equals("new.md")
+                    && document.Metadata["full_doc_id"].Equals("doc-retry")
+                    && document.Metadata["content"].ToString()!.StartsWith("t", StringComparison.Ordinal))),
             Arg.Any<CancellationToken>());
         var status = await statusStore.GetAsync("workspace-a", "doc-retry");
         status.Should().NotBeNull();
         status!.Status.Should().Be(DocumentLifecycleStatus.Processed);
+        status.ContentLength.Should().Be(retryContent.Length);
+        status.ContentSummary.Should().Be(retryContent);
+        status.FilePath.Should().Be("new.md");
         status.ErrorMessage.Should().BeEmpty();
         status.Metadata.Should().NotContainKey("failure_stage");
+        status.ChunkSnapshots.Should().OnlyContain(snapshot => snapshot.FilePath == "new.md");
     }
 
     [Fact]
@@ -116,7 +146,9 @@ public sealed class LightRAGLifecycleIntegrationTests
 
     private static LightRAG CreateLightRag(
         DocumentLifecycleService lifecycleService,
+        IKVStore? textChunksStore = null,
         IKVStore? fullDocsStore = null,
+        IVectorStore? vectorStore = null,
         ITokenizer? tokenizer = null,
         IEmbeddingService? embeddingService = null)
     {
@@ -145,10 +177,10 @@ public sealed class LightRAGLifecycleIntegrationTests
                 .Returns([1.0f, 0.5f]);
         }
 
-        var vectorStore = Substitute.For<IVectorStore>();
+        vectorStore ??= Substitute.For<IVectorStore>();
         var graphStore = Substitute.For<IGraphStore>();
         var rerankService = Substitute.For<IRerankService>();
-        var textChunksStore = Substitute.For<IKVStore>();
+        textChunksStore ??= Substitute.For<IKVStore>();
         fullDocsStore ??= Substitute.For<IKVStore>();
         var fullEntitiesStore = Substitute.For<IKVStore>();
         var fullRelationsStore = Substitute.For<IKVStore>();

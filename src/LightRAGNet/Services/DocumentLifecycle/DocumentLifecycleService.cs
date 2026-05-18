@@ -40,6 +40,32 @@ public sealed class DocumentLifecycleService
         var existing = await _statusStore.GetAsync(workspace, resolvedDocId, cancellationToken);
         if (existing is not null)
         {
+            if (existing.Status != DocumentLifecycleStatus.Processed)
+            {
+                _logger.LogDebug(
+                    "Document {DocId} in workspace {Workspace} is {Status}; refreshing lifecycle metadata for retry.",
+                    resolvedDocId,
+                    workspace,
+                    existing.Status);
+
+                existing.Status = DocumentLifecycleStatus.Pending;
+                existing.ContentSummary = CreateSummary(content);
+                existing.ContentLength = content.Length;
+                existing.FilePath = string.IsNullOrWhiteSpace(filePath) ? DefaultFilePath : filePath;
+                existing.TrackId = string.IsNullOrWhiteSpace(trackId) ? $"track-{resolvedDocId}" : trackId;
+                existing.ErrorMessage = string.Empty;
+                existing.Metadata.Remove("failure_stage");
+                Touch(existing);
+
+                await _statusStore.UpsertAsync(existing, cancellationToken);
+
+                return new DocumentIngestionResult(
+                    resolvedDocId,
+                    workspace,
+                    IsDuplicate: false,
+                    existing);
+            }
+
             _logger.LogDebug(
                 "Document {DocId} already exists in workspace {Workspace}.",
                 resolvedDocId,

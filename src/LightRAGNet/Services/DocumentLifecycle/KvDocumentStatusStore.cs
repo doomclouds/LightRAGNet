@@ -43,7 +43,8 @@ public sealed class KvDocumentStatusStore(
 
     private static string MakeKey(string workspace, string docId)
     {
-        return $"{NormalizeWorkspace(workspace)}:{docId}";
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        return $"w{normalizedWorkspace.Length}:{normalizedWorkspace}d{docId.Length}:{docId}";
     }
 
     private static string NormalizeWorkspace(string workspace)
