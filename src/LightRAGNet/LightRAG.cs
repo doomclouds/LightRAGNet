@@ -2,6 +2,7 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Models;
+using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.RetrievalContext;
@@ -37,6 +38,7 @@ public class LightRAG(
     IKVStore relationChunksStore,
     [FromKeyedServices(KVContracts.LLMCache)]
     IKVStore llmCacheStore,
+    DocumentLifecycleService documentLifecycleService,
     ILogger<LightRAG> logger)
 {
     /// <summary>
@@ -99,13 +101,17 @@ public class LightRAG(
             InitializeStateProcessor();
         }
 
-        // 1. Generate document ID
-        docId ??= HashUtils.ComputeMd5Hash(content, "doc-");
-        filePath ??= "unknown_source";
+        // 1. Prepare lifecycle status and duplicate gate
+        var ingestion = await documentLifecycleService.PrepareIngestionAsync(
+            content,
+            docId,
+            filePath,
+            cancellationToken: cancellationToken);
 
-        // 2. Check if document already exists
-        var existingDoc = await fullDocsStore.GetByIdAsync(docId, cancellationToken);
-        if (existingDoc != null)
+        docId = ingestion.DocId;
+        filePath = ingestion.StatusRecord.FilePath;
+
+        if (ingestion.IsDuplicate && ingestion.StatusRecord.Status == DocumentLifecycleStatus.Processed)
         {
             logger.LogWarning("Document {DocId} already exists", docId);
             PostTaskState(new TaskState
@@ -119,229 +125,278 @@ public class LightRAG(
             return docId;
         }
 
-        // 3. Document chunking (batch processing operation)
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.DocumentChunking,
-            Current = 0,
-            Total = 0,
-            Description = "Chunking document",
-            DocId = docId
-        });
+        var failureStage = "chunking";
 
-        var chunks = documentProcessingService.ChunkDocument(
-            content,
-            docId,
-            filePath);
-
-        PostTaskState(new TaskState
+        try
         {
-            Stage = TaskStage.DocumentChunking,
-            Current = 0,
-            Total = 0,
-            Description = $"Document chunked into {chunks.Count} chunks",
-            DocId = docId
-        });
+            await documentLifecycleService.StartProcessingAsync(
+                ingestion.Workspace,
+                docId,
+                cancellationToken);
 
-        logger.LogInformation(
-            "Document {DocId} split into {ChunkCount} chunks",
-            docId,
-            chunks.Count);
-        
-        // 4. Process each chunk in parallel
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.ProcessingChunks,
-            Current = 0,
-            Total = chunks.Count,
-            Description = "Processing document chunks (vectorization and entity extraction)",
-            DocId = docId
-        });
-
-        var processedCount = 0;
-        var chunkTasks = chunks.Select(async chunk =>
-        {
-            try
+            // 2. Document chunking (batch processing operation)
+            PostTaskState(new TaskState
             {
-                var result = await documentProcessingService.ProcessChunkAsync(chunk, cancellationToken);
-                
-                var current = Interlocked.Increment(ref processedCount);
-                PostTaskState(new TaskState
-                {
-                    Stage = TaskStage.ProcessingChunks,
-                    Current = current,
-                    Total = chunks.Count,
-                    Description = $"Processing document chunk {current}/{chunks.Count}",
-                    DocId = docId
-                });
-                return result;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error processing chunk {ChunkId}, order {Order}, tokens {Tokens}", 
-                    chunk.Id, chunk.ChunkOrderIndex, chunk.Tokens);
-                throw;
-            }
-        });
-        var chunkResults = await Task.WhenAll(chunkTasks);
-
-        // 5. Store text chunks (batch operation)
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringTextChunks,
-            Current = 0,
-            Total = 0,
-            Description = $"Storing text chunks: {chunks.Count} chunks",
-            DocId = docId
-        });
-
-        var chunkData = chunks.ToDictionary(
-            c => c.Id,
-            c => new Dictionary<string, object>
-            {
-                ["content"] = c.Content,
-                ["tokens"] = c.Tokens,
-                ["chunk_order_index"] = c.ChunkOrderIndex,
-                ["full_doc_id"] = c.FullDocId,
-                ["file_path"] = c.FilePath
+                Stage = TaskStage.DocumentChunking,
+                Current = 0,
+                Total = 0,
+                Description = "Chunking document",
+                DocId = docId
             });
 
-        await textChunksStore.UpsertAsync(chunkData, cancellationToken);
+            var chunks = documentProcessingService.ChunkDocument(
+                content,
+                docId,
+                filePath);
 
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringTextChunks,
-            Current = 0,
-            Total = 0,
-            Description = $"Text chunks stored: {chunks.Count} chunks",
-            DocId = docId
-        });
+            await documentLifecycleService.RecordChunksAsync(
+                ingestion.Workspace,
+                docId,
+                chunks,
+                cancellationToken);
 
-        // 6. Store document chunk vectors (batch operation)
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringChunkVectors,
-            Current = 0,
-            Total = 0,
-            Description = $"Storing document chunk vectors: {chunks.Count} chunks",
-            DocId = docId
-        });
-
-        // Reference Python version: chunks_vdb meta_fields are {"full_doc_id", "content", "file_path"}
-        // Plus automatically added id, workspace_id, created_at
-        var currentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        const string workspaceId = "_"; // Default workspace ID, consistent with Python version
-
-        var vectorDocs = chunkResults.Select(cr =>
-        {
-            var chunk = chunks.First(c => c.Id == cr.ChunkId);
-            return new VectorDocument
+            PostTaskState(new TaskState
             {
-                Id = cr.ChunkId,
-                Vector = cr.Embedding,
-                Content = chunk.Content,
-                Metadata = new Dictionary<string, object>
+                Stage = TaskStage.DocumentChunking,
+                Current = 0,
+                Total = 0,
+                Description = $"Document chunked into {chunks.Count} chunks",
+                DocId = docId
+            });
+
+            logger.LogInformation(
+                "Document {DocId} split into {ChunkCount} chunks",
+                docId,
+                chunks.Count);
+
+            // 3. Process each chunk in parallel
+            failureStage = "process_chunks";
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.ProcessingChunks,
+                Current = 0,
+                Total = chunks.Count,
+                Description = "Processing document chunks (vectorization and entity extraction)",
+                DocId = docId
+            });
+
+            var processedCount = 0;
+            var chunkTasks = chunks.Select(async chunk =>
+            {
+                try
                 {
-                    ["id"] = cr.ChunkId, // chunk ID
-                    ["workspace_id"] = workspaceId, // Workspace ID
-                    ["created_at"] = currentTime, // Unix timestamp
-                    ["content"] = chunk.Content, // Document content
-                    ["full_doc_id"] = docId, // Full document ID
-                    ["file_path"] = filePath // File path
+                    var result = await documentProcessingService.ProcessChunkAsync(chunk, cancellationToken);
+
+                    var current = Interlocked.Increment(ref processedCount);
+                    PostTaskState(new TaskState
+                    {
+                        Stage = TaskStage.ProcessingChunks,
+                        Current = current,
+                        Total = chunks.Count,
+                        Description = $"Processing document chunk {current}/{chunks.Count}",
+                        DocId = docId
+                    });
+                    return result;
                 }
-            };
-        }).ToList();
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error processing chunk {ChunkId}, order {Order}, tokens {Tokens}",
+                        chunk.Id, chunk.ChunkOrderIndex, chunk.Tokens);
+                    throw;
+                }
+            });
+            var chunkResults = await Task.WhenAll(chunkTasks);
 
-        await vectorStore.UpsertAsync("chunks", vectorDocs, cancellationToken);
-
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringChunkVectors,
-            Current = 0,
-            Total = 0,
-            Description = $"Document chunk vectors stored: {chunks.Count} chunks",
-            DocId = docId
-        });
-
-        // 7. Merge entities and relationships (link data flow)
-        await knowledgeGraphMergeService.MergeEntitiesAndRelationsAsync(
-            chunkResults.ToList(), docId, _taskStateBuffer, cancellationToken: cancellationToken);
-
-        // 8. Store full document (single operation, but also a batch storage operation)
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringFullDocument,
-            Current = 0,
-            Total = 0,
-            Description = "Storing full document",
-            DocId = docId
-        });
-
-        await fullDocsStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-        {
-            [docId] = new()
+            // 4. Store text chunks (batch operation)
+            failureStage = "store_text_chunks";
+            PostTaskState(new TaskState
             {
-                ["content"] = content,
-                ["file_path"] = filePath,
-                ["chunks_count"] = chunks.Count,
-                ["chunks_list"] = chunks.Select(c => c.Id).ToList()
-            }
-        }, cancellationToken);
+                Stage = TaskStage.StoringTextChunks,
+                Current = 0,
+                Total = 0,
+                Description = $"Storing text chunks: {chunks.Count} chunks",
+                DocId = docId
+            });
 
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.StoringFullDocument,
-            Current = 0,
-            Total = 0,
-            Description = "Full document stored",
-            DocId = docId
-        });
+            var chunkData = chunks.ToDictionary(
+                c => c.Id,
+                c => new Dictionary<string, object>
+                {
+                    ["content"] = c.Content,
+                    ["tokens"] = c.Tokens,
+                    ["chunk_order_index"] = c.ChunkOrderIndex,
+                    ["full_doc_id"] = c.FullDocId,
+                    ["file_path"] = c.FilePath
+                });
 
-        // 9. Persist
-        PostTaskState(new TaskState
-        {
-            Stage = TaskStage.Persisting,
-            Current = 0,
-            Total = 7,
-            Description = "Persisting data",
-            DocId = docId
-        });
+            await textChunksStore.UpsertAsync(chunkData, cancellationToken);
 
-        var persistTasks = new[]
-        {
-            textChunksStore.IndexDoneCallbackAsync(cancellationToken),
-            fullDocsStore.IndexDoneCallbackAsync(cancellationToken),
-            fullEntitiesStore.IndexDoneCallbackAsync(cancellationToken),
-            fullRelationsStore.IndexDoneCallbackAsync(cancellationToken),
-            entityChunksStore.IndexDoneCallbackAsync(cancellationToken),
-            relationChunksStore.IndexDoneCallbackAsync(cancellationToken),
-        };
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.StoringTextChunks,
+                Current = 0,
+                Total = 0,
+                Description = $"Text chunks stored: {chunks.Count} chunks",
+                DocId = docId
+            });
 
-        for (var i = 0; i < persistTasks.Length; i++)
-        {
-            await persistTasks[i];
+            // 5. Store document chunk vectors (batch operation)
+            failureStage = "store_chunk_vectors";
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.StoringChunkVectors,
+                Current = 0,
+                Total = 0,
+                Description = $"Storing document chunk vectors: {chunks.Count} chunks",
+                DocId = docId
+            });
+
+            // Reference Python version: chunks_vdb meta_fields are {"full_doc_id", "content", "file_path"}
+            // Plus automatically added id, workspace_id, created_at
+            var currentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var workspaceId = ingestion.Workspace;
+
+            var vectorDocs = chunkResults.Select(cr =>
+            {
+                var chunk = chunks.First(c => c.Id == cr.ChunkId);
+                return new VectorDocument
+                {
+                    Id = cr.ChunkId,
+                    Vector = cr.Embedding,
+                    Content = chunk.Content,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["id"] = cr.ChunkId, // chunk ID
+                        ["workspace_id"] = workspaceId, // Workspace ID
+                        ["created_at"] = currentTime, // Unix timestamp
+                        ["content"] = chunk.Content, // Document content
+                        ["full_doc_id"] = docId, // Full document ID
+                        ["file_path"] = filePath // File path
+                    }
+                };
+            }).ToList();
+
+            await vectorStore.UpsertAsync("chunks", vectorDocs, cancellationToken);
+
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.StoringChunkVectors,
+                Current = 0,
+                Total = 0,
+                Description = $"Document chunk vectors stored: {chunks.Count} chunks",
+                DocId = docId
+            });
+
+            // 6. Merge entities and relationships (link data flow)
+            failureStage = "merge_graph";
+            await knowledgeGraphMergeService.MergeEntitiesAndRelationsAsync(
+                chunkResults.ToList(), docId, _taskStateBuffer, cancellationToken: cancellationToken);
+
+            // 7. Store full document (single operation, but also a batch storage operation)
+            failureStage = "store_full_document";
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.StoringFullDocument,
+                Current = 0,
+                Total = 0,
+                Description = "Storing full document",
+                DocId = docId
+            });
+
+            await fullDocsStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [docId] = new()
+                {
+                    ["content"] = content,
+                    ["file_path"] = filePath,
+                    ["chunks_count"] = chunks.Count,
+                    ["chunks_list"] = chunks.Select(c => c.Id).ToList()
+                }
+            }, cancellationToken);
+
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.StoringFullDocument,
+                Current = 0,
+                Total = 0,
+                Description = "Full document stored",
+                DocId = docId
+            });
+
+            // 8. Persist
+            failureStage = "persist";
             PostTaskState(new TaskState
             {
                 Stage = TaskStage.Persisting,
-                Current = i + 1,
-                Total = persistTasks.Length,
-                Description = $"Persisting data {i + 1}/{persistTasks.Length}",
+                Current = 0,
+                Total = 7,
+                Description = "Persisting data",
                 DocId = docId
             });
+
+            var persistTasks = new[]
+            {
+                textChunksStore.IndexDoneCallbackAsync(cancellationToken),
+                fullDocsStore.IndexDoneCallbackAsync(cancellationToken),
+                fullEntitiesStore.IndexDoneCallbackAsync(cancellationToken),
+                fullRelationsStore.IndexDoneCallbackAsync(cancellationToken),
+                entityChunksStore.IndexDoneCallbackAsync(cancellationToken),
+                relationChunksStore.IndexDoneCallbackAsync(cancellationToken),
+            };
+
+            for (var i = 0; i < persistTasks.Length; i++)
+            {
+                await persistTasks[i];
+                PostTaskState(new TaskState
+                {
+                    Stage = TaskStage.Persisting,
+                    Current = i + 1,
+                    Total = persistTasks.Length,
+                    Description = $"Persisting data {i + 1}/{persistTasks.Length}",
+                    DocId = docId
+                });
+            }
+
+            await documentLifecycleService.MarkProcessedAsync(
+                ingestion.Workspace,
+                docId,
+                cancellationToken);
+
+            logger.LogInformation("Document {DocId} inserted successfully", docId);
+
+            PostTaskState(new TaskState
+            {
+                Stage = TaskStage.Completed,
+                Current = 1,
+                Total = 1,
+                Description = "Document insertion completed",
+                DocId = docId
+            });
+
+            return docId;
         }
-
-        logger.LogInformation("Document {DocId} inserted successfully", docId);
-
-        PostTaskState(new TaskState
+        catch (Exception ex)
         {
-            Stage = TaskStage.Completed,
-            Current = 1,
-            Total = 1,
-            Description = "Document insertion completed",
-            DocId = docId
-        });
+            try
+            {
+                await documentLifecycleService.MarkFailedAsync(
+                    ingestion.Workspace,
+                    docId,
+                    failureStage,
+                    ex.Message,
+                    cancellationToken);
+            }
+            catch (Exception markFailedException)
+            {
+                logger.LogError(
+                    markFailedException,
+                    "Failed to mark document {DocId} lifecycle failure at stage {Stage}",
+                    docId,
+                    failureStage);
+            }
 
-        return docId;
+            throw;
+        }
     }
 
     /// <summary>
