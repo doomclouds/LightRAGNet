@@ -2030,11 +2030,48 @@ git commit -m "feat: remove document row after deletion"
 
 **Files:**
 
+- Modify: `src/LightRAGNet.Server/Handlers/RagTaskStatusChangedHandler.cs`
+- Modify: `src/LightRAGNet.Web/Services/RagTaskNotificationService.cs`
 - Modify: `src/LightRAGNet.Web/ApiClient.cs`
 - Create: `src/LightRAGNet.Web/MarkdownDocumentDeleteClientResult.cs`
 - Modify: `src/LightRAGNet.Web/Components/Pages/MarkdownDocuments.razor`
+- Modify if needed: `src/LightRAGNet.Web/Extensions/FormatExtensions.cs`
 
-- [ ] **Step 1: Change API client result**
+- [ ] **Step 1: Add deletion operation to SignalR payload**
+
+`RagTaskStatusChangedHandler.NotifyFrontendAsync` currently sends raw `status = task.Status.ToString()`. For delete completion the row has already been removed server-side, so the UI must know this `Completed` event is a delete completion, not an index completion.
+
+Add `operationType`:
+
+```csharp
+var updateData = new
+{
+    taskId = task.TaskId,
+    documentId = task.DocumentId,
+    operationType = task.OperationType.ToString(),
+    status = task.Status.ToString(),
+    progress = task.Progress,
+    currentStage = task.CurrentStage?.ToString(),
+    errorMessage = task.ErrorMessage,
+    startedAt = task.StartedAt,
+    completedAt = task.CompletedAt
+};
+```
+
+Add the matching property:
+
+```csharp
+public class TaskStatusUpdate
+{
+    public string TaskId { get; set; } = string.Empty;
+    public int DocumentId { get; set; }
+    public string OperationType { get; set; } = "IndexDocument";
+    public string Status { get; set; } = string.Empty;
+    // ...
+}
+```
+
+- [ ] **Step 2: Change API client result**
 
 No production code before a test if an API-client test harness exists. If no web test project exists, use build verification and keep the change minimal.
 
@@ -2083,7 +2120,7 @@ public async Task<MarkdownDocumentDeleteClientResult> DeleteMarkdownDocumentAsyn
 }
 ```
 
-- [ ] **Step 2: Update UI conditions**
+- [ ] **Step 3: Update UI conditions**
 
 Replace delete button hiding condition:
 
@@ -2153,12 +2190,64 @@ else
 }
 ```
 
-- [ ] **Step 3: Verify build**
+Update the call site from `DeleteDocument(context.Id)` to `DeleteDocument(context)`.
+
+Update status formatting so deletion states are readable:
+
+```csharp
+"Deleting" => "Deleting",
+"DeletionFailed" => "Deletion failed",
+```
+
+Use `Color.Warning` or `Color.Info` for `Deleting` and `Color.Error` for `DeletionFailed`; use `HourglassEmpty` and `Error` icons respectively.
+
+- [ ] **Step 4: Handle delete SignalR updates**
+
+In `OnTaskStatusUpdated`, branch delete operations before the existing index-completion logic:
+
+```csharp
+if (update.OperationType == "DeleteDocument")
+{
+    if (update.Status == "Completed")
+    {
+        var deleted = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
+        if (deleted != null)
+        {
+            _documents!.Remove(deleted);
+            _totalCount = Math.Max(0, _totalCount - 1);
+        }
+
+        await InvokeAsync(async () =>
+        {
+            await DebouncedReloadServerDataAsync();
+        });
+        return;
+    }
+
+    if (update.Status == "Failed")
+    {
+        document.RagStatus = "DeletionFailed";
+        document.RagErrorMessage = update.ErrorMessage;
+        await InvokeAsync(StateHasChanged);
+        return;
+    }
+
+    document.RagStatus = "Deleting";
+    document.RagCurrentStage = update.CurrentStage;
+    await InvokeAsync(StateHasChanged);
+    return;
+}
+```
+
+This prevents delete `Completed` from setting `IsInRagSystem = true`, which is only valid for index completion.
+
+- [ ] **Step 5: Verify build**
 
 Run:
 
 ```powershell
 dotnet build .\src\LightRAGNet.Web\LightRAGNet.Web.csproj
+dotnet build .\LightRAGNet.slnx
 ```
 
 Expected GREEN:
@@ -2167,7 +2256,7 @@ Expected GREEN:
 Build succeeded.
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add src/LightRAGNet.Web src/LightRAGNet.Share
