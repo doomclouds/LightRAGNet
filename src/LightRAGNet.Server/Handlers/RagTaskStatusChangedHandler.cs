@@ -1,6 +1,7 @@
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Hubs;
+using LightRAGNet.Server.Services;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 
@@ -41,11 +42,22 @@ public class RagTaskStatusChangedHandler(
 
             if (task.OperationType == RagTaskOperationType.DeleteDocument)
             {
+                if (task.Status == RagTaskStatus.Completed)
+                {
+                    var deletionService = scope.ServiceProvider.GetRequiredService<MarkdownDocumentDeletionService>();
+                    deletionService.DeleteUploadedFileIfPresent(task.DeleteFilePath);
+                    context.MarkdownDocuments.Remove(document);
+                    await context.SaveChangesAsync(cancellationToken);
+
+                    logger.LogDebug("Document deletion completed and local row removed: DocumentId={DocumentId}",
+                        task.DocumentId);
+                    return;
+                }
+
                 document.RagStatus = task.Status switch
                 {
                     RagTaskStatus.Pending or RagTaskStatus.Processing => "Deleting",
                     RagTaskStatus.Failed => "DeletionFailed",
-                    RagTaskStatus.Completed => "Deleted",
                     _ => task.Status.ToString()
                 };
                 document.RagErrorMessage = task.ErrorMessage;

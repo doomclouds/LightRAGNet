@@ -177,13 +177,14 @@ public sealed class DocumentDeletionApiTests
     [Fact]
     public async Task DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting()
     {
+        var fileName = CreateUniqueUploadFileName("indexed");
         using var factory = new LightRagServerFactory();
         await SeedDocumentAsync(factory, new MarkdownDocument
         {
             Id = 2,
-            FileName = "indexed.md",
+            FileName = fileName,
             Content = "content",
-            FileUrl = "/uploads/indexed.md",
+            FileUrl = $"http://localhost/uploads/{fileName}",
             IsInRagSystem = true,
             RagDocumentId = "doc-indexed",
             RagStatus = "Completed",
@@ -216,6 +217,7 @@ public sealed class DocumentDeletionApiTests
         task.Should().NotBeNull();
         task!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
         task.DeleteLlmCache.Should().BeTrue();
+        task.DeleteFilePath.Should().Be($"/uploads/{fileName}");
     }
 
     [Fact]
@@ -344,37 +346,131 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
-    public async Task DeleteTaskFailure_KeepsMarkdownRowAndMarksDeletionFailed()
+    public async Task DeleteTaskCompleted_RemovesMarkdownRowAndUploadedFile()
     {
+        var fileName = CreateUniqueUploadFileName("completed");
+        var filePath = await CreateUploadedFileAsync(fileName);
         using var factory = new LightRagServerFactory();
-        using var scope = factory.Services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        context.MarkdownDocuments.Add(new MarkdownDocument
+        try
         {
-            Id = 77,
-            FileName = "delete.md",
-            Content = "content",
-            IsInRagSystem = true,
-            RagDocumentId = "doc-delete",
-            RagStatus = "Deleting"
-        });
-        await context.SaveChangesAsync();
-        var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 14,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"/uploads/{fileName}",
+                IsInRagSystem = true,
+                RagDocumentId = "doc-indexed",
+                RagStatus = "Deleting"
+            });
+            using var scope = factory.Services.CreateScope();
+            var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
 
-        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+            await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+            {
+                DocumentId = 14,
+                RagDocumentId = "doc-indexed",
+                DeleteFilePath = $"/uploads/{fileName}",
+                OperationType = RagTaskOperationType.DeleteDocument,
+                Status = RagTaskStatus.Completed
+            }), CancellationToken.None);
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.ChangeTracker.Clear();
+            var document = await context.MarkdownDocuments.FindAsync(14);
+            document.Should().BeNull();
+            File.Exists(filePath).Should().BeFalse();
+        }
+        finally
         {
-            DocumentId = 77,
-            RagDocumentId = "doc-delete",
-            OperationType = RagTaskOperationType.DeleteDocument,
-            Status = RagTaskStatus.Failed,
-            ErrorMessage = "delete failed"
-        }), CancellationToken.None);
+            DeleteFileIfExists(filePath);
+        }
+    }
 
-        context.ChangeTracker.Clear();
-        var document = await context.MarkdownDocuments.FindAsync(77);
-        document.Should().NotBeNull();
-        document!.RagStatus.Should().Be("DeletionFailed");
-        document.RagErrorMessage.Should().Be("delete failed");
+    [Fact]
+    public async Task DeleteTaskCompleted_WithExternalUploadsUrl_RemovesRowButKeepsLocalFile()
+    {
+        var fileName = CreateUniqueUploadFileName("completed-external");
+        var filePath = await CreateUploadedFileAsync(fileName);
+        using var factory = new LightRagServerFactory();
+        try
+        {
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 15,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"https://evil.example/uploads/{fileName}",
+                IsInRagSystem = true,
+                RagDocumentId = "doc-indexed-external",
+                RagStatus = "Deleting"
+            });
+            using var scope = factory.Services.CreateScope();
+            var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+            await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+            {
+                DocumentId = 15,
+                RagDocumentId = "doc-indexed-external",
+                DeleteFilePath = null,
+                OperationType = RagTaskOperationType.DeleteDocument,
+                Status = RagTaskStatus.Completed
+            }), CancellationToken.None);
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.ChangeTracker.Clear();
+            var document = await context.MarkdownDocuments.FindAsync(15);
+            document.Should().BeNull();
+            File.Exists(filePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteTaskFailure_KeepsMarkdownRowAndUploadedFile()
+    {
+        var fileName = CreateUniqueUploadFileName("failed");
+        var filePath = await CreateUploadedFileAsync(fileName);
+        using var factory = new LightRagServerFactory();
+        try
+        {
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 16,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"/uploads/{fileName}",
+                IsInRagSystem = true,
+                RagDocumentId = "doc-delete-failed",
+                RagStatus = "Deleting"
+            });
+            using var scope = factory.Services.CreateScope();
+            var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+            await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+            {
+                DocumentId = 16,
+                RagDocumentId = "doc-delete-failed",
+                OperationType = RagTaskOperationType.DeleteDocument,
+                Status = RagTaskStatus.Failed,
+                ErrorMessage = "delete failed"
+            }), CancellationToken.None);
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.ChangeTracker.Clear();
+            var document = await context.MarkdownDocuments.FindAsync(16);
+            document.Should().NotBeNull();
+            document!.RagStatus.Should().Be("DeletionFailed");
+            document.RagErrorMessage.Should().Be("delete failed");
+            File.Exists(filePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
     }
 
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)

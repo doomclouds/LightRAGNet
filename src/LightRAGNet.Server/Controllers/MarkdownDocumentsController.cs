@@ -8,6 +8,7 @@ using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Hubs;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
@@ -24,6 +25,7 @@ public class MarkdownDocumentsController(
     AppDbContext context,
     ILogger<MarkdownDocumentsController> logger,
     IRagTaskQueueService taskQueueService,
+    MarkdownDocumentDeletionService documentDeletionService,
     IServiceProvider serviceProvider)
     : ControllerBase
 {
@@ -329,7 +331,8 @@ public class MarkdownDocumentsController(
 
         if (!document.IsInRagSystem && document.RagStatus != "DeletionFailed")
         {
-            DeleteUploadedFile(document);
+            var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+            documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
             context.MarkdownDocuments.Remove(document);
             await context.SaveChangesAsync(cancellationToken);
 
@@ -343,10 +346,11 @@ public class MarkdownDocumentsController(
             return Conflict(new { error = "Document is missing RagDocumentId" });
         }
 
+        var deleteFilePath = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
         var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
             document.Id,
             document.RagDocumentId,
-            document.FileUrl ?? document.FileName,
+            deleteFilePath!,
             deleteLlmCache,
             cancellationToken);
 
@@ -373,80 +377,6 @@ public class MarkdownDocumentsController(
             RagDocumentId = document.RagDocumentId,
             TaskId = taskId
         });
-    }
-
-    private void DeleteUploadedFile(MarkdownDocument document)
-    {
-        if (string.IsNullOrWhiteSpace(document.FileUrl))
-        {
-            return;
-        }
-
-        try
-        {
-            var localPath = document.FileUrl.Replace('\\', '/');
-            if (Uri.TryCreate(document.FileUrl, UriKind.Absolute, out var uri))
-            {
-                var requestHost = Request.Host.Host;
-                var requestPort = Request.Host.Port;
-                var hostMatches = string.Equals(uri.Host, requestHost, StringComparison.OrdinalIgnoreCase);
-                var portMatches = requestPort.HasValue
-                    ? uri.Port == requestPort.Value
-                    : uri.IsDefaultPort;
-
-                if (!hostMatches || !portMatches)
-                {
-                    logger.LogWarning(
-                        "File URL authority does not match current request host, skipping deletion: {FileUrl}",
-                        document.FileUrl);
-                    return;
-                }
-
-                localPath = uri.LocalPath.Replace('\\', '/');
-            }
-
-            const string uploadsPrefix = "/uploads/";
-            if (!localPath.StartsWith(uploadsPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                logger.LogWarning("File URL is outside uploads namespace, skipping deletion: {FileUrl}", document.FileUrl);
-                return;
-            }
-
-            var uploadedPath = Uri.UnescapeDataString(localPath[uploadsPrefix.Length..])
-                .Replace('\\', '/');
-            if (string.IsNullOrWhiteSpace(uploadedPath) ||
-                uploadedPath.Contains('/') ||
-                uploadedPath is "." or "..")
-            {
-                logger.LogWarning("File URL contains an invalid uploaded file path, skipping deletion: {FileUrl}", document.FileUrl);
-                return;
-            }
-
-            var fileName = uploadedPath;
-            var uploadsFolder = GetUploadsPath();
-            var uploadsRoot = Path.GetFullPath(uploadsFolder)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            var filePath = Path.GetFullPath(Path.Combine(uploadsFolder, fileName));
-            if (!filePath.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                logger.LogWarning("Resolved file path is outside uploads folder, skipping deletion: {FilePath}", filePath);
-                return;
-            }
-
-            if (System.IO.File.Exists(filePath))
-            {
-                System.IO.File.Delete(filePath);
-                logger.LogInformation("Deleted file: {FilePath}", filePath);
-            }
-            else
-            {
-                logger.LogWarning("File does not exist, skipping deletion: {FilePath}", filePath);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error occurred while deleting file: {FileUrl}", document.FileUrl);
-        }
     }
 
     /// <summary>

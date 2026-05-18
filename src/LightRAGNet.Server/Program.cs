@@ -5,6 +5,7 @@ using LightRAGNet.Hosting;
 using Scalar.AspNetCore;
 using Microsoft.Extensions.FileProviders;
 using System.Reflection;
+using LightRAGNet.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +51,8 @@ if (connectionString.StartsWith("Data Source="))
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(connectionString));
+
+builder.Services.AddScoped<MarkdownDocumentDeletionService>();
 
 // Register SignalR (for real-time task status updates)
 builder.Services.AddSignalR();
