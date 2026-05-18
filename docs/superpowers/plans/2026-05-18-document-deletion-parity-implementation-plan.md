@@ -58,12 +58,13 @@ This section is a hard gate. If a spec row cannot be mapped to a task, this plan
 | Prune graph node/edge `source_id` | Task 2 parser, Task 3 impact analysis and execution |
 | Delete entities/relations with no remaining sources | Task 3 owned graph deletion tests |
 | Update/rebuild retained entities/relations | Task 3 shared graph update tests |
+| Keep entities referenced by retained relations outside the deleted document's own relation index | Task 3 external retained relation regression |
 | Update/delete `entity_chunks` and `relation_chunks` | Task 3 tracking tests |
 | Optional LLM cache deletion, disabled by default | Task 3 cache tests, Task 4 public API option |
 | Record failed deletion stages and allow retry | Task 1 lifecycle metadata, Task 3 failure tests, Task 6 retry |
 | Use background task/status path | Task 1 queue contracts, Task 5 processor, Task 8 SignalR/UI |
 | API returns `204`, `202`, `409`, `404` as designed | Task 6 server tests |
-| `clear-all` remains bulk reset and includes `doc_status` | Task 9 cleanup boundary |
+| `clear-all` remains bulk reset, includes `doc_status`, stops/cancels tasks first, and reuses upload deletion safety | Task 9 cleanup boundary |
 | Normal tests do not require Docker | Tasks 2-9 use fakes; Task 10 optional integration only |
 
 Before final implementation review, run this grep and manually verify every term still has a task:
@@ -156,10 +157,12 @@ public static class DocumentDeletionStage
     public const string DeleteLlmCache = "delete_llm_cache";
     public const string DeleteDocumentMetadata = "delete_document_metadata";
     public const string DeleteDocStatus = "delete_doc_status";
+    public const string DeleteMarkdownRecord = "delete_markdown_record";
+    public const string DeleteUploadedFile = "delete_uploaded_file";
 }
 ```
 
-Server-only stages such as Markdown row/file deletion stay in server code, not the core RAG service.
+`DocumentDeletionStage` is the shared stage vocabulary for both core RAG deletion and server cleanup. The core `DocumentDeletionService` only executes core stages through `DeleteDocStatus`; server-only stages such as Markdown row/file deletion stay in server code and reuse `DeleteMarkdownRecord` / `DeleteUploadedFile`.
 
 ---
 
@@ -172,9 +175,12 @@ Server-only stages such as Markdown row/file deletion stay in server code, not t
 - Modify: `src/LightRAGNet/Models/RagTask.cs`
 - Modify: `src/LightRAGNet/Services/TaskQueue/IRagTaskQueueService.cs`
 - Modify: `src/LightRAGNet/Services/TaskQueue/RagTaskQueueService.cs`
+- Modify: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
 - Modify: `src/LightRAGNet/Services/DocumentLifecycle/DocumentLifecycleService.cs`
 - Test: `tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentLifecycle/DocumentLifecycleServiceTests.cs`
+- Test: `tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs`
+- Test support: `tests/LightRAGNet.Server.Tests/LightRagServerFactory.cs`
 
 - [ ] **Step 1: Add failing queue contract tests**
 
@@ -231,6 +237,48 @@ public async Task EnqueueDeletionTaskAsync_WhenDeleteTaskPendingForDocument_Retu
     duplicate.Should().BeNull();
     var tasks = await service.GetAllTasksAsync();
     tasks.Should().ContainSingle(t => t.OperationType == RagTaskOperationType.DeleteDocument);
+}
+
+[Fact]
+public async Task EnqueueTaskAsync_WhenDeleteTaskPendingForDocument_ReturnsNullAndDoesNotCreateIndexTask()
+{
+    var (service, _, _) = CreateService();
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
+
+    var indexTaskId = await service.EnqueueTaskAsync(42, "alpha beta", "alpha.md");
+
+    indexTaskId.Should().BeNull();
+    var tasks = await service.GetAllTasksAsync();
+    tasks.Should().ContainSingle(t => t.OperationType == RagTaskOperationType.DeleteDocument);
+}
+
+[Fact]
+public async Task EnqueueDeletionTaskAsync_PublishesDeleteOperationMetadata()
+{
+    var (service, _, mediator) = CreateService();
+
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: true);
+
+    await mediator.Received(1).Publish(
+        Arg.Is<RagTaskStatusChangedEvent>(evt =>
+            evt.Task.OperationType == RagTaskOperationType.DeleteDocument &&
+            evt.Task.DeleteLlmCache &&
+            evt.Task.DeleteFilePath == "alpha.md"),
+        Arg.Any<CancellationToken>());
+}
+
+[Fact]
+public async Task GetNextTaskAsync_WhenDeleteTaskPending_ReturnsDeleteTaskMetadata()
+{
+    var (service, _, _) = CreateService();
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: true);
+
+    var next = await service.GetNextTaskAsync();
+
+    next.Should().NotBeNull();
+    next!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+    next.RagDocumentId.Should().Be("doc-alpha");
+    next.DeleteLlmCache.Should().BeTrue();
 }
 ```
 
@@ -330,6 +378,12 @@ Implement `RagTaskOperationType` in `RagTask.cs` and add the properties from Sha
 Add this to `IRagTaskQueueService`:
 
 ```csharp
+Task<string?> EnqueueTaskAsync(
+    int documentId,
+    string content,
+    string filePath,
+    CancellationToken cancellationToken = default);
+
 Task<string?> EnqueueDeletionTaskAsync(
     int documentId,
     string ragDocumentId,
@@ -337,6 +391,51 @@ Task<string?> EnqueueDeletionTaskAsync(
     bool deleteLlmCache,
     CancellationToken cancellationToken = default);
 ```
+
+Change `RagTaskQueueService.EnqueueTaskAsync` to return `string?`. Before creating a new index task, reject active same-document tasks:
+
+```csharp
+var hasActiveTask = _tasks.Values.Any(t =>
+    t.DocumentId == documentId &&
+    (t.Status == RagTaskStatus.Pending || t.Status == RagTaskStatus.Processing));
+
+if (hasActiveTask)
+{
+    logger.LogWarning("Cannot enqueue indexing for document {DocumentId}; active task exists.", documentId);
+    return null;
+}
+```
+
+Update `MarkdownDocumentsController.AddToRagSystem` so a null task id returns `409 Conflict` and does not mark the document as `Pending`.
+
+Add a server regression test named `AddToRagSystem_WhenQueueRejectsTask_ReturnsConflictAndDoesNotMarkPending`:
+
+```csharp
+[Fact]
+public async Task AddToRagSystem_WhenQueueRejectsTask_ReturnsConflictAndDoesNotMarkPending()
+{
+    using var factory = new LightRagServerFactory();
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 10,
+        FileName = "blocked.md",
+        Content = "content",
+        RagStatus = null
+    });
+    await SeedDeleteTaskAsync(factory, documentId: 10);
+    using var client = factory.CreateClient();
+
+    var response = await client.PostAsync("/api/MarkdownDocuments/10/add-to-rag", null);
+
+    response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    using var scope = factory.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var document = await context.MarkdownDocuments.FindAsync(10);
+    document!.RagStatus.Should().BeNull();
+}
+```
+
+If the existing server test factory cannot seed active queue state, extend `LightRagServerFactory` with the smallest test hook needed to configure or access the in-memory queue. Do not introduce production-only test hooks.
 
 In `RagTaskQueueService.EnqueueDeletionTaskAsync`:
 
@@ -471,10 +570,17 @@ git commit -m "feat: add deletion task contracts"
 **Files:**
 
 - Create: `src/LightRAGNet/Services/DocumentDeletion/GraphSourceReferenceParser.cs`
+- Modify: `src/LightRAGNet/Services/KnowledgeGraphMerge/RelationBuilder.cs`
+- Modify: `src/LightRAGNet/Services/KnowledgeGraphMerge/StorageUpdateStage.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentDeletion/GraphSourceReferenceParserTests.cs`
+- Test: `tests/LightRAGNet.Tests/KnowledgeGraphMerge/RelationBuilderTests.cs`
+- Test: `tests/LightRAGNet.Tests/KnowledgeGraphMerge/StorageUpdateStageTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryGraphStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryGraphStoreTests.cs`
 
 - [ ] **Step 1: Write failing parser tests**
 
@@ -605,9 +711,12 @@ namespace LightRAGNet.Tests.TestDoubles;
 
 internal sealed class InMemoryKvStore : IKVStore
 {
-    private readonly Dictionary<string, Dictionary<string, object>> _items = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, object>> items = new(StringComparer.Ordinal);
 
-    public IReadOnlyDictionary<string, Dictionary<string, object>> Items => _items;
+    public Dictionary<string, Dictionary<string, object>> Items => items.ToDictionary(
+        pair => pair.Key,
+        pair => Clone(pair.Value),
+        StringComparer.Ordinal);
     public List<IReadOnlyList<string>> DeleteCalls { get; } = [];
     public List<IReadOnlyDictionary<string, Dictionary<string, object>>> UpsertCalls { get; } = [];
     public string? ThrowOnDeleteKey { get; set; }
@@ -615,17 +724,18 @@ internal sealed class InMemoryKvStore : IKVStore
 
     public Task<Dictionary<string, object>?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_items.TryGetValue(id, out var value) ? Clone(value) : null);
+        return Task.FromResult(items.TryGetValue(id, out var value) ? Clone(value) : null);
     }
 
     public Task<List<Dictionary<string, object>>> GetByIdsAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ids.Where(_items.ContainsKey).Select(id => Clone(_items[id])).ToList());
+        return Task.FromResult(ids.Where(items.ContainsKey).Select(id => Clone(items[id])).ToList());
     }
 
     public Task<HashSet<string>> FilterKeysAsync(HashSet<string> keys, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(keys.Where(_items.ContainsKey).ToHashSet(StringComparer.Ordinal));
+        // Match JsonKVStore: return keys that are missing from storage.
+        return Task.FromResult(keys.Where(key => !items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
     }
 
     public Task UpsertAsync(Dictionary<string, Dictionary<string, object>> data, CancellationToken cancellationToken = default)
@@ -638,7 +748,7 @@ internal sealed class InMemoryKvStore : IKVStore
         UpsertCalls.Add(data);
         foreach (var (key, value) in data)
         {
-            _items[key] = Clone(value);
+            items[key] = Clone(value);
         }
 
         return Task.CompletedTask;
@@ -655,25 +765,36 @@ internal sealed class InMemoryKvStore : IKVStore
                 throw new InvalidOperationException($"delete failed: {id}");
             }
 
-            _items.Remove(id);
+            items.Remove(id);
         }
 
         return Task.CompletedTask;
     }
 
-    public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default) => Task.FromResult(_items.Count == 0);
+    public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default) => Task.FromResult(items.Count == 0);
     public Task IndexDoneCallbackAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task DropAsync(CancellationToken cancellationToken = default)
     {
-        _items.Clear();
+        items.Clear();
         return Task.CompletedTask;
     }
 
-    public void Seed(string id, Dictionary<string, object> value) => _items[id] = Clone(value);
+    public void Seed(string id, Dictionary<string, object> value) => items[id] = Clone(value);
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> value)
     {
-        return value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
+        return value.ToDictionary(kvp => kvp.Key, kvp => CloneValue(kvp.Value), StringComparer.Ordinal);
+    }
+
+    private static object CloneValue(object value)
+    {
+        return value switch
+        {
+            Dictionary<string, object> dictionary => Clone(dictionary),
+            List<object> list => list.Select(CloneValue).ToList(),
+            List<string> list => list.ToList(),
+            _ => value
+        };
     }
 }
 ```
@@ -682,6 +803,7 @@ Create vector/graph doubles with the same pattern:
 
 ```csharp
 // InMemoryVectorStore: dictionary keyed by collection then id.
+// Collections should expose a deep-cloned snapshot, not the internal dictionary.
 // Implement QueryAsync by returning [] because deletion tests do not query.
 // Record DeleteCalls as List<(string Collection, IReadOnlyList<string> Ids)>.
 // Record UpsertCalls as List<(string Collection, IReadOnlyList<VectorDocument> Documents)>.
@@ -694,6 +816,18 @@ Create vector/graph doubles with the same pattern:
 // Expose DeletedNodes and DeletedEdges for assertions.
 ```
 
+Also update `RelationBuilder` so relation chunk keys are generated with
+`GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId)`. Writer code,
+deletion code, and graph test doubles must share the same ordinal relation-key
+helper; do not leave a culture-sensitive `OrderBy(x => x)` key path in the
+writer.
+
+Also update `StorageUpdateStage` so `full_relations.relation_pairs` are generated
+from the same `GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId)`
+normalization. `InMemoryKvStore.Items` and `InMemoryVectorStore.Collections`
+must expose clone/snapshot views so tests cannot mutate double internals without
+going through store methods.
+
 Do not add test-only methods to production types.
 
 - [ ] **Step 5: Verify GREEN**
@@ -701,7 +835,7 @@ Do not add test-only methods to production types.
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~GraphSourceReferenceParserTests
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~GraphSourceReferenceParserTests|FullyQualifiedName~RelationBuilderTests|FullyQualifiedName~StorageUpdateStage|FullyQualifiedName~InMemoryKvStore|FullyQualifiedName~InMemoryVectorStore|FullyQualifiedName~InMemoryGraphStore"
 ```
 
 Expected GREEN:
@@ -713,7 +847,7 @@ Passed
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add src/LightRAGNet/Services/DocumentDeletion tests/LightRAGNet.Tests/DocumentDeletion tests/LightRAGNet.Tests/TestDoubles
+git add src/LightRAGNet/Services/DocumentDeletion src/LightRAGNet/Services/KnowledgeGraphMerge tests/LightRAGNet.Tests/DocumentDeletion tests/LightRAGNet.Tests/KnowledgeGraphMerge tests/LightRAGNet.Tests/TestDoubles docs/superpowers/plans/2026-05-18-document-deletion-parity-implementation-plan.md
 git commit -m "test: add deletion storage doubles"
 ```
 
@@ -727,6 +861,7 @@ git commit -m "test: add deletion storage doubles"
 
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionRequest.cs`
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionImpact.cs`
+- Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionStage.cs`
 - Create: `src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionService.cs`
 - Create: `tests/LightRAGNet.Tests/DocumentDeletion/DocumentDeletionServiceTests.cs`
 - Modify: `src/LightRAGNet.Hosting/ServiceCollectionExtensions.cs`
@@ -822,11 +957,30 @@ public sealed class DocumentDeletionImpact
 {
     public List<string> ChunkIdsToDelete { get; } = [];
     public List<string> EntityIdsToDelete { get; } = [];
-    public Dictionary<string, IReadOnlyList<string>> EntityIdsToUpdate { get; } = new(StringComparer.Ordinal);
-    public List<(string SourceId, string TargetId)> RelationsToDelete { get; } = [];
-    public Dictionary<(string SourceId, string TargetId), IReadOnlyList<string>> RelationsToUpdate { get; } = new();
+    public List<EntityReferenceUpdate> EntityUpdates { get; } = [];
+    public List<RelationReferenceDelete> RelationsToDelete { get; } = [];
+    public List<RelationReferenceUpdate> RelationUpdates { get; } = [];
     public List<string> LlmCacheIdsToDelete { get; } = [];
 }
+
+public sealed record EntityReferenceUpdate(
+    string EntityName,
+    IReadOnlyList<string> RemainingChunkIds,
+    Dictionary<string, object> UpdatedProperties,
+    VectorDocument VectorDocument);
+
+public sealed record RelationReferenceDelete(
+    string SourceId,
+    string TargetId,
+    string RelationKey);
+
+public sealed record RelationReferenceUpdate(
+    string SourceId,
+    string TargetId,
+    string RelationKey,
+    IReadOnlyList<string> RemainingChunkIds,
+    Dictionary<string, object> UpdatedProperties,
+    VectorDocument VectorDocument);
 ```
 
 `DocumentDeletionService` constructor dependencies:
@@ -852,15 +1006,16 @@ public DocumentDeletionService(
 Implement `DeleteAsync` for the first test:
 
 1. Mark deletion started.
-2. Delete chunk vectors from `chunks`.
-3. Delete text chunks.
-4. Load `full_entities[docId]` and `full_relations[docId]`.
-5. For each entity, check `entity_chunks[entityName].chunk_ids`.
-6. If all source ids are in deleted chunk ids, delete graph node, entity vector, and tracking.
-7. For each relation pair, check `relation_chunks[relationKey].chunk_ids`.
-8. If all source ids are deleted, remove graph edge, relationship vector, and tracking.
-9. Delete full docs, full entities, full relations.
-10. Mark deletion succeeded.
+2. Collect optional LLM cache ids from `text_chunks[chunkId].llm_cache_list`.
+3. Load `full_entities[docId]` and `full_relations[docId]`.
+4. Read all referenced `entity_chunks`, `relation_chunks`, graph nodes, and graph edges needed to decide delete vs update.
+5. Compute a `DocumentDeletionImpact` before any destructive storage call.
+6. Delete chunk vectors from `chunks`.
+7. Delete text chunks and persist the KV mutation with `IndexDoneCallbackAsync`.
+8. Delete graph relations/entities whose tracking chunks are all deleted.
+9. Update retained graph references, vectors, and tracking from the precomputed impact, persisting each KV tracking mutation as it is applied.
+10. Delete full docs, full entities, and full relations, persisting each KV mutation as it is applied.
+11. Mark deletion succeeded.
 
 Use helper conversion methods inside the service:
 
@@ -868,7 +1023,7 @@ Use helper conversion methods inside the service:
 private static IReadOnlyList<string> ReadStringList(Dictionary<string, object>? data, string key)
 ```
 
-It must support `List<object>`, `List<string>`, and `IEnumerable<object>`.
+It must support `List<object>`, `List<string>`, `IEnumerable<object>`, scalar strings, and `JsonElement` arrays/strings from reloaded `JsonKVStore` files. Relation pair parsing must also support nested `JsonElement` arrays.
 
 - [ ] **Step 5: Verify GREEN for first deletion test**
 
@@ -995,6 +1150,65 @@ Add:
 
 ```csharp
 [Fact]
+public async Task DeleteAsync_WhenUsingJsonKvStore_PersistsSuccessfulDeletion()
+{
+    // Seed JsonKVStore files, delete with DeleteLlmCache=true, then reload
+    // JsonKVStore instances from the same files and assert text chunk, full doc,
+    // and cache records stay deleted.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenJsonKvStoreReloadsArrays_ParsesJsonElementsForGraphImpact()
+{
+    // Seed and persist full_entities/full_relations/entity_chunks/relation_chunks,
+    // reload JsonKVStore files, then delete and assert graph/vector/tracking
+    // owned entity/relation deletion still happens.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenCancellationIsRequested_PropagatesAndDoesNotMarkDeletionFailed()
+{
+    // Use a canceled token and assert OperationCanceledException propagates
+    // without recording DeletionFailed.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenDeletedEntityIsEndpointOfRetainedRelation_RetainsAndUpdatesEntity()
+{
+    // Entity tracking lists only deleted chunks, but a retained relation still
+    // references the entity. Assert the entity is updated, not deleted.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenEntityOnlyHasDeletedChunksButExternalRelationRetainsIt_DoesNotDetachDeleteNode()
+{
+    // The deleted document's full_relations does not mention the retained edge,
+    // but graph edges plus relation_chunks still prove another relation keeps
+    // the entity alive. Assert DeleteNodeAsync is not called because Neo4j
+    // DETACH DELETE would remove that external relation too.
+}
+
+[Fact]
+public async Task DeleteAsync_WhenImpactAnalysisFails_DoesNotRunDestructiveDeletes()
+{
+    var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+    fixture.FullRelations.Seed("doc-1", new()
+    {
+        ["relation_pairs"] = new List<object> { new List<object> { "ALPHA", "BETA" } },
+        ["count"] = 1
+    });
+    fixture.RelationChunks.ThrowOnGetKey = "ALPHA<SEP>BETA";
+
+    var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+    result.Succeeded.Should().BeFalse();
+    result.Stage.Should().Be(DocumentDeletionStage.AnalyzeGraphReferences);
+    fixture.VectorStore.DeleteCalls.Should().NotContain(call => call.Collection == "chunks");
+    fixture.TextChunks.DeleteCalls.Should().BeEmpty();
+    fixture.FullDocs.DeleteCalls.Should().BeEmpty();
+}
+
+[Fact]
 public async Task DeleteAsync_WhenVectorDeleteFails_RecordsFailureStage()
 {
     var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
@@ -1003,7 +1217,7 @@ public async Task DeleteAsync_WhenVectorDeleteFails_RecordsFailureStage()
     var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
 
     result.Succeeded.Should().BeFalse();
-    result.FailedStage.Should().Be(DocumentDeletionStage.DeleteChunkVectors);
+    result.Stage.Should().Be(DocumentDeletionStage.DeleteChunkVectors);
     var status = await fixture.StatusStore.GetAsync("workspace-a", "doc-1");
     status!.Status.Should().Be(DocumentLifecycleStatus.DeletionFailed);
     status.Metadata["deletion_failure_stage"].Should().Be(DocumentDeletionStage.DeleteChunkVectors);
@@ -1422,6 +1636,65 @@ public sealed class DocumentDeletionApiTests
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
+    [Fact]
+    public async Task DeleteMarkdownDocument_Deleting_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 4,
+            FileName = "deleting.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-deleting",
+            RagStatus = "Deleting"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/4");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_DeletionFailed_ReturnsAcceptedAndClearsError()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 5,
+            FileName = "retry.md",
+            Content = "content",
+            IsInRagSystem = true,
+            RagDocumentId = "doc-retry",
+            RagStatus = "DeletionFailed",
+            RagErrorMessage = "previous failure"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/5");
+        var result = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        result!.Accepted.Should().BeTrue();
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var doc = await context.MarkdownDocuments.FindAsync(5);
+        doc!.RagStatus.Should().Be("Deleting");
+        doc.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_Missing_ReturnsNotFound()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/404");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -1452,6 +1725,10 @@ Processing delete returns BadRequest or wrong status instead of Conflict.
 In `DeleteMarkdownDocument`:
 
 ```csharp
+[ProducesResponseType(StatusCodes.Status204NoContent)]
+[ProducesResponseType(typeof(MarkdownDocumentDeleteResult), StatusCodes.Status202Accepted)]
+[ProducesResponseType(StatusCodes.Status404NotFound)]
+[ProducesResponseType(StatusCodes.Status409Conflict)]
 public async Task<IActionResult> DeleteMarkdownDocument(
     int id,
     [FromQuery] bool deleteLlmCache = false,
@@ -1504,7 +1781,7 @@ return Accepted(new MarkdownDocumentDeleteResult
 });
 ```
 
-Extract uploaded file deletion into a private method so the processor can reuse it later.
+Keep uploaded file deletion isolated in a helper. Task 7 extracts that helper into a server service so API delete and background completion cleanup share the same safe path parsing.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -1530,24 +1807,28 @@ git commit -m "feat: allow indexed document deletion api"
 **Files:**
 
 - Create: `src/LightRAGNet.Server/Services/MarkdownDocumentDeletionService.cs`
-- Modify: `src/LightRAGNet.Server/Program.cs` or DI registration location
-- Modify: `src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs` only if server-specific dependency can be injected safely; otherwise use handler-based cleanup.
+- Modify: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
+- Modify: `src/LightRAGNet.Server/Handlers/RagTaskStatusChangedHandler.cs`
+- Modify: `src/LightRAGNet.Server/Program.cs`
 - Test: `tests/LightRAGNet.Server.Tests/DocumentDeletionApiTests.cs`
 
-- [ ] **Step 1: Add failing success cleanup test**
+- [ ] **Step 1: Add failing success cleanup tests**
 
 Add:
 
 ```csharp
 [Fact]
-public async Task DeleteTaskCompleted_RemovesMarkdownRow()
+public async Task DeleteTaskCompleted_RemovesMarkdownRowAndUploadedFile()
 {
     using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("completed");
+    var filePath = await CreateUploadedFileAsync(fileName);
     await SeedDocumentAsync(factory, new MarkdownDocument
     {
-        Id = 4,
-        FileName = "indexed.md",
+        Id = 14,
+        FileName = fileName,
         Content = "content",
+        FileUrl = $"/uploads/{fileName}",
         IsInRagSystem = true,
         RagDocumentId = "doc-indexed",
         RagStatus = "Deleting"
@@ -1557,15 +1838,88 @@ public async Task DeleteTaskCompleted_RemovesMarkdownRow()
 
     await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
     {
-        DocumentId = 4,
+        DocumentId = 14,
         RagDocumentId = "doc-indexed",
+        DeleteFilePath = $"/uploads/{fileName}",
         OperationType = RagTaskOperationType.DeleteDocument,
         Status = RagTaskStatus.Completed
     }), CancellationToken.None);
 
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var doc = await context.MarkdownDocuments.FindAsync(4);
+    var doc = await context.MarkdownDocuments.FindAsync(14);
     doc.Should().BeNull();
+    File.Exists(filePath).Should().BeFalse();
+}
+
+[Fact]
+public async Task DeleteTaskCompleted_WithExternalUploadsUrl_RemovesRowButKeepsLocalFile()
+{
+    using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("completed-external");
+    var filePath = await CreateUploadedFileAsync(fileName);
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 15,
+        FileName = fileName,
+        Content = "content",
+        FileUrl = $"https://evil.example/uploads/{fileName}",
+        IsInRagSystem = true,
+        RagDocumentId = "doc-indexed-external",
+        RagStatus = "Deleting"
+    });
+    using var scope = factory.Services.CreateScope();
+    var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+    await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+    {
+        DocumentId = 15,
+        RagDocumentId = "doc-indexed-external",
+        DeleteFilePath = null,
+        OperationType = RagTaskOperationType.DeleteDocument,
+        Status = RagTaskStatus.Completed
+    }), CancellationToken.None);
+
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var doc = await context.MarkdownDocuments.FindAsync(15);
+    doc.Should().BeNull();
+    File.Exists(filePath).Should().BeTrue();
+    DeleteFileIfExists(filePath);
+}
+
+[Fact]
+public async Task DeleteTaskFailure_KeepsMarkdownRowAndUploadedFile()
+{
+    using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("failed");
+    var filePath = await CreateUploadedFileAsync(fileName);
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 16,
+        FileName = fileName,
+        Content = "content",
+        FileUrl = $"/uploads/{fileName}",
+        IsInRagSystem = true,
+        RagDocumentId = "doc-delete-failed",
+        RagStatus = "Deleting"
+    });
+    using var scope = factory.Services.CreateScope();
+    var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+    await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+    {
+        DocumentId = 16,
+        RagDocumentId = "doc-delete-failed",
+        OperationType = RagTaskOperationType.DeleteDocument,
+        Status = RagTaskStatus.Failed,
+        ErrorMessage = "delete failed"
+    }), CancellationToken.None);
+
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var doc = await context.MarkdownDocuments.FindAsync(16);
+    doc.Should().NotBeNull();
+    doc!.RagStatus.Should().Be("DeletionFailed");
+    File.Exists(filePath).Should().BeTrue();
+    DeleteFileIfExists(filePath);
 }
 ```
 
@@ -1575,34 +1929,103 @@ Expected RED:
 
 ```text
 Expected doc to be null, but found MarkdownDocument.
+Expected File.Exists(filePath) to be false, but found true.
 ```
 
-- [ ] **Step 3: Implement cleanup in handler or service**
+- [ ] **Step 3: Extract shared uploaded-file cleanup service**
 
-Preferred implementation: in `RagTaskStatusChangedHandler.UpdateDatabaseStatusAsync`, for delete completion:
+Create `MarkdownDocumentDeletionService` and move the Task 6 safe file deletion logic out of `MarkdownDocumentsController`. Do not let the background handler re-parse an arbitrary absolute URL without a request host. Instead, the API should convert a trusted `FileUrl` into a canonical local upload reference before enqueueing the delete task, and the handler should delete only that canonical reference.
+
+```csharp
+namespace LightRAGNet.Server.Services;
+
+public sealed class MarkdownDocumentDeletionService(
+    ILogger<MarkdownDocumentDeletionService> logger)
+{
+    public string? CreateTrustedUploadReference(
+        MarkdownDocument document,
+        HostString requestHost)
+    {
+        // Return "/uploads/{fileName}" only when FileUrl passes the Task 6 safety contract:
+        // - empty FileUrl: no-op
+        // - absolute URL authority must match requestHost
+        // - local path must be under /uploads/
+        // - decoded uploaded path must be a single file name, no directory segments
+        // - final full path must remain under AppDomain.CurrentDomain.BaseDirectory/Uploads.
+        // Return null and log warning for external hosts, non-upload paths, traversal, or invalid file names.
+    }
+
+    public void DeleteUploadedFileIfPresent(string? trustedUploadReference)
+    {
+        // Accept only canonical references returned by CreateTrustedUploadReference:
+        // "/uploads/{single-file-name}".
+        // Re-run single-file-name and full-path root checks before deleting.
+        // Deletion is best effort and logs warnings instead of throwing.
+    }
+}
+```
+
+Register in `Program.cs`:
+
+```csharp
+builder.Services.AddScoped<MarkdownDocumentDeletionService>();
+```
+
+Inject it into `MarkdownDocumentsController` and replace the private `DeleteUploadedFile(document)` call with:
+
+```csharp
+var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
+```
+
+For indexed/asynchronous deletion, pass the canonical reference into the task instead of the original full URL:
+
+```csharp
+var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
+    document.Id,
+    document.RagDocumentId,
+    trustedUploadReference ?? string.Empty,
+    deleteLlmCache,
+    cancellationToken);
+```
+
+Add an API assertion to `DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting`:
+
+```csharp
+task.DeleteFilePath.Should().Be("/uploads/{fileName}");
+```
+
+Use a dynamic file name in that test so the exact expected string is derived from the seeded `FileUrl`.
+
+- [ ] **Step 4: Implement cleanup in status handler**
+
+Inject `MarkdownDocumentDeletionService` through the handler scope, not as a constructor dependency, because the handler already creates a scoped service provider:
 
 ```csharp
 if (task.OperationType == RagTaskOperationType.DeleteDocument &&
     task.Status == RagTaskStatus.Completed)
 {
-    await DeleteUploadedFileIfPresentAsync(document);
+    var deletionService = scope.ServiceProvider.GetRequiredService<MarkdownDocumentDeletionService>();
+    deletionService.DeleteUploadedFileIfPresent(task.DeleteFilePath);
     context.MarkdownDocuments.Remove(document);
     await context.SaveChangesAsync(cancellationToken);
     return;
 }
 ```
 
-Keep file deletion best-effort: log warning and still remove DB row if file is already gone.
+For handler cleanup there is no HTTP request. It must not trust `document.FileUrl` authority; it should only use `task.DeleteFilePath`, which the API already canonicalized to `/uploads/{fileName}` at enqueue time. Keep file deletion best-effort: log warning and still remove DB row if the file is already gone or not eligible for deletion.
 
-- [ ] **Step 4: Verify GREEN**
+- [ ] **Step 5: Verify GREEN**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter FullyQualifiedName~DeleteTaskCompleted
+dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~DeleteTaskCompleted|FullyQualifiedName~DeleteTaskFailure"
+dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter FullyQualifiedName~DocumentDeletionApiTests
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add src/LightRAGNet.Server tests/LightRAGNet.Server.Tests
@@ -1617,11 +2040,48 @@ git commit -m "feat: remove document row after deletion"
 
 **Files:**
 
+- Modify: `src/LightRAGNet.Server/Handlers/RagTaskStatusChangedHandler.cs`
+- Modify: `src/LightRAGNet.Web/Services/RagTaskNotificationService.cs`
 - Modify: `src/LightRAGNet.Web/ApiClient.cs`
 - Create: `src/LightRAGNet.Web/MarkdownDocumentDeleteClientResult.cs`
 - Modify: `src/LightRAGNet.Web/Components/Pages/MarkdownDocuments.razor`
+- Modify if needed: `src/LightRAGNet.Web/Extensions/FormatExtensions.cs`
 
-- [ ] **Step 1: Change API client result**
+- [ ] **Step 1: Add deletion operation to SignalR payload**
+
+`RagTaskStatusChangedHandler.NotifyFrontendAsync` currently sends raw `status = task.Status.ToString()`. For delete completion the row has already been removed server-side, so the UI must know this `Completed` event is a delete completion, not an index completion.
+
+Add `operationType`:
+
+```csharp
+var updateData = new
+{
+    taskId = task.TaskId,
+    documentId = task.DocumentId,
+    operationType = task.OperationType.ToString(),
+    status = task.Status.ToString(),
+    progress = task.Progress,
+    currentStage = task.CurrentStage?.ToString(),
+    errorMessage = task.ErrorMessage,
+    startedAt = task.StartedAt,
+    completedAt = task.CompletedAt
+};
+```
+
+Add the matching property:
+
+```csharp
+public class TaskStatusUpdate
+{
+    public string TaskId { get; set; } = string.Empty;
+    public int DocumentId { get; set; }
+    public string OperationType { get; set; } = "IndexDocument";
+    public string Status { get; set; } = string.Empty;
+    // ...
+}
+```
+
+- [ ] **Step 2: Change API client result**
 
 No production code before a test if an API-client test harness exists. If no web test project exists, use build verification and keep the change minimal.
 
@@ -1670,7 +2130,7 @@ public async Task<MarkdownDocumentDeleteClientResult> DeleteMarkdownDocumentAsyn
 }
 ```
 
-- [ ] **Step 2: Update UI conditions**
+- [ ] **Step 3: Update UI conditions**
 
 Replace delete button hiding condition:
 
@@ -1740,12 +2200,64 @@ else
 }
 ```
 
-- [ ] **Step 3: Verify build**
+Update the call site from `DeleteDocument(context.Id)` to `DeleteDocument(context)`.
+
+Update status formatting so deletion states are readable:
+
+```csharp
+"Deleting" => "Deleting",
+"DeletionFailed" => "Deletion failed",
+```
+
+Use `Color.Warning` or `Color.Info` for `Deleting` and `Color.Error` for `DeletionFailed`; use `HourglassEmpty` and `Error` icons respectively.
+
+- [ ] **Step 4: Handle delete SignalR updates**
+
+In `OnTaskStatusUpdated`, branch delete operations before the existing index-completion logic:
+
+```csharp
+if (update.OperationType == "DeleteDocument")
+{
+    if (update.Status == "Completed")
+    {
+        var deleted = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
+        if (deleted != null)
+        {
+            _documents!.Remove(deleted);
+            _totalCount = Math.Max(0, _totalCount - 1);
+        }
+
+        await InvokeAsync(async () =>
+        {
+            await DebouncedReloadServerDataAsync();
+        });
+        return;
+    }
+
+    if (update.Status == "Failed")
+    {
+        document.RagStatus = "DeletionFailed";
+        document.RagErrorMessage = update.ErrorMessage;
+        await InvokeAsync(StateHasChanged);
+        return;
+    }
+
+    document.RagStatus = "Deleting";
+    document.RagCurrentStage = update.CurrentStage;
+    await InvokeAsync(StateHasChanged);
+    return;
+}
+```
+
+This prevents delete `Completed` from setting `IsInRagSystem = true`, which is only valid for index completion.
+
+- [ ] **Step 5: Verify build**
 
 Run:
 
 ```powershell
 dotnet build .\src\LightRAGNet.Web\LightRAGNet.Web.csproj
+dotnet build .\LightRAGNet.slnx
 ```
 
 Expected GREEN:
@@ -1754,7 +2266,7 @@ Expected GREEN:
 Build succeeded.
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add src/LightRAGNet.Web src/LightRAGNet.Share
@@ -1765,13 +2277,17 @@ git commit -m "feat: update document deletion ui"
 
 ## Task 9: Clear-All Regression and Full Suite
 
-**Spec coverage:** `clear-all` remains bulk reset, includes `doc_status`, stops tasks first, pushes refresh.
+**Spec coverage:** `clear-all` remains bulk reset, includes `doc_status`, stops/cancels tasks first, shares uploaded-file safety with single-document delete, and pushes refresh.
 
 **Files:**
 
 - Modify if needed: `src/LightRAGNet.Storage/KVContracts.cs`
 - Modify if needed: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
+- Modify if needed: `src/LightRAGNet/Services/TaskQueue/RagTaskQueueService.cs`
+- Modify if needed: `src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs`
 - Test: `tests/LightRAGNet.Server.Tests/DocumentDeletionApiTests.cs`
+- Test: `tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs`
+- Test: `tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs`
 
 - [ ] **Step 1: Add regression test**
 
@@ -1794,6 +2310,12 @@ public const string DocStatus = "doc_status";
 and include it in `GetKVStoreNames()`.
 
 - [ ] **Step 2: Verify clear-all behavior**
+
+Add/keep clear-all regressions for:
+
+- traversal-like `FileUrl` values such as `/uploads/../outside.md` must not delete outside the uploads directory.
+- `StopAllTasksAsync` must run before Markdown rows and storage are cleared.
+- registered processing task tokens must be cancelled, not only marked `Failed`, so the background processor can stop in-flight RAG work before bulk clearing storage.
 
 Run:
 
@@ -1838,16 +2360,19 @@ Only do this task if Tasks 1-9 are green.
 
 - Create: `tests/LightRAGNet.Tests/Storage/DocumentDeletionStorageIntegrationTests.cs`
 
-- [ ] **Step 1: Add skip gate**
+- [ ] **Step 1: Add opt-in execution gate**
 
-Use this skip pattern:
+Use this opt-in pattern:
 
 ```csharp
 private static bool RunStorageIntegration =>
     Environment.GetEnvironmentVariable("LIGHTRAGNET_RUN_STORAGE_INTEGRATION") == "1";
 ```
 
-Each test should skip when false.
+This project uses xUnit v2 without a dynamic skip package, so each test should
+return before touching external storage when the flag is false. This preserves
+the design goal that normal `dotnet test` never requires Docker, while
+`LIGHTRAGNET_RUN_STORAGE_INTEGRATION=1` runs the real Qdrant and Neo4j checks.
 
 - [ ] **Step 2: Add Qdrant delete/upsert round-trip**
 
@@ -1855,7 +2380,12 @@ Test should upsert one vector into `chunks`, delete it, then assert `GetByIdAsyn
 
 - [ ] **Step 3: Add Neo4j source pruning round-trip**
 
-Test should upsert node/edge with `source_id = "chunk-a<SEP>chunk-b"`, update with pruned `source_id = "chunk-b"`, then assert graph read returns `chunk-b`.
+Test should seed lifecycle/KV deletion metadata, upsert real Neo4j node/edge records
+with `source_id = "chunk-a<SEP>chunk-b"`, invoke
+`DocumentDeletionService.DeleteAsync` for `chunk-a`, then assert Neo4j reads return
+`source_id = "chunk-b"` for both the retained node and retained edge. This keeps
+the integration test on the actual deletion/pruning path instead of proving only
+that `UpsertNodeAsync` or `UpsertEdgeAsync` can overwrite properties.
 
 - [ ] **Step 4: Verify optional tests**
 

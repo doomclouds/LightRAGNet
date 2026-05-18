@@ -105,6 +105,7 @@ delete_uploaded_file
 ```
 
 Stages are not all separate methods, but each destructive block records the current stage before executing.
+`DocumentDeletionStage` is the shared stage vocabulary for core and server deletion work. The core RAG deletion service executes only core storage stages through `delete_doc_status`; server/API code owns `delete_markdown_record` and `delete_uploaded_file`.
 
 ## Storage Semantics
 
@@ -119,6 +120,8 @@ KV stores:
 - `llm_cache`: delete collected cache ids only when requested.
 - `doc_status`: delete only after all RAG storage deletion succeeds.
 
+Every successful KV mutation must be persisted with `IndexDoneCallbackAsync`, because `JsonKVStore` keeps changes in memory until that callback. Deletion logic must also parse `JsonElement` values produced by a persisted/reloaded `JsonKVStore`.
+
 Vector stores:
 
 - `chunks`: delete chunk ids.
@@ -129,6 +132,7 @@ Graph store:
 
 - Delete relations that have no remaining source chunks.
 - Delete nodes that have no remaining source chunks.
+- Keep an entity if any retained relation still references it, even when the entity's own tracking only lists deleted chunks; update its tracking/source ids from the retained relation chunks.
 - Update retained nodes/edges with pruned `source_id`.
 - Preserve node/edge properties not owned by deletion logic.
 
@@ -178,7 +182,7 @@ DeletionFailed
 - Not indexed: returns `204 NoContent` after local delete.
 - Indexed: enqueues deletion and returns `202 Accepted` with task info.
 - Deletion failed: enqueues a retry deletion and returns `202 Accepted`.
-- Pending/processing insertion: returns `409 Conflict`.
+- Pending/processing insertion or deletion already in progress: returns `409 Conflict`.
 - Missing row: returns `404 NotFound`.
 
 Add an optional request path or query flag for LLM cache cleanup:
@@ -226,6 +230,7 @@ Core unit tests:
 - LLM cache deletion is skipped by default
 - LLM cache ids are collected and deleted when requested
 - deletion failure records stage and retry metadata
+- cancellation propagates without marking the document as `DeletionFailed`
 - retry after graph rebuild failure succeeds
 - final `doc_status` delete failure does not create zombie status
 

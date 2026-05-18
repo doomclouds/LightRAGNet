@@ -1,6 +1,7 @@
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Services.DocumentDeletion;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -330,9 +331,7 @@ internal class RelationBuilder(
 
     private static string MakeRelationChunkKey(string src, string tgt)
     {
-        // Python version: GRAPH_FIELD_SEP.join(sorted((src, tgt)))
-        var sorted = new[] { src, tgt }.OrderBy(x => x).ToArray();
-        return string.Join(GraphFieldSep, sorted);
+        return GraphSourceReferenceParser.MakeRelationKey(src, tgt);
     }
 
     private static List<string> MergeSourceIds(List<string> existingIds, List<string> newIds)

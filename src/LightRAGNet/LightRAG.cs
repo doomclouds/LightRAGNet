@@ -2,6 +2,7 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Models;
+using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
@@ -39,6 +40,7 @@ public class LightRAG(
     [FromKeyedServices(KVContracts.LLMCache)]
     IKVStore llmCacheStore,
     DocumentLifecycleService documentLifecycleService,
+    DocumentDeletionService documentDeletionService,
     ILogger<LightRAG> logger)
 {
     /// <summary>
@@ -397,6 +399,52 @@ public class LightRAG(
 
             throw;
         }
+    }
+
+    public async Task<DocumentDeletionResult> DeleteDocumentAsync(
+        string docId,
+        bool deleteLlmCache = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (_stateProcessorTask == null || _stateProcessorTask.IsCompleted)
+        {
+            InitializeStateProcessor();
+        }
+
+        var workspace = documentLifecycleService.GetDefaultWorkspace();
+        var plan = await documentLifecycleService.CreateDeletionPlanAsync(
+            workspace,
+            docId,
+            deleteLlmCache,
+            cancellationToken);
+
+        if (!plan.Found)
+        {
+            return new DocumentDeletionResult(
+                docId,
+                plan.Workspace,
+                Found: false,
+                Succeeded: false,
+                Stage: string.Empty,
+                Message: "Document not found.");
+        }
+
+        PostTaskState(new TaskState
+        {
+            Stage = TaskStage.DeletingDocument,
+            Current = 0,
+            Total = 0,
+            Description = "Deleting document",
+            DocId = docId
+        });
+
+        return await documentDeletionService.DeleteAsync(
+            new DocumentDeletionRequest(
+                plan.Workspace,
+                docId,
+                plan.ChunkIds,
+                plan.DeleteLlmCache),
+            cancellationToken);
     }
 
     /// <summary>

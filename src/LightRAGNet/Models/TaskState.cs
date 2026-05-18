@@ -49,6 +49,26 @@ public enum TaskStage
     /// Persisting
     /// </summary>
     Persisting,
+
+    /// <summary>
+    /// Deleting document
+    /// </summary>
+    DeletingDocument,
+
+    /// <summary>
+    /// Deleting graph data
+    /// </summary>
+    DeletingGraph,
+
+    /// <summary>
+    /// Deleting vectors
+    /// </summary>
+    DeletingVectors,
+
+    /// <summary>
+    /// Deleting metadata
+    /// </summary>
+    DeletingMetadata,
     
     /// <summary>
     /// Completed

@@ -25,6 +25,11 @@ public sealed class DocumentLifecycleService
         _logger = logger;
     }
 
+    public string GetDefaultWorkspace()
+    {
+        return NormalizeWorkspace(_options.Workspace);
+    }
+
     public async Task<DocumentIngestionResult> PrepareIngestionAsync(
         string content,
         string? docId = null,
@@ -32,7 +37,7 @@ public sealed class DocumentLifecycleService
         string? trackId = null,
         CancellationToken cancellationToken = default)
     {
-        var workspace = NormalizeWorkspace(_options.Workspace);
+        var workspace = GetDefaultWorkspace();
         var resolvedDocId = string.IsNullOrWhiteSpace(docId)
             ? HashUtils.ComputeMd5Hash(content, "doc-")
             : docId;
@@ -240,6 +245,54 @@ public sealed class DocumentLifecycleService
         string errorMessage,
         CancellationToken cancellationToken = default)
     {
+        return await MarkDeletionFailedAsync(
+            workspace,
+            docId,
+            stage,
+            errorMessage,
+            llmCacheIds: null,
+            cancellationToken);
+    }
+
+    public async Task MarkDeletionStartedAsync(
+        string workspace,
+        string docId,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
+        if (record is null)
+        {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(MarkDeletionStartedAsync));
+            return;
+        }
+
+        record.Status = DocumentLifecycleStatus.Deleting;
+        record.ErrorMessage = string.Empty;
+        record.Metadata.Remove("deletion_failed");
+        record.Metadata.Remove("deletion_failure_stage");
+        record.Metadata.Remove("deletion_llm_cache_ids");
+        Touch(record);
+        await _statusStore.UpsertAsync(record, cancellationToken);
+    }
+
+    public async Task MarkDeletionSucceededAsync(
+        string workspace,
+        string docId,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        await _statusStore.DeleteAsync(normalizedWorkspace, docId, cancellationToken);
+    }
+
+    public async Task<DocumentDeletionResult> MarkDeletionFailedAsync(
+        string workspace,
+        string docId,
+        string stage,
+        string errorMessage,
+        IReadOnlyCollection<string>? llmCacheIds,
+        CancellationToken cancellationToken = default)
+    {
         var normalizedWorkspace = NormalizeWorkspace(workspace);
         var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
@@ -257,6 +310,10 @@ public sealed class DocumentLifecycleService
         record.ErrorMessage = errorMessage;
         record.Metadata["deletion_failed"] = true;
         record.Metadata["deletion_failure_stage"] = stage;
+        if (llmCacheIds is not null)
+        {
+            record.Metadata["deletion_llm_cache_ids"] = llmCacheIds.ToArray();
+        }
         Touch(record);
 
         await _statusStore.UpsertAsync(record, cancellationToken);

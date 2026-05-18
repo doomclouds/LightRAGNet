@@ -97,15 +97,103 @@ public class ApiClient(HttpClient httpClient)
     /// Delete Markdown document
     /// </summary>
     /// <param name="id">Document ID</param>
+    /// <param name="deleteLlmCache">Whether to delete related LLM cache entries</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Whether deletion was successful</returns>
-    public async Task<bool> DeleteMarkdownDocumentAsync(
-        int id, 
+    /// <returns>Deletion result</returns>
+    public async Task<MarkdownDocumentDeleteClientResult> DeleteMarkdownDocumentAsync(
+        int id,
+        bool deleteLlmCache = false,
         CancellationToken cancellationToken = default)
     {
-        var url = $"api/MarkdownDocuments/{id}";
+        var url = $"api/MarkdownDocuments/{id}?deleteLlmCache={deleteLlmCache.ToString().ToLowerInvariant()}";
         var response = await httpClient.DeleteAsync(url, cancellationToken);
-        return response.IsSuccessStatusCode;
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Succeeded = true,
+                DeletedImmediately = true
+            };
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+        {
+            var body = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>(
+                cancellationToken: cancellationToken);
+
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Succeeded = true,
+                Accepted = true,
+                TaskId = body?.TaskId
+            };
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Conflict = true,
+                ErrorMessage = await ReadErrorMessageAsync(response.Content, cancellationToken)
+            };
+        }
+
+        return new MarkdownDocumentDeleteClientResult
+        {
+            ErrorMessage = await ReadErrorMessageAsync(response.Content, cancellationToken)
+        };
+    }
+
+    private static async Task<string> ReadErrorMessageAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        var body = await content.ReadAsStringAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(body))
+            return "Request failed";
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind == JsonValueKind.String)
+            {
+                return root.GetString() ?? body;
+            }
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (TryGetJsonString(root, "message", out var message))
+                    return message;
+
+                if (TryGetJsonString(root, "error", out var error))
+                    return error;
+
+                if (TryGetJsonString(root, "title", out var title))
+                    return title;
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall back to the raw response body.
+        }
+
+        return body;
+    }
+
+    private static bool TryGetJsonString(JsonElement element, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
     }
 
     /// <summary>

@@ -8,6 +8,7 @@ using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Hubs;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
@@ -24,6 +25,7 @@ public class MarkdownDocumentsController(
     AppDbContext context,
     ILogger<MarkdownDocumentsController> logger,
     IRagTaskQueueService taskQueueService,
+    MarkdownDocumentDeletionService documentDeletionService,
     IServiceProvider serviceProvider)
     : ControllerBase
 {
@@ -299,61 +301,82 @@ public class MarkdownDocumentsController(
     /// Delete Markdown document
     /// </summary>
     /// <param name="id">Document ID</param>
+    /// <param name="deleteLlmCache">Whether to delete related LLM cache entries</param>
+    /// <param name="cancellationToken"></param>
     /// <returns>No content</returns>
     /// <response code="204">Delete successful</response>
+    /// <response code="202">Deletion task accepted</response>
     /// <response code="404">Document not found</response>
+    /// <response code="409">Document cannot be deleted right now</response>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(MarkdownDocumentDeleteResult), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> DeleteMarkdownDocument(int id)
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteMarkdownDocument(
+        int id,
+        [FromQuery] bool deleteLlmCache = false,
+        CancellationToken cancellationToken = default)
     {
-        var document = await context.MarkdownDocuments.FindAsync(id);
+        var document = await context.MarkdownDocuments.FindAsync([id], cancellationToken);
         if (document == null)
         {
             return NotFound();
         }
 
-        // Prevent deletion of documents that have completed RAG insertion
-        if (document.IsInRagSystem)
+        if (document.RagStatus is "Pending" or "Processing" or "Deleting")
         {
-            return BadRequest(new { error = "Cannot delete document", message = "Documents that have completed RAG insertion cannot be deleted." });
+            return Conflict(new { error = "Document has active RAG task" });
         }
 
-        // Delete file from file system
-        if (!string.IsNullOrEmpty(document.FileUrl))
+        if (!document.IsInRagSystem && document.RagStatus != "DeletionFailed")
         {
-            try
-            {
-                // FileUrl format is /uploads/{filename}, need to convert to actual file path
-                var fileName = document.FileUrl.Replace("/uploads/", "").TrimStart('/');
-                var uploadsFolder = GetUploadsPath();
-                var filePath = Path.Combine(uploadsFolder, fileName);
+            var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+            documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
+            context.MarkdownDocuments.Remove(document);
+            await context.SaveChangesAsync(cancellationToken);
 
-                if (System.IO.File.Exists(filePath))
-                {
-                    System.IO.File.Delete(filePath);
-                    logger.LogInformation("Deleted file: {FilePath}", filePath);
-                }
-                else
-                {
-                    logger.LogWarning("File does not exist, skipping deletion: {FilePath}", filePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error occurred while deleting file: {FileUrl}", document.FileUrl);
-                // Continue to delete database record even if file deletion fails
-            }
+            logger.LogInformation("Deleted Markdown document: {FileName}, ID: {Id}", document.FileName, document.Id);
+
+            return NoContent();
         }
 
-        // Delete database record
-        context.MarkdownDocuments.Remove(document);
-        await context.SaveChangesAsync();
+        if (string.IsNullOrWhiteSpace(document.RagDocumentId))
+        {
+            return Conflict(new { error = "Document is missing RagDocumentId" });
+        }
 
-        logger.LogInformation("Deleted Markdown document: {FileName}, ID: {Id}", document.FileName, document.Id);
+        var deleteFilePath = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+        var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
+            document.Id,
+            document.RagDocumentId,
+            deleteFilePath ?? string.Empty,
+            deleteLlmCache,
+            cancellationToken);
 
-        return NoContent();
+        if (taskId is null)
+        {
+            return Conflict(new { error = "Document has active RAG task" });
+        }
+
+        document.RagStatus = "Deleting";
+        document.RagErrorMessage = null;
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Document deletion task accepted: DocumentId={DocumentId}, TaskId={TaskId}",
+            document.Id,
+            taskId);
+
+        return Accepted(new MarkdownDocumentDeleteResult
+        {
+            Accepted = true,
+            DeletedImmediately = false,
+            Status = "Deleting",
+            Message = "Document deletion has been queued.",
+            DocumentId = document.Id,
+            RagDocumentId = document.RagDocumentId,
+            TaskId = taskId
+        });
     }
 
     /// <summary>
@@ -406,6 +429,11 @@ public class MarkdownDocumentsController(
                 fileUrl,
                 cancellationToken: HttpContext.RequestAborted);
 
+            if (taskId is null)
+            {
+                return Conflict(new { error = "Document is being processed", message = "This document currently has an active RAG task, please wait for it to complete." });
+            }
+
             logger.LogInformation("Document added to RAG processing queue: DocumentId={DocumentId}, TaskId={TaskId}",
                 document.Id, taskId);
 
@@ -436,7 +464,14 @@ public class MarkdownDocumentsController(
         {
             var results = new List<string>();
 
-            // 1. Delete all documents (including files in file system)
+            // 1. Stop all tasks before clearing rows or storage.
+            var stoppedCount = await taskQueueService.StopAllTasksAsync();
+            if (stoppedCount > 0)
+            {
+                results.Add($"Stopped {stoppedCount} tasks being processed");
+            }
+
+            // 2. Delete all documents (including files in file system)
             var documents = await context.MarkdownDocuments.ToListAsync();
             var documentCount = documents.Count;
             foreach (var document in documents)
@@ -446,15 +481,8 @@ public class MarkdownDocumentsController(
                 {
                     try
                     {
-                        var fileName = document.FileUrl.Replace("/uploads/", "").TrimStart('/');
-                        var uploadsFolder = GetUploadsPath();
-                        var filePath = Path.Combine(uploadsFolder, fileName);
-
-                        if (System.IO.File.Exists(filePath))
-                        {
-                            System.IO.File.Delete(filePath);
-                            logger.LogInformation("Deleted file: {FilePath}", filePath);
-                        }
+                        var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+                        documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
                     }
                     catch (Exception ex)
                     {
@@ -463,12 +491,12 @@ public class MarkdownDocumentsController(
                 }
             }
 
-            // 2. Delete all database records
+            // 3. Delete all database records
             context.MarkdownDocuments.RemoveRange(documents);
             await context.SaveChangesAsync();
             results.Add($"Deleted {documentCount} documents");
 
-            // 2.1 Delete all files in Uploads folder (including possible orphaned files)
+            // 3.1 Delete all files in Uploads folder (including possible orphaned files)
             try
             {
                 var uploadsFolder = GetUploadsPath();
@@ -498,13 +526,6 @@ public class MarkdownDocumentsController(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Error occurred while clearing Uploads folder: {Error}", ex.Message);
-            }
-
-            // 3. Stop all tasks being processed
-            var stoppedCount = await taskQueueService.StopAllTasksAsync();
-            if (stoppedCount > 0)
-            {
-                results.Add($"Stopped {stoppedCount} tasks being processed");
             }
 
             // 4. Clear all tasks

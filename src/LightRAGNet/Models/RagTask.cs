@@ -26,6 +26,12 @@ public enum RagTaskStatus
     Failed
 }
 
+public enum RagTaskOperationType
+{
+    IndexDocument,
+    DeleteDocument
+}
+
 /// <summary>
 /// RAG task model
 /// </summary>
@@ -45,6 +51,12 @@ public class RagTask
     /// Document ID in the RAG system
     /// </summary>
     public string? RagDocumentId { get; set; }
+
+    public RagTaskOperationType OperationType { get; set; } = RagTaskOperationType.IndexDocument;
+
+    public bool DeleteLlmCache { get; set; }
+
+    public string? DeleteFilePath { get; set; }
     
     /// <summary>
     /// Document content

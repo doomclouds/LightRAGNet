@@ -3,6 +3,7 @@ using LightRAGNet.Core.Utils;
 using LightRAGNet.Embedding;
 using LightRAGNet.LLM;
 using LightRAGNet.Rerank;
+using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
@@ -156,6 +157,7 @@ public static class ServiceCollectionExtensions
         #region Register Retrieval Services
 
         services.AddSingleton<DocumentProcessingService>();
+        services.AddSingleton<DocumentDeletionService>();
         services.AddSingleton<KnowledgeGraphMergeService>();
         services.AddSingleton<RetrievalContextService>();
         services.AddSingleton<LightRAG>();
@@ -176,6 +178,7 @@ public static class ServiceCollectionExtensions
         #region Register Task Queue Services
 
         services.AddSingleton<IRagTaskStateStore, RagTaskStateStore>();
+        services.AddSingleton<IRagTaskCancellationRegistry, RagTaskCancellationRegistry>();
         services.AddSingleton<IRagTaskQueueService, RagTaskQueueService>();
         services.AddHostedService<RagTaskProcessorService>();
 

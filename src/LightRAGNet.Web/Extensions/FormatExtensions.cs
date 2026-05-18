@@ -78,6 +78,8 @@ public static class FormatExtensions
             "Processing" => "Processing",
             "Completed" => "Completed",
             "Failed" => "Failed",
+            "Deleting" => "Deleting",
+            "DeletionFailed" => "Deletion failed",
             _ => status
         };
     }
@@ -97,6 +99,8 @@ public static class FormatExtensions
             "Completed" => Color.Success,
             "Processing" => Color.Info,
             "Failed" => Color.Error,
+            "Deleting" => Color.Warning,
+            "DeletionFailed" => Color.Error,
             _ => Color.Default
         };
     }
@@ -116,6 +120,8 @@ public static class FormatExtensions
             "Completed" => Icons.Material.Filled.CheckCircle,
             "Processing" => Icons.Material.Filled.HourglassEmpty,
             "Failed" => Icons.Material.Filled.Error,
+            "Deleting" => Icons.Material.Filled.HourglassEmpty,
+            "DeletionFailed" => Icons.Material.Filled.Error,
             _ => Icons.Material.Filled.Pending
         };
     }

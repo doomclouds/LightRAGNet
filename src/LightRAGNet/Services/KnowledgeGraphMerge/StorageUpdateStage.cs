@@ -1,5 +1,6 @@
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Models;
+using LightRAGNet.Services.DocumentDeletion;
 using Microsoft.Extensions.Logging;
 using System.Threading.Tasks.Dataflow;
 
@@ -76,21 +77,17 @@ internal class StorageUpdateStage(
                 finalEntityNames.Add(entityName);
             }
             
-            // Collect all relation pairs (use sorting to ensure consistency)
+            // Collect all relation pairs using the shared ordinal relation key helper.
             // Python version: edge_data.get("src_id") and edge_data.get("tgt_id")
             // But our RelationMergeData uses SourceId and TargetId, which is correct
-            var finalRelationPairs = relationDataList
-                .Select(r =>
-                {
-                    var sorted = new[] { r.SourceId, r.TargetId }.OrderBy(x => x).ToArray();
-                    return (sorted[0], sorted[1]);
-                })
-                .ToHashSet();
+            var finalRelationKeys = relationDataList
+                .Select(r => GraphSourceReferenceParser.MakeRelationKey(r.SourceId, r.TargetId))
+                .ToHashSet(StringComparer.Ordinal);
             
             logger.LogInformation(
                 "Stage 3: Updating final {EntityCount} entities and {RelationCount} relations from {DocId}",
                 finalEntityNames.Count,
-                finalRelationPairs.Count,
+                finalRelationKeys.Count,
                 docId);
             
             // Update full_entities storage
@@ -107,14 +104,16 @@ internal class StorageUpdateStage(
             }
             
             // Update full_relations storage
-            if (finalRelationPairs.Count > 0)
+            if (finalRelationKeys.Count > 0)
             {
                 await fullRelationsStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
                 {
                     [docId] = new()
                     {
-                        ["relation_pairs"] = finalRelationPairs.Select(p => new[] { p.Item1, p.Item2 }).ToList(),
-                        ["count"] = finalRelationPairs.Count
+                        ["relation_pairs"] = finalRelationKeys
+                            .Select(key => key.Split(GraphSourceReferenceParser.GraphFieldSep, StringSplitOptions.None))
+                            .ToList(),
+                        ["count"] = finalRelationKeys.Count
                     }
                 }, cancellationToken);
             }
@@ -123,7 +122,7 @@ internal class StorageUpdateStage(
                 "Updated entity-relation index for document {DocId}: {EntityCount} entities, {RelationCount} relations",
                 docId,
                 finalEntityNames.Count,
-                finalRelationPairs.Count);
+                finalRelationKeys.Count);
         }
         catch (Exception ex)
         {
