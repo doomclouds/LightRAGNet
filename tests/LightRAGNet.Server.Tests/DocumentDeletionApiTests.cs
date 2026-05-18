@@ -147,6 +147,34 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithExternalUploadsUrl_ReturnsNoContentAndKeepsUploadsFile()
+    {
+        var fileName = CreateUniqueUploadFileName("external");
+        var filePath = await CreateUploadedFileAsync(fileName);
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 13,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"https://evil.example/uploads/{fileName}"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.DeleteAsync("/api/MarkdownDocuments/13");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            File.Exists(filePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
     public async Task DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting()
     {
         using var factory = new LightRagServerFactory();

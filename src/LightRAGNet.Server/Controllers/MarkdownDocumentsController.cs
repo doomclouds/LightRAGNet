@@ -387,6 +387,21 @@ public class MarkdownDocumentsController(
             var localPath = document.FileUrl.Replace('\\', '/');
             if (Uri.TryCreate(document.FileUrl, UriKind.Absolute, out var uri))
             {
+                var requestHost = Request.Host.Host;
+                var requestPort = Request.Host.Port;
+                var hostMatches = string.Equals(uri.Host, requestHost, StringComparison.OrdinalIgnoreCase);
+                var portMatches = requestPort.HasValue
+                    ? uri.Port == requestPort.Value
+                    : uri.IsDefaultPort;
+
+                if (!hostMatches || !portMatches)
+                {
+                    logger.LogWarning(
+                        "File URL authority does not match current request host, skipping deletion: {FileUrl}",
+                        document.FileUrl);
+                    return;
+                }
+
                 localPath = uri.LocalPath.Replace('\\', '/');
             }
 
