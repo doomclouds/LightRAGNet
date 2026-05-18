@@ -1771,7 +1771,7 @@ return Accepted(new MarkdownDocumentDeleteResult
 });
 ```
 
-Extract uploaded file deletion into a private method so the processor can reuse it later.
+Keep uploaded file deletion isolated in a helper. Task 7 extracts that helper into a server service so API delete and background completion cleanup share the same safe path parsing.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -1797,24 +1797,28 @@ git commit -m "feat: allow indexed document deletion api"
 **Files:**
 
 - Create: `src/LightRAGNet.Server/Services/MarkdownDocumentDeletionService.cs`
-- Modify: `src/LightRAGNet.Server/Program.cs` or DI registration location
-- Modify: `src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs` only if server-specific dependency can be injected safely; otherwise use handler-based cleanup.
+- Modify: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
+- Modify: `src/LightRAGNet.Server/Handlers/RagTaskStatusChangedHandler.cs`
+- Modify: `src/LightRAGNet.Server/Program.cs`
 - Test: `tests/LightRAGNet.Server.Tests/DocumentDeletionApiTests.cs`
 
-- [ ] **Step 1: Add failing success cleanup test**
+- [ ] **Step 1: Add failing success cleanup tests**
 
 Add:
 
 ```csharp
 [Fact]
-public async Task DeleteTaskCompleted_RemovesMarkdownRow()
+public async Task DeleteTaskCompleted_RemovesMarkdownRowAndUploadedFile()
 {
     using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("completed");
+    var filePath = await CreateUploadedFileAsync(fileName);
     await SeedDocumentAsync(factory, new MarkdownDocument
     {
-        Id = 4,
-        FileName = "indexed.md",
+        Id = 14,
+        FileName = fileName,
         Content = "content",
+        FileUrl = $"/uploads/{fileName}",
         IsInRagSystem = true,
         RagDocumentId = "doc-indexed",
         RagStatus = "Deleting"
@@ -1824,15 +1828,88 @@ public async Task DeleteTaskCompleted_RemovesMarkdownRow()
 
     await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
     {
-        DocumentId = 4,
+        DocumentId = 14,
         RagDocumentId = "doc-indexed",
+        DeleteFilePath = $"/uploads/{fileName}",
         OperationType = RagTaskOperationType.DeleteDocument,
         Status = RagTaskStatus.Completed
     }), CancellationToken.None);
 
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var doc = await context.MarkdownDocuments.FindAsync(4);
+    var doc = await context.MarkdownDocuments.FindAsync(14);
     doc.Should().BeNull();
+    File.Exists(filePath).Should().BeFalse();
+}
+
+[Fact]
+public async Task DeleteTaskCompleted_WithExternalUploadsUrl_RemovesRowButKeepsLocalFile()
+{
+    using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("completed-external");
+    var filePath = await CreateUploadedFileAsync(fileName);
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 15,
+        FileName = fileName,
+        Content = "content",
+        FileUrl = $"https://evil.example/uploads/{fileName}",
+        IsInRagSystem = true,
+        RagDocumentId = "doc-indexed-external",
+        RagStatus = "Deleting"
+    });
+    using var scope = factory.Services.CreateScope();
+    var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+    await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+    {
+        DocumentId = 15,
+        RagDocumentId = "doc-indexed-external",
+        DeleteFilePath = null,
+        OperationType = RagTaskOperationType.DeleteDocument,
+        Status = RagTaskStatus.Completed
+    }), CancellationToken.None);
+
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var doc = await context.MarkdownDocuments.FindAsync(15);
+    doc.Should().BeNull();
+    File.Exists(filePath).Should().BeTrue();
+    DeleteFileIfExists(filePath);
+}
+
+[Fact]
+public async Task DeleteTaskFailure_KeepsMarkdownRowAndUploadedFile()
+{
+    using var factory = new LightRagServerFactory();
+    var fileName = CreateUniqueUploadFileName("failed");
+    var filePath = await CreateUploadedFileAsync(fileName);
+    await SeedDocumentAsync(factory, new MarkdownDocument
+    {
+        Id = 16,
+        FileName = fileName,
+        Content = "content",
+        FileUrl = $"/uploads/{fileName}",
+        IsInRagSystem = true,
+        RagDocumentId = "doc-delete-failed",
+        RagStatus = "Deleting"
+    });
+    using var scope = factory.Services.CreateScope();
+    var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+    await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+    {
+        DocumentId = 16,
+        RagDocumentId = "doc-delete-failed",
+        OperationType = RagTaskOperationType.DeleteDocument,
+        Status = RagTaskStatus.Failed,
+        ErrorMessage = "delete failed"
+    }), CancellationToken.None);
+
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var doc = await context.MarkdownDocuments.FindAsync(16);
+    doc.Should().NotBeNull();
+    doc!.RagStatus.Should().Be("DeletionFailed");
+    File.Exists(filePath).Should().BeTrue();
+    DeleteFileIfExists(filePath);
 }
 ```
 
@@ -1842,34 +1919,103 @@ Expected RED:
 
 ```text
 Expected doc to be null, but found MarkdownDocument.
+Expected File.Exists(filePath) to be false, but found true.
 ```
 
-- [ ] **Step 3: Implement cleanup in handler or service**
+- [ ] **Step 3: Extract shared uploaded-file cleanup service**
 
-Preferred implementation: in `RagTaskStatusChangedHandler.UpdateDatabaseStatusAsync`, for delete completion:
+Create `MarkdownDocumentDeletionService` and move the Task 6 safe file deletion logic out of `MarkdownDocumentsController`. Do not let the background handler re-parse an arbitrary absolute URL without a request host. Instead, the API should convert a trusted `FileUrl` into a canonical local upload reference before enqueueing the delete task, and the handler should delete only that canonical reference.
+
+```csharp
+namespace LightRAGNet.Server.Services;
+
+public sealed class MarkdownDocumentDeletionService(
+    ILogger<MarkdownDocumentDeletionService> logger)
+{
+    public string? CreateTrustedUploadReference(
+        MarkdownDocument document,
+        HostString requestHost)
+    {
+        // Return "/uploads/{fileName}" only when FileUrl passes the Task 6 safety contract:
+        // - empty FileUrl: no-op
+        // - absolute URL authority must match requestHost
+        // - local path must be under /uploads/
+        // - decoded uploaded path must be a single file name, no directory segments
+        // - final full path must remain under AppDomain.CurrentDomain.BaseDirectory/Uploads.
+        // Return null and log warning for external hosts, non-upload paths, traversal, or invalid file names.
+    }
+
+    public void DeleteUploadedFileIfPresent(string? trustedUploadReference)
+    {
+        // Accept only canonical references returned by CreateTrustedUploadReference:
+        // "/uploads/{single-file-name}".
+        // Re-run single-file-name and full-path root checks before deleting.
+        // Deletion is best effort and logs warnings instead of throwing.
+    }
+}
+```
+
+Register in `Program.cs`:
+
+```csharp
+builder.Services.AddScoped<MarkdownDocumentDeletionService>();
+```
+
+Inject it into `MarkdownDocumentsController` and replace the private `DeleteUploadedFile(document)` call with:
+
+```csharp
+var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
+```
+
+For indexed/asynchronous deletion, pass the canonical reference into the task instead of the original full URL:
+
+```csharp
+var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+var taskId = await taskQueueService.EnqueueDeletionTaskAsync(
+    document.Id,
+    document.RagDocumentId,
+    trustedUploadReference ?? string.Empty,
+    deleteLlmCache,
+    cancellationToken);
+```
+
+Add an API assertion to `DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting`:
+
+```csharp
+task.DeleteFilePath.Should().Be("/uploads/{fileName}");
+```
+
+Use a dynamic file name in that test so the exact expected string is derived from the seeded `FileUrl`.
+
+- [ ] **Step 4: Implement cleanup in status handler**
+
+Inject `MarkdownDocumentDeletionService` through the handler scope, not as a constructor dependency, because the handler already creates a scoped service provider:
 
 ```csharp
 if (task.OperationType == RagTaskOperationType.DeleteDocument &&
     task.Status == RagTaskStatus.Completed)
 {
-    await DeleteUploadedFileIfPresentAsync(document);
+    var deletionService = scope.ServiceProvider.GetRequiredService<MarkdownDocumentDeletionService>();
+    deletionService.DeleteUploadedFileIfPresent(task.DeleteFilePath);
     context.MarkdownDocuments.Remove(document);
     await context.SaveChangesAsync(cancellationToken);
     return;
 }
 ```
 
-Keep file deletion best-effort: log warning and still remove DB row if file is already gone.
+For handler cleanup there is no HTTP request. It must not trust `document.FileUrl` authority; it should only use `task.DeleteFilePath`, which the API already canonicalized to `/uploads/{fileName}` at enqueue time. Keep file deletion best-effort: log warning and still remove DB row if the file is already gone or not eligible for deletion.
 
-- [ ] **Step 4: Verify GREEN**
+- [ ] **Step 5: Verify GREEN**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter FullyQualifiedName~DeleteTaskCompleted
+dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~DeleteTaskCompleted|FullyQualifiedName~DeleteTaskFailure"
+dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter FullyQualifiedName~DocumentDeletionApiTests
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add src/LightRAGNet.Server tests/LightRAGNet.Server.Tests
