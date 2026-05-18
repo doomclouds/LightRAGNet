@@ -35,6 +35,87 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithRelativeUploadsPath_ReturnsNoContentAndDeletesFile()
+    {
+        var filePath = await CreateUploadedFileAsync("relative.md");
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 9,
+                FileName = "relative.md",
+                Content = "content",
+                FileUrl = "/uploads/relative.md"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.DeleteAsync("/api/MarkdownDocuments/9");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            File.Exists(filePath).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithFullUploadsUrl_ReturnsNoContentAndDeletesFile()
+    {
+        var filePath = await CreateUploadedFileAsync("full.md");
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 10,
+                FileName = "full.md",
+                Content = "content",
+                FileUrl = "http://localhost/uploads/full.md"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.DeleteAsync("/api/MarkdownDocuments/10");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            File.Exists(filePath).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithNonUploadsPath_ReturnsNoContentAndKeepsUploadsFile()
+    {
+        var filePath = await CreateUploadedFileAsync("keep.md");
+        try
+        {
+            using var factory = new LightRagServerFactory();
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 11,
+                FileName = "keep.md",
+                Content = "content",
+                FileUrl = "/docs/keep.md"
+            });
+            using var client = factory.CreateClient();
+
+            var response = await client.DeleteAsync("/api/MarkdownDocuments/11");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            File.Exists(filePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
     public async Task DeleteMarkdownDocument_Indexed_ReturnsAcceptedAndMarksDeleting()
     {
         using var factory = new LightRagServerFactory();
@@ -243,5 +324,23 @@ public sealed class DocumentDeletionApiTests
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         context.MarkdownDocuments.Add(document);
         await context.SaveChangesAsync();
+    }
+
+    private static async Task<string> CreateUploadedFileAsync(string fileName)
+    {
+        var uploadsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Uploads");
+        Directory.CreateDirectory(uploadsPath);
+        var filePath = Path.Combine(uploadsPath, fileName);
+        DeleteFileIfExists(filePath);
+        await File.WriteAllTextAsync(filePath, "content");
+        return filePath;
+    }
+
+    private static void DeleteFileIfExists(string filePath)
+    {
+        if (File.Exists(filePath))
+        {
+            File.Delete(filePath);
+        }
     }
 }

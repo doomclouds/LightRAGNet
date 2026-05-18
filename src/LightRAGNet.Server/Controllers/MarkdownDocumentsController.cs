@@ -384,13 +384,21 @@ public class MarkdownDocumentsController(
 
         try
         {
-            var fileName = document.FileUrl;
+            var localPath = document.FileUrl.Replace('\\', '/');
             if (Uri.TryCreate(document.FileUrl, UriKind.Absolute, out var uri))
             {
-                fileName = uri.LocalPath;
+                localPath = uri.LocalPath.Replace('\\', '/');
             }
 
-            fileName = Path.GetFileName(fileName.Replace('\\', '/'));
+            const string uploadsPrefix = "/uploads/";
+            if (!localPath.StartsWith(uploadsPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogWarning("File URL is outside uploads namespace, skipping deletion: {FileUrl}", document.FileUrl);
+                return;
+            }
+
+            var uploadedPath = localPath[uploadsPrefix.Length..];
+            var fileName = Path.GetFileName(uploadedPath);
             if (string.IsNullOrWhiteSpace(fileName))
             {
                 logger.LogWarning("Cannot determine uploaded file name, skipping deletion: {FileUrl}", document.FileUrl);
