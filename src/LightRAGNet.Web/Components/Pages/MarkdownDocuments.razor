@@ -107,16 +107,12 @@
                                            Size="Size.Small" />
                         </MudTooltip>
                     }
-                    @* Hide delete button for documents that have completed RAG insertion *@
-                    @if (!context.IsInRagSystem)
-                    {
-                        <MudTooltip Text="Delete">
-                            <MudIconButton Color="Color.Error" Icon="@Icons.Material.Filled.Delete"
-                                           OnClick="@(() => DeleteDocument(context.Id))"
-                                           Disabled="@(context.RagStatus == "Processing" || context.RagStatus == "Pending")"
-                                           Size="Size.Small" />
-                        </MudTooltip>
-                    }
+                    <MudTooltip Text="Delete">
+                        <MudIconButton Color="Color.Error" Icon="@Icons.Material.Filled.Delete"
+                                       OnClick="@(() => DeleteDocument(context))"
+                                       Disabled="@IsDocumentBusy(context)"
+                                       Size="Size.Small" />
+                    </MudTooltip>
                 </MudTd>
             </RowTemplate>
             <PagerContent>
@@ -195,6 +191,36 @@
     {
         // Update corresponding document status in document list
         var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
+        if (update.OperationType == "DeleteDocument")
+        {
+            if (update.Status == "Completed")
+            {
+                RemoveDocumentFromCurrentPage(update.DocumentId);
+
+                await InvokeAsync(async () =>
+                {
+                    await DebouncedReloadServerDataAsync();
+                });
+                return;
+            }
+
+            if (document == null)
+                return;
+
+            if (update.Status == "Failed")
+            {
+                document.RagStatus = "DeletionFailed";
+                document.RagErrorMessage = update.ErrorMessage;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            document.RagStatus = "Deleting";
+            document.RagCurrentStage = update.CurrentStage;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
         if (document != null)
         {
             var oldStatus = document.RagStatus;
@@ -305,11 +331,31 @@
         }
     }
 
-    private async Task DeleteDocument(int id)
+    private static bool IsDocumentBusy(MarkdownDocumentDto document)
+    {
+        return document.RagStatus is "Pending" or "Processing" or "Deleting";
+    }
+
+    private static string GetDeleteConfirmationMessage(MarkdownDocumentDto document)
+    {
+        if (document.RagStatus == "DeletionFailed")
+        {
+            return "Retry deletion from RAG storage and then remove the local document record?";
+        }
+
+        if (document.IsInRagSystem)
+        {
+            return "This will remove the document from RAG storage and then delete the local document record.";
+        }
+
+        return "Are you sure you want to delete this local document?";
+    }
+
+    private async Task DeleteDocument(MarkdownDocumentDto document)
     {
         var result = await DialogService.ShowMessageBox(
             "Confirm Delete",
-            "Are you sure you want to delete this document?",
+            GetDeleteConfirmationMessage(document),
             yesText: "Delete",
             cancelText: "Cancel");
 
@@ -320,19 +366,12 @@
         {
             try
             {
-                var success = await ApiClient.DeleteMarkdownDocumentAsync(id);
+                var deleteResult = await ApiClient.DeleteMarkdownDocumentAsync(document.Id);
 
-                if (success)
+                if (deleteResult.DeletedImmediately)
                 {
+                    RemoveDocumentFromCurrentPage(document.Id);
                     Snackbar.Add("Document deleted successfully", Severity.Success);
-
-                    // First remove deleted item from current list (if exists)
-                    var itemToRemove = _documents.FirstOrDefault(d => d.Id == id);
-                    if (itemToRemove != null)
-                    {
-                        _documents.Remove(itemToRemove);
-                        _totalCount--;
-                    }
 
                     var remainingCount = await ApiClient.GetMarkdownDocumentsCountAsync();
                     if (_documents.Count == 0 && remainingCount > 0)
@@ -346,9 +385,20 @@
                         StateHasChanged();
                     }
                 }
+                else if (deleteResult.Accepted)
+                {
+                    document.RagStatus = "Deleting";
+                    document.RagErrorMessage = null;
+                    Snackbar.Add("Document deletion queued", Severity.Info);
+                    StateHasChanged();
+                }
+                else if (deleteResult.Conflict)
+                {
+                    Snackbar.Add("Document has an active RAG task", Severity.Warning);
+                }
                 else
                 {
-                    Snackbar.Add("Failed to delete document", Severity.Error);
+                    Snackbar.Add($"Failed to delete document: {deleteResult.ErrorMessage}", Severity.Error);
                 }
             }
             catch (Exception ex)
@@ -356,6 +406,19 @@
                 Snackbar.Add($"Failed to delete document: {ex.Message}", Severity.Error);
             }
         }
+    }
+
+    private void RemoveDocumentFromCurrentPage(int id)
+    {
+        if (_documents == null)
+            return;
+
+        var itemToRemove = _documents.FirstOrDefault(d => d.Id == id);
+        if (itemToRemove == null)
+            return;
+
+        _documents.Remove(itemToRemove);
+        _totalCount = Math.Max(0, _totalCount - 1);
     }
 
     private async Task AddToRagSystem(int id)

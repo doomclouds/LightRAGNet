@@ -97,15 +97,52 @@ public class ApiClient(HttpClient httpClient)
     /// Delete Markdown document
     /// </summary>
     /// <param name="id">Document ID</param>
+    /// <param name="deleteLlmCache">Whether to delete related LLM cache entries</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Whether deletion was successful</returns>
-    public async Task<bool> DeleteMarkdownDocumentAsync(
-        int id, 
+    /// <returns>Deletion result</returns>
+    public async Task<MarkdownDocumentDeleteClientResult> DeleteMarkdownDocumentAsync(
+        int id,
+        bool deleteLlmCache = false,
         CancellationToken cancellationToken = default)
     {
-        var url = $"api/MarkdownDocuments/{id}";
+        var url = $"api/MarkdownDocuments/{id}?deleteLlmCache={deleteLlmCache.ToString().ToLowerInvariant()}";
         var response = await httpClient.DeleteAsync(url, cancellationToken);
-        return response.IsSuccessStatusCode;
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+        {
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Succeeded = true,
+                DeletedImmediately = true
+            };
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+        {
+            var body = await response.Content.ReadFromJsonAsync<MarkdownDocumentDeleteResult>(
+                cancellationToken: cancellationToken);
+
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Succeeded = true,
+                Accepted = true,
+                TaskId = body?.TaskId
+            };
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return new MarkdownDocumentDeleteClientResult
+            {
+                Conflict = true,
+                ErrorMessage = await response.Content.ReadAsStringAsync(cancellationToken)
+            };
+        }
+
+        return new MarkdownDocumentDeleteClientResult
+        {
+            ErrorMessage = await response.Content.ReadAsStringAsync(cancellationToken)
+        };
     }
 
     /// <summary>

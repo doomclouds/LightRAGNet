@@ -110,6 +110,7 @@ public class RagTaskStatusChangedHandler(
             {
                 taskId = task.TaskId,
                 documentId = task.DocumentId,
+                operationType = task.OperationType.ToString(),
                 status = task.Status.ToString(),
                 progress = task.Progress,
                 currentStage = task.CurrentStage?.ToString(),

@@ -303,6 +303,7 @@ public class TaskStatusUpdate
 {
     public string TaskId { get; set; } = string.Empty;
     public int DocumentId { get; set; }
+    public string OperationType { get; set; } = "IndexDocument";
     public string Status { get; set; } = string.Empty;
     public int Progress { get; set; }
     public string? CurrentStage { get; set; }
