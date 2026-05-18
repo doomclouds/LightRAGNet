@@ -125,11 +125,29 @@ public sealed class InMemoryVectorStore : IVectorStore
         {
             Id = document.Id,
             Vector = [.. document.Vector],
-            Metadata = document.Metadata.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value,
-                StringComparer.Ordinal),
+            Metadata = Clone(document.Metadata),
             Content = document.Content
+        };
+    }
+
+    private static Dictionary<string, object> Clone(Dictionary<string, object> source)
+    {
+        return source.ToDictionary(
+            pair => pair.Key,
+            pair => CloneValue(pair.Value),
+            StringComparer.Ordinal);
+    }
+
+    private static object CloneValue(object value)
+    {
+        return value switch
+        {
+            Dictionary<string, object> dictionary => Clone(dictionary),
+            List<object> list => list.Select(CloneValue).ToList(),
+            List<string> list => list.ToList(),
+            float[] vector => vector.ToArray(),
+            VectorDocument document => Clone(document),
+            _ => value
         };
     }
 }

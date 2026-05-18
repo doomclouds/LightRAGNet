@@ -573,7 +573,9 @@ git commit -m "feat: add deletion task contracts"
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStore.cs`
 - Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryGraphStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryGraphStoreTests.cs`
 
 - [ ] **Step 1: Write failing parser tests**
 
