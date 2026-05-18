@@ -6,6 +6,7 @@ using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
+using LightRAGNet.Storage;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,6 +14,12 @@ namespace LightRAGNet.Server.Tests;
 
 public sealed class DocumentDeletionApiTests
 {
+    [Fact]
+    public void KVContracts_GetKVStoreNames_IncludesDocStatus()
+    {
+        KVContracts.GetKVStoreNames().Should().Contain(KVContracts.DocStatus);
+    }
+
     [Fact]
     public async Task DeleteMarkdownDocument_LocalOnly_ReturnsNoContentAndRemovesRow()
     {
