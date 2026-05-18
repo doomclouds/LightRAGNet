@@ -43,7 +43,7 @@ public sealed class InMemoryKvStore : IKVStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(keys.Where(Items.ContainsKey).ToHashSet(StringComparer.Ordinal));
+        return Task.FromResult(keys.Where(key => !Items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
     }
 
     public Task UpsertAsync(
@@ -113,6 +113,20 @@ public sealed class InMemoryKvStore : IKVStore
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> source)
     {
-        return source.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        return source.ToDictionary(
+            pair => pair.Key,
+            pair => CloneValue(pair.Value),
+            StringComparer.Ordinal);
+    }
+
+    private static object CloneValue(object value)
+    {
+        return value switch
+        {
+            Dictionary<string, object> dictionary => Clone(dictionary),
+            List<object> list => list.Select(CloneValue).ToList(),
+            List<string> list => list.ToList(),
+            _ => value
+        };
     }
 }

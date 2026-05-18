@@ -567,8 +567,11 @@ git commit -m "feat: add deletion task contracts"
 **Files:**
 
 - Create: `src/LightRAGNet/Services/DocumentDeletion/GraphSourceReferenceParser.cs`
+- Modify: `src/LightRAGNet/Services/KnowledgeGraphMerge/RelationBuilder.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentDeletion/GraphSourceReferenceParserTests.cs`
+- Test: `tests/LightRAGNet.Tests/KnowledgeGraphMerge/RelationBuilderTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStore.cs`
+- Test: `tests/LightRAGNet.Tests/TestDoubles/InMemoryKvStoreTests.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryVectorStore.cs`
 - Create: `tests/LightRAGNet.Tests/TestDoubles/InMemoryGraphStore.cs`
 
@@ -721,7 +724,8 @@ internal sealed class InMemoryKvStore : IKVStore
 
     public Task<HashSet<string>> FilterKeysAsync(HashSet<string> keys, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(keys.Where(_items.ContainsKey).ToHashSet(StringComparer.Ordinal));
+        // Match JsonKVStore: return keys that are missing from storage.
+        return Task.FromResult(keys.Where(key => !_items.ContainsKey(key)).ToHashSet(StringComparer.Ordinal));
     }
 
     public Task UpsertAsync(Dictionary<string, Dictionary<string, object>> data, CancellationToken cancellationToken = default)
@@ -769,7 +773,18 @@ internal sealed class InMemoryKvStore : IKVStore
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> value)
     {
-        return value.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
+        return value.ToDictionary(kvp => kvp.Key, kvp => CloneValue(kvp.Value), StringComparer.Ordinal);
+    }
+
+    private static object CloneValue(object value)
+    {
+        return value switch
+        {
+            Dictionary<string, object> dictionary => Clone(dictionary),
+            List<object> list => list.Select(CloneValue).ToList(),
+            List<string> list => list.ToList(),
+            _ => value
+        };
     }
 }
 ```
@@ -789,6 +804,12 @@ Create vector/graph doubles with the same pattern:
 // UpsertNodeAsync, UpsertEdgeAsync, DeleteNodeAsync, RemoveEdgesAsync.
 // Expose DeletedNodes and DeletedEdges for assertions.
 ```
+
+Also update `RelationBuilder` so relation chunk keys are generated with
+`GraphSourceReferenceParser.MakeRelationKey(sourceId, targetId)`. Writer code,
+deletion code, and graph test doubles must share the same ordinal relation-key
+helper; do not leave a culture-sensitive `OrderBy(x => x)` key path in the
+writer.
 
 Do not add test-only methods to production types.
 
