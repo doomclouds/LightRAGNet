@@ -75,15 +75,16 @@ public sealed class DocumentLifecycleService
             record);
     }
 
-    public async Task<DocumentStatusRecord?> StartProcessingAsync(
+    public async Task StartProcessingAsync(
         string workspace,
         string docId,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
-            return null;
+            return;
         }
 
         record.Status = DocumentLifecycleStatus.Processing;
@@ -92,19 +93,19 @@ public sealed class DocumentLifecycleService
         Touch(record);
 
         await _statusStore.UpsertAsync(record, cancellationToken);
-        return record;
     }
 
-    public async Task<DocumentStatusRecord?> RecordChunksAsync(
+    public async Task RecordChunksAsync(
         string workspace,
         string docId,
         IReadOnlyList<Chunk> chunks,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
-            return null;
+            return;
         }
 
         record.ChunksList = [.. chunks.Select(chunk => chunk.Id)];
@@ -120,18 +121,18 @@ public sealed class DocumentLifecycleService
         Touch(record);
 
         await _statusStore.UpsertAsync(record, cancellationToken);
-        return record;
     }
 
-    public async Task<DocumentStatusRecord?> MarkProcessedAsync(
+    public async Task MarkProcessedAsync(
         string workspace,
         string docId,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
-            return null;
+            return;
         }
 
         record.Status = DocumentLifecycleStatus.Processed;
@@ -140,20 +141,20 @@ public sealed class DocumentLifecycleService
         Touch(record);
 
         await _statusStore.UpsertAsync(record, cancellationToken);
-        return record;
     }
 
-    public async Task<DocumentStatusRecord?> MarkFailedAsync(
+    public async Task MarkFailedAsync(
         string workspace,
         string docId,
         string stage,
         string errorMessage,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
-            return null;
+            return;
         }
 
         record.Status = DocumentLifecycleStatus.Failed;
@@ -162,7 +163,6 @@ public sealed class DocumentLifecycleService
         Touch(record);
 
         await _statusStore.UpsertAsync(record, cancellationToken);
-        return record;
     }
 
     public async Task<DocumentDeletionPlan> CreateDeletionPlanAsync(
@@ -171,13 +171,14 @@ public sealed class DocumentLifecycleService
         bool deleteLlmCache = false,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
             return new DocumentDeletionPlan
             {
                 DocId = docId,
-                Workspace = workspace,
+                Workspace = normalizedWorkspace,
                 Found = false
             };
         }
@@ -190,7 +191,7 @@ public sealed class DocumentLifecycleService
         return new DocumentDeletionPlan
         {
             DocId = docId,
-            Workspace = workspace,
+            Workspace = normalizedWorkspace,
             Found = true,
             ChunkIds = chunkIds,
             ChunkSnapshots = [.. record.ChunkSnapshots],
@@ -209,12 +210,13 @@ public sealed class DocumentLifecycleService
         string errorMessage,
         CancellationToken cancellationToken = default)
     {
-        var record = await _statusStore.GetAsync(workspace, docId, cancellationToken);
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
         if (record is null)
         {
             return new DocumentDeletionResult(
                 docId,
-                workspace,
+                normalizedWorkspace,
                 Found: false,
                 Succeeded: false,
                 stage,
@@ -231,7 +233,7 @@ public sealed class DocumentLifecycleService
 
         return new DocumentDeletionResult(
             docId,
-            workspace,
+            normalizedWorkspace,
             Found: true,
             Succeeded: false,
             stage,
@@ -240,7 +242,7 @@ public sealed class DocumentLifecycleService
 
     private static string NormalizeWorkspace(string? workspace)
     {
-        return string.IsNullOrWhiteSpace(workspace) ? DefaultWorkspace : workspace;
+        return string.IsNullOrWhiteSpace(workspace) ? DefaultWorkspace : workspace.Trim();
     }
 
     private static string CreateSummary(string content)

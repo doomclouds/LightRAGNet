@@ -10,10 +10,32 @@ namespace LightRAGNet.Tests.DocumentLifecycle;
 public sealed class DocumentLifecycleServiceTests
 {
     [Fact]
+    public void PublicStateMutationMethods_ReturnTask()
+    {
+        var methodNames = new[]
+        {
+            nameof(DocumentLifecycleService.StartProcessingAsync),
+            nameof(DocumentLifecycleService.RecordChunksAsync),
+            nameof(DocumentLifecycleService.MarkProcessedAsync),
+            nameof(DocumentLifecycleService.MarkFailedAsync)
+        };
+
+        foreach (var methodName in methodNames)
+        {
+            typeof(DocumentLifecycleService)
+                .GetMethods()
+                .Single(method => method.Name == methodName)
+                .ReturnType
+                .Should()
+                .Be(typeof(Task));
+        }
+    }
+
+    [Fact]
     public async Task CreatePending_NewDocument_WritesPendingStatus()
     {
         var store = new InMemoryDocumentStatusStore();
-        var service = CreateService(store, workspace: "workspace-a");
+        var service = CreateService(store, workspace: " ");
 
         var result = await service.PrepareIngestionAsync(
             "  Alpha document body  ",
@@ -23,14 +45,14 @@ public sealed class DocumentLifecycleServiceTests
 
         result.IsDuplicate.Should().BeFalse();
         result.DocId.Should().Be("doc-1");
-        result.Workspace.Should().Be("workspace-a");
+        result.Workspace.Should().Be("_");
         result.StatusRecord.Status.Should().Be(DocumentLifecycleStatus.Pending);
         result.StatusRecord.ContentSummary.Should().Be("Alpha document body");
         result.StatusRecord.ContentLength.Should().Be("  Alpha document body  ".Length);
         result.StatusRecord.FilePath.Should().Be("alpha.md");
         result.StatusRecord.TrackId.Should().Be("track-1");
 
-        var stored = await store.GetAsync("workspace-a", "doc-1");
+        var stored = await store.GetAsync("_", "doc-1");
         stored.Should().NotBeNull();
         stored!.Status.Should().Be(DocumentLifecycleStatus.Pending);
     }
@@ -43,12 +65,28 @@ public sealed class DocumentLifecycleServiceTests
         await service.PrepareIngestionAsync("content", docId: "doc-1");
         await service.MarkFailedAsync("workspace-a", "doc-1", "previous", "old error");
 
-        var record = await service.StartProcessingAsync("workspace-a", "doc-1");
+        await service.StartProcessingAsync("workspace-a", "doc-1");
 
+        var record = await store.GetAsync("workspace-a", "doc-1");
         record.Should().NotBeNull();
         record!.Status.Should().Be(DocumentLifecycleStatus.Processing);
         record.ErrorMessage.Should().BeEmpty();
         record.Metadata.Should().NotContainKey("failure_stage");
+    }
+
+    [Fact]
+    public async Task StartProcessing_BlankWorkspace_UsesDefaultWorkspace()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store, workspace: " ");
+        await service.PrepareIngestionAsync("content", docId: "doc-1");
+
+        await service.StartProcessingAsync("  ", "doc-1");
+
+        var record = await store.GetAsync("_", "doc-1");
+        record.Should().NotBeNull();
+        record!.Workspace.Should().Be("_");
+        record.Status.Should().Be(DocumentLifecycleStatus.Processing);
     }
 
     [Fact]
@@ -60,8 +98,9 @@ public sealed class DocumentLifecycleServiceTests
         await service.StartProcessingAsync("workspace-a", "doc-1");
         var chunks = CreateChunks("doc-1");
 
-        var record = await service.RecordChunksAsync("workspace-a", "doc-1", chunks);
+        await service.RecordChunksAsync("workspace-a", "doc-1", chunks);
 
+        var record = await store.GetAsync("workspace-a", "doc-1");
         record.Should().NotBeNull();
         record!.ChunksCount.Should().Be(2);
         record.ChunksList.Should().Equal("chunk-1", "chunk-2");
@@ -79,8 +118,9 @@ public sealed class DocumentLifecycleServiceTests
         await service.StartProcessingAsync("workspace-a", "doc-1");
         await service.RecordChunksAsync("workspace-a", "doc-1", CreateChunks("doc-1"));
 
-        var record = await service.MarkFailedAsync("workspace-a", "doc-1", "embedding", "boom");
+        await service.MarkFailedAsync("workspace-a", "doc-1", "embedding", "boom");
 
+        var record = await store.GetAsync("workspace-a", "doc-1");
         record.Should().NotBeNull();
         record!.Status.Should().Be(DocumentLifecycleStatus.Failed);
         record.ErrorMessage.Should().Be("boom");
@@ -100,8 +140,9 @@ public sealed class DocumentLifecycleServiceTests
         await service.MarkFailedAsync("workspace-a", "doc-1", "embedding", "old error");
         await service.StartProcessingAsync("workspace-a", "doc-1");
 
-        var record = await service.MarkFailedAsync("workspace-a", "doc-1", "chunking", "chunking failed");
+        await service.MarkFailedAsync("workspace-a", "doc-1", "chunking", "chunking failed");
 
+        var record = await store.GetAsync("workspace-a", "doc-1");
         record.Should().NotBeNull();
         record!.Status.Should().Be(DocumentLifecycleStatus.Failed);
         record.ErrorMessage.Should().Be("chunking failed");
@@ -120,8 +161,9 @@ public sealed class DocumentLifecycleServiceTests
         await service.MarkFailedAsync("workspace-a", "doc-1", "previous", "old error");
         await service.StartProcessingAsync("workspace-a", "doc-1");
 
-        var record = await service.MarkProcessedAsync("workspace-a", "doc-1");
+        await service.MarkProcessedAsync("workspace-a", "doc-1");
 
+        var record = await store.GetAsync("workspace-a", "doc-1");
         record.Should().NotBeNull();
         record!.Status.Should().Be(DocumentLifecycleStatus.Processed);
         record.ErrorMessage.Should().BeEmpty();
@@ -169,7 +211,7 @@ public sealed class DocumentLifecycleServiceTests
         var service = CreateService(store);
         await PrepareProcessedDocumentAsync(service);
 
-        var plan = await service.CreateDeletionPlanAsync("workspace-a", "doc-1", deleteLlmCache: true);
+        var plan = await service.CreateDeletionPlanAsync(" workspace-a ", "doc-1", deleteLlmCache: true);
 
         plan.Found.Should().BeTrue();
         plan.DocId.Should().Be("doc-1");
