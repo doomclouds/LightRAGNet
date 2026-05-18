@@ -186,6 +186,40 @@ public sealed class KvDocumentStatusStoreTests
     }
 
     [Fact]
+    public async Task DeleteAsync_WithLegacyKeyCollision_DoesNotDeleteMismatchedPayload()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        const string collidingLegacyKey = "a:b:c";
+
+        try
+        {
+            var kvStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await kvStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [collidingLegacyKey] = CreateRecordDictionary("a:b", "c", "owner.md")
+            });
+            await kvStore.IndexDoneCallbackAsync();
+            var statusStore = new KvDocumentStatusStore(kvStore);
+
+            await statusStore.DeleteAsync("a", "b:c");
+
+            (await kvStore.GetByIdAsync(collidingLegacyKey)).Should().NotBeNull();
+
+            await statusStore.DeleteAsync("a:b", "c");
+
+            (await kvStore.GetByIdAsync(collidingLegacyKey)).Should().BeNull();
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
     public async Task Upsert_WithColonDelimitedWorkspaceAndDocId_DoesNotCollide()
     {
         var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");

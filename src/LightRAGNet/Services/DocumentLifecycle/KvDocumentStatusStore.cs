@@ -60,9 +60,19 @@ public sealed class KvDocumentStatusStore(
         string docId,
         CancellationToken cancellationToken = default)
     {
-        await store.DeleteAsync(
-            [MakeKey(workspace, docId), MakeLegacyKey(workspace, docId)],
-            cancellationToken);
+        var keysToDelete = new List<string> { MakeKey(workspace, docId) };
+        var legacyKey = MakeLegacyKey(workspace, docId);
+        var legacyData = await store.GetByIdAsync(legacyKey, cancellationToken);
+        if (legacyData is not null)
+        {
+            var record = FromDictionary(legacyData);
+            if (record.Workspace == NormalizeWorkspace(workspace) && record.DocId == docId)
+            {
+                keysToDelete.Add(legacyKey);
+            }
+        }
+
+        await store.DeleteAsync(keysToDelete, cancellationToken);
         await store.IndexDoneCallbackAsync(cancellationToken);
     }
 
