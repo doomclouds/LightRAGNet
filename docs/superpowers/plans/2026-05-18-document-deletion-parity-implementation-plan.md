@@ -172,6 +172,7 @@ Server-only stages such as Markdown row/file deletion stay in server code, not t
 - Modify: `src/LightRAGNet/Models/RagTask.cs`
 - Modify: `src/LightRAGNet/Services/TaskQueue/IRagTaskQueueService.cs`
 - Modify: `src/LightRAGNet/Services/TaskQueue/RagTaskQueueService.cs`
+- Modify: `src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs`
 - Modify: `src/LightRAGNet/Services/DocumentLifecycle/DocumentLifecycleService.cs`
 - Test: `tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs`
 - Test: `tests/LightRAGNet.Tests/DocumentLifecycle/DocumentLifecycleServiceTests.cs`
@@ -231,6 +232,48 @@ public async Task EnqueueDeletionTaskAsync_WhenDeleteTaskPendingForDocument_Retu
     duplicate.Should().BeNull();
     var tasks = await service.GetAllTasksAsync();
     tasks.Should().ContainSingle(t => t.OperationType == RagTaskOperationType.DeleteDocument);
+}
+
+[Fact]
+public async Task EnqueueTaskAsync_WhenDeleteTaskPendingForDocument_ReturnsNullAndDoesNotCreateIndexTask()
+{
+    var (service, _, _) = CreateService();
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: false);
+
+    var indexTaskId = await service.EnqueueTaskAsync(42, "alpha beta", "alpha.md");
+
+    indexTaskId.Should().BeNull();
+    var tasks = await service.GetAllTasksAsync();
+    tasks.Should().ContainSingle(t => t.OperationType == RagTaskOperationType.DeleteDocument);
+}
+
+[Fact]
+public async Task EnqueueDeletionTaskAsync_PublishesDeleteOperationMetadata()
+{
+    var (service, _, mediator) = CreateService();
+
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: true);
+
+    await mediator.Received(1).Publish(
+        Arg.Is<RagTaskStatusChangedEvent>(evt =>
+            evt.Task.OperationType == RagTaskOperationType.DeleteDocument &&
+            evt.Task.DeleteLlmCache &&
+            evt.Task.DeleteFilePath == "alpha.md"),
+        Arg.Any<CancellationToken>());
+}
+
+[Fact]
+public async Task GetNextTaskAsync_WhenDeleteTaskPending_ReturnsDeleteTaskMetadata()
+{
+    var (service, _, _) = CreateService();
+    await service.EnqueueDeletionTaskAsync(42, "doc-alpha", "alpha.md", deleteLlmCache: true);
+
+    var next = await service.GetNextTaskAsync();
+
+    next.Should().NotBeNull();
+    next!.OperationType.Should().Be(RagTaskOperationType.DeleteDocument);
+    next.RagDocumentId.Should().Be("doc-alpha");
+    next.DeleteLlmCache.Should().BeTrue();
 }
 ```
 
@@ -330,6 +373,12 @@ Implement `RagTaskOperationType` in `RagTask.cs` and add the properties from Sha
 Add this to `IRagTaskQueueService`:
 
 ```csharp
+Task<string?> EnqueueTaskAsync(
+    int documentId,
+    string content,
+    string filePath,
+    CancellationToken cancellationToken = default);
+
 Task<string?> EnqueueDeletionTaskAsync(
     int documentId,
     string ragDocumentId,
@@ -337,6 +386,22 @@ Task<string?> EnqueueDeletionTaskAsync(
     bool deleteLlmCache,
     CancellationToken cancellationToken = default);
 ```
+
+Change `RagTaskQueueService.EnqueueTaskAsync` to return `string?`. Before creating a new index task, reject active same-document tasks:
+
+```csharp
+var hasActiveTask = _tasks.Values.Any(t =>
+    t.DocumentId == documentId &&
+    (t.Status == RagTaskStatus.Pending || t.Status == RagTaskStatus.Processing));
+
+if (hasActiveTask)
+{
+    logger.LogWarning("Cannot enqueue indexing for document {DocumentId}; active task exists.", documentId);
+    return null;
+}
+```
+
+Update `MarkdownDocumentsController.AddToRagSystem` so a null task id returns `409 Conflict` and does not mark the document as `Pending`.
 
 In `RagTaskQueueService.EnqueueDeletionTaskAsync`:
 
