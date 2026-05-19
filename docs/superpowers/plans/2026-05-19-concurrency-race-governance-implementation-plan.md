@@ -749,41 +749,226 @@ Expected: FAIL because `AsyncKeyedEventQueue` does not exist.
 
 - [ ] **Step 3: Implement keyed event queue**
 
-Create `src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs` with this public API:
+Create `src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs`:
 
 ```csharp
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+
 namespace LightRAGNet.Services.Utilities;
 
 public sealed class AsyncKeyedEventQueue<TKey, TValue> : IAsyncDisposable
     where TKey : notnull
 {
+    private readonly ConcurrentDictionary<TKey, KeyState> _states = new();
+    private readonly Func<TKey, TValue, CancellationToken, Task> _handler;
+    private readonly ILogger<AsyncKeyedEventQueue<TKey, TValue>> _logger;
+    private readonly CancellationTokenSource _disposeCts;
+    private readonly object _disposeGate = new();
+    private bool _disposed;
+
     public AsyncKeyedEventQueue(
         Func<TKey, TValue, CancellationToken, Task> handler,
         ILogger<AsyncKeyedEventQueue<TKey, TValue>> logger,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        _handler = handler;
+        _logger = logger;
+        _disposeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    }
 
-    public Task EnqueueAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
+    public Task EnqueueAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+    {
+        return EnqueueCoreAsync(key, value, coalesceLatest: false, cancellationToken);
+    }
 
-    public Task EnqueueLatestAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
+    public Task EnqueueLatestAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+    {
+        return EnqueueCoreAsync(key, value, coalesceLatest: true, cancellationToken);
+    }
 
-    public Task DrainAsync(TKey key, CancellationToken cancellationToken = default);
+    public async Task DrainAsync(TKey key, CancellationToken cancellationToken = default)
+    {
+        if (!_states.TryGetValue(key, out var state))
+        {
+            return;
+        }
 
-    public ValueTask DisposeAsync();
+        Task drainTask;
+        lock (state.Gate)
+        {
+            drainTask = state.DrainSignal.Task;
+        }
+
+        await drainTask.WaitAsync(cancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        List<Task> processors;
+        lock (_disposeGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _disposeCts.Cancel();
+            processors = _states.Values
+                .Select(state =>
+                {
+                    lock (state.Gate)
+                    {
+                        return state.ProcessorTask;
+                    }
+                })
+                .Where(task => task is not null)
+                .Cast<Task>()
+                .ToList();
+        }
+
+        try
+        {
+            await Task.WhenAll(processors);
+        }
+        catch
+        {
+            // Individual handler failures are logged by the processor.
+        }
+        finally
+        {
+            foreach (var state in _states.Values)
+            {
+                lock (state.Gate)
+                {
+                    state.DrainSignal.TrySetResult();
+                }
+            }
+
+            _disposeCts.Dispose();
+        }
+    }
+
+    private Task EnqueueCoreAsync(
+        TKey key,
+        TValue value,
+        bool coalesceLatest,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_disposeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var state = _states.GetOrAdd(key, _ => new KeyState());
+            lock (state.Gate)
+            {
+                if (coalesceLatest)
+                {
+                    state.LatestValue = value;
+                    state.HasLatestValue = true;
+                }
+                else
+                {
+                    state.Queue.Enqueue(value);
+                }
+
+                if (state.DrainSignal.Task.IsCompleted)
+                {
+                    state.DrainSignal = CreateDrainSignal();
+                }
+
+                if (state.ProcessorTask is not { IsCompleted: false })
+                {
+                    state.ProcessorTask = Task.Run(() => ProcessKeyAsync(key, state));
+                }
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ProcessKeyAsync(TKey key, KeyState state)
+    {
+        var token = _disposeCts.Token;
+
+        while (true)
+        {
+            TValue value;
+
+            lock (state.Gate)
+            {
+                if (state.Queue.Count > 0)
+                {
+                    value = state.Queue.Dequeue();
+                }
+                else if (state.HasLatestValue)
+                {
+                    value = state.LatestValue!;
+                    state.LatestValue = default;
+                    state.HasLatestValue = false;
+                }
+                else
+                {
+                    state.ProcessorTask = null;
+                    state.DrainSignal.TrySetResult();
+                    return;
+                }
+            }
+
+            try
+            {
+                await _handler(key, value, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                lock (state.Gate)
+                {
+                    state.Queue.Clear();
+                    state.LatestValue = default;
+                    state.HasLatestValue = false;
+                    state.ProcessorTask = null;
+                    state.DrainSignal.TrySetResult();
+                }
+
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Async keyed event handler failed for key {Key} and value {Value}",
+                    key,
+                    value);
+            }
+        }
+    }
+
+    private static TaskCompletionSource CreateDrainSignal()
+    {
+        return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class KeyState
+    {
+        public object Gate { get; } = new();
+        public Queue<TValue> Queue { get; } = new();
+        public TValue? LatestValue { get; set; }
+        public bool HasLatestValue { get; set; }
+        public Task? ProcessorTask { get; set; }
+        public TaskCompletionSource DrainSignal { get; set; } = CompletedDrainSignal();
+
+        private static TaskCompletionSource CompletedDrainSignal()
+        {
+            var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            signal.SetResult();
+            return signal;
+        }
+    }
 }
 ```
-
-Implementation rules:
-
-```csharp
-// Per-key state owns:
-// - Queue<TValue> for normal enqueue
-// - TValue? LatestValue plus HasLatestValue for coalescing
-// - Task ProcessorTask
-// - TaskCompletionSource DrainSignal replaced whenever work is added
-// - object Gate
-```
-
-Use `Task.Run` only for starting a per-key processor after transitioning from idle to active. Inside the processor, always process one queued item first; if the queue is empty and `HasLatestValue` is true, consume that latest value; if both are empty, complete the current drain signal and exit. Catch handler exceptions, log key and value, then continue with later events.
 
 - [ ] **Step 4: Run keyed queue tests**
 
