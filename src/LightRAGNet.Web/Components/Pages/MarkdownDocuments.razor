@@ -1,5 +1,6 @@
 @page "/markdown-documents"
 @using System.Linq
+@using LightRAGNet.Services.Utilities
 @using LightRAGNet.Web.Services
 @inject ApiClient ApiClient
 @inject RagTaskNotificationService NotificationService
@@ -138,7 +139,7 @@
     private MudTable<MarkdownDocumentDto>? _tableRef;
     
     // Debounce executor related fields
-    private CancellationTokenSource? _debounceCts;
+    private readonly AsyncDebouncer _reloadDebouncer = new();
     private readonly TimeSpan _debounceDelay = TimeSpan.FromMilliseconds(240); // Debounce delay time: 240ms
 
     protected override async Task OnInitializedAsync()
@@ -539,53 +540,23 @@
     /// </summary>
     private async Task DebouncedReloadServerDataAsync()
     {
-        // Cancel previous debounce wait (if any)
-        if (_debounceCts != null)
-        {
-            await _debounceCts.CancelAsync();
-            _debounceCts.Dispose();
-        }
-
-        // Create new CancellationTokenSource
-        _debounceCts = new CancellationTokenSource();
-        var cancellationToken = _debounceCts.Token;
-        
-        try
-        {
-            // Wait for debounce delay time
-            await Task.Delay(_debounceDelay, cancellationToken);
-            
-            // After delay time ends, execute actual refresh operation
-            if (_tableRef != null && !cancellationToken.IsCancellationRequested)
+        await _reloadDebouncer.DebounceAsync(
+            _debounceDelay,
+            async cancellationToken =>
             {
-                await _tableRef.ReloadServerData();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancelled by new request, this is normal, no need to handle
-        }
-        finally
-        {
-            // Clean up CancellationTokenSource (if not currently active)
-            if (_debounceCts is { IsCancellationRequested: true })
-            {
-                _debounceCts.Dispose();
-                _debounceCts = null;
-            }
-        }
+                if (_tableRef != null && !cancellationToken.IsCancellationRequested)
+                {
+                    await _tableRef.ReloadServerData();
+                }
+            });
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         NotificationService.TaskStatusUpdated -= OnTaskStatusUpdated;
         NotificationService.DataCleared -= OnDataCleared;
         
         // Clean up debounce executor resources
-        _debounceCts?.Cancel();
-        _debounceCts?.Dispose();
-        _debounceCts = null;
-        
-        return ValueTask.CompletedTask;
+        await _reloadDebouncer.DisposeAsync();
     }
 }
