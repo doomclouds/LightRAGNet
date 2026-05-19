@@ -165,7 +165,7 @@ public sealed class LightRagLlmCacheService(
         string workspace,
         CancellationToken cancellationToken = default)
     {
-        var result = await TryGetWorkspaceQueryRevisionCoreAsync(workspace, cancellationToken);
+        var result = await ReadWorkspaceQueryRevisionStrictAsync(workspace, cancellationToken);
         return result.Revision;
     }
 
@@ -173,7 +173,7 @@ public sealed class LightRagLlmCacheService(
         string workspace,
         CancellationToken cancellationToken = default)
     {
-        var result = await TryGetWorkspaceQueryRevisionCoreAsync(workspace, cancellationToken);
+        var result = await ReadWorkspaceQueryRevisionStrictAsync(workspace, cancellationToken);
         if (!result.Succeeded)
         {
             return 0;
@@ -201,7 +201,7 @@ public sealed class LightRagLlmCacheService(
         }
     }
 
-    private async Task<(bool Succeeded, long Revision)> TryGetWorkspaceQueryRevisionCoreAsync(
+    private async Task<(bool Succeeded, long Revision)> ReadWorkspaceQueryRevisionStrictAsync(
         string workspace,
         CancellationToken cancellationToken)
     {

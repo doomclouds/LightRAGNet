@@ -144,6 +144,7 @@ public sealed class LightRagLlmCacheServiceTests
         var result = await service.BumpWorkspaceQueryRevisionAsync("workspace-a");
 
         result.Should().Be(0);
+        store.UpsertCalls.Should().BeEmpty();
         store.ThrowOnGetKey = null;
         (await service.GetWorkspaceQueryRevisionAsync("workspace-a")).Should().Be(5);
     }
@@ -156,7 +157,7 @@ public sealed class LightRagLlmCacheServiceTests
         var revisionKey = keyBuilder.BuildRevisionKey("workspace-a");
         store.Seed(revisionKey, new Dictionary<string, object>
         {
-            ["revision"] = 5L,
+            ["revision"] = 2L,
             ["updated_at"] = "2026-05-19T00:00:00.0000000Z"
         });
         store.ThrowOnUpsertKey = revisionKey;
@@ -164,8 +165,8 @@ public sealed class LightRagLlmCacheServiceTests
 
         var result = await service.BumpWorkspaceQueryRevisionAsync("workspace-a");
 
-        result.Should().Be(5);
-        (await service.GetWorkspaceQueryRevisionAsync("workspace-a")).Should().Be(5);
+        result.Should().Be(2);
+        (await service.GetWorkspaceQueryRevisionAsync("workspace-a")).Should().Be(2);
     }
 
     [Fact]
