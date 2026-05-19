@@ -803,13 +803,7 @@ public class LightRAG(
     {
         return new Dictionary<string, object>
         {
-            ["data"] = new Dictionary<string, object>
-            {
-                ["entities"] = new List<object>(),
-                ["relationships"] = new List<object>(),
-                ["chunks"] = new List<object>(),
-                ["references"] = new List<object>()
-            },
+            ["data"] = new Dictionary<string, object>(),
             ["metadata"] = new Dictionary<string, object>
             {
                 ["query_mode"] = QueryMode.Bypass.ToString()

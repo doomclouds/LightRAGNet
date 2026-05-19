@@ -71,6 +71,10 @@ public sealed class LightRAGQueryModeTests
 
         result.Content.Should().BeEmpty();
         result.Metadata["query_mode"].Should().Be("Bypass");
+        result.RawData.Should().NotBeNull();
+        var rawData = result.RawData!;
+        var data = rawData["data"].Should().BeOfType<Dictionary<string, object>>().Subject!;
+        data.Should().BeEmpty();
         await llmService.DidNotReceiveWithAnyArgs().ExtractKeywordsAsync(default!);
         await llmService.DidNotReceiveWithAnyArgs().GenerateAsync(default!);
         await vectorStore.DidNotReceiveWithAnyArgs().QueryAsync(default!, default!, default);
