@@ -6,6 +6,7 @@ using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,21 +45,45 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
     }
 
     [Fact]
-    public async Task QueryAsync_WhenNaiveBeforeTask4_DoesNotInvokeKgKeywordPolicy()
+    public async Task QueryAsync_WhenNaive_RoutesAroundKgKeywordPolicy()
     {
         var llmService = Substitute.For<ILLMService>();
-        var rag = CreateLightRag(llmService);
+        llmService
+            .ExtractKeywordsAsync(Arg.Any<string>(), Arg.Any<float>(), Arg.Any<CancellationToken>())
+            .Returns<Task<KeywordsResult>>(_ => throw new InvalidOperationException("Naive queries should skip keyword extraction."));
+        var vectorStore = Substitute.For<IVectorStore>();
+        vectorStore
+            .QueryAsync(
+                "chunks",
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<float[]?>(),
+                Arg.Any<float>(),
+                Arg.Any<CancellationToken>())
+            .Returns([
+                new SearchResult
+                {
+                    Id = "chunk-a",
+                    Content = "naive vector context",
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["file_path"] = "docs/a.md"
+                    }
+                }
+            ]);
+        var rag = CreateLightRag(llmService, vectorStore: vectorStore);
         var queryParam = new QueryParam
         {
             Mode = QueryMode.Naive,
-            LowLevelKeywords = ["alpha"]
+            OnlyNeedContext = true,
+            EnableRerank = false
         };
 
-        var act = () => rag.QueryAsync("query", queryParam);
+        var result = await rag.QueryAsync(new string('a', 50), queryParam);
 
-        await act.Should()
-            .ThrowAsync<NotSupportedException>()
-            .WithMessage("Query mode 'Naive' is not supported by RetrievalContextService.");
+        result.Content.Should().Contain("naive vector context");
+        result.Metadata["query_mode"].Should().Be("Naive");
+        await llmService.DidNotReceiveWithAnyArgs().ExtractKeywordsAsync(default!);
     }
 
     private static LightRAG CreateLightRag(
@@ -146,6 +171,7 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             documentProcessingService,
             knowledgeGraphMergeService,
             retrievalContextService,
+            new NaiveQueryService(vectorStore, rerankService, tokenizer),
             tokenizer,
             textChunksStore,
             fullDocsStore,

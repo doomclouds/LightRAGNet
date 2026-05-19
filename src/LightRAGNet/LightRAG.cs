@@ -26,6 +26,7 @@ public class LightRAG(
     DocumentProcessingService documentProcessingService,
     KnowledgeGraphMergeService knowledgeGraphMergeService,
     RetrievalContextService retrievalContextService,
+    NaiveQueryService naiveQueryService,
     ITokenizer tokenizer,
     [FromKeyedServices(KVContracts.TextChunks)]
     IKVStore textChunksStore,
@@ -532,6 +533,16 @@ public class LightRAG(
             };
         }
 
+        if (queryParam.Mode == QueryMode.Bypass)
+        {
+            return await QueryBypassAsync(query, queryParam, cancellationToken);
+        }
+
+        if (queryParam.Mode == QueryMode.Naive)
+        {
+            return await QueryNaiveAsync(query, queryParam, cancellationToken);
+        }
+
         // 1. Extract keywords
         KeywordsResult keywords;
         if (queryParam.HighLevelKeywords.Count > 0 || queryParam.LowLevelKeywords.Count > 0)
@@ -650,6 +661,159 @@ public class LightRAG(
         {
             Content = response,
             RawData = contextResult.RawData
+        };
+    }
+
+    private async Task<QueryResult> QueryBypassAsync(
+        string query,
+        QueryParam queryParam,
+        CancellationToken cancellationToken)
+    {
+        var rawData = BuildBypassRawData();
+
+        if (queryParam is { OnlyNeedContext: true, OnlyNeedPrompt: false })
+        {
+            return new QueryResult
+            {
+                Content = string.Empty,
+                RawData = rawData
+            };
+        }
+
+        if (queryParam.OnlyNeedPrompt)
+        {
+            return new QueryResult
+            {
+                Content = query,
+                RawData = rawData
+            };
+        }
+
+        if (queryParam.Stream)
+        {
+            var responseIterator = llmService.GenerateStreamAsync(
+                query,
+                systemPrompt: null,
+                historyMessages: queryParam.ConversationHistory,
+                temperature: 0.3f,
+                cancellationToken: cancellationToken);
+
+            return new QueryResult
+            {
+                ResponseIterator = responseIterator,
+                RawData = rawData,
+                IsStreaming = true
+            };
+        }
+
+        var response = await llmService.GenerateAsync(
+            query,
+            systemPrompt: null,
+            historyMessages: queryParam.ConversationHistory,
+            temperature: 0.3f,
+            cancellationToken: cancellationToken);
+
+        return new QueryResult
+        {
+            Content = response,
+            RawData = rawData
+        };
+    }
+
+    private async Task<QueryResult> QueryNaiveAsync(
+        string query,
+        QueryParam queryParam,
+        CancellationToken cancellationToken)
+    {
+        var contextResult = await naiveQueryService.BuildContextAsync(query, queryParam, cancellationToken);
+        if (contextResult == null)
+        {
+            logger.LogInformation("No naive query context could be built");
+            return new QueryResult
+            {
+                Content = "Sorry, I'm not able to provide an answer to that question.[no-context]"
+            };
+        }
+
+        if (queryParam is { OnlyNeedContext: true, OnlyNeedPrompt: false })
+        {
+            return new QueryResult
+            {
+                Content = contextResult.Context,
+                RawData = contextResult.RawData
+            };
+        }
+
+        var systemPrompt = NaiveQueryPromptBuilder.BuildResponsePrompt(contextResult, queryParam);
+
+        var systemPromptTokens = tokenizer.CountTokens(systemPrompt);
+        var contextTokens = tokenizer.CountTokens(contextResult.Context);
+        var queryTokens = tokenizer.CountTokens(query);
+        var totalPromptTokens = tokenizer.CountTokens(query + systemPrompt);
+
+        logger.LogInformation(
+            "[QueryAsync] Naive token statistics - System prompt: {SystemPromptTokens:N0} tokens (includes context: {ContextTokens:N0} tokens), Query: {QueryTokens:N0} tokens, Total: {TotalPromptTokens:N0} tokens",
+            systemPromptTokens,
+            contextTokens,
+            queryTokens,
+            totalPromptTokens);
+
+        if (queryParam.OnlyNeedPrompt)
+        {
+            var promptContent = $"{systemPrompt}\n\n---User Query---\n{query}";
+            return new QueryResult
+            {
+                Content = promptContent,
+                RawData = contextResult.RawData
+            };
+        }
+
+        if (queryParam.Stream)
+        {
+            var responseIterator = llmService.GenerateStreamAsync(
+                query,
+                systemPrompt,
+                queryParam.ConversationHistory,
+                temperature: 0.3f,
+                cancellationToken: cancellationToken);
+
+            return new QueryResult
+            {
+                ResponseIterator = responseIterator,
+                RawData = contextResult.RawData,
+                IsStreaming = true
+            };
+        }
+
+        var response = await llmService.GenerateAsync(
+            query,
+            systemPrompt,
+            queryParam.ConversationHistory,
+            temperature: 0.3f,
+            cancellationToken: cancellationToken);
+
+        return new QueryResult
+        {
+            Content = response,
+            RawData = contextResult.RawData
+        };
+    }
+
+    private static Dictionary<string, object> BuildBypassRawData()
+    {
+        return new Dictionary<string, object>
+        {
+            ["data"] = new Dictionary<string, object>
+            {
+                ["entities"] = new List<object>(),
+                ["relationships"] = new List<object>(),
+                ["chunks"] = new List<object>(),
+                ["references"] = new List<object>()
+            },
+            ["metadata"] = new Dictionary<string, object>
+            {
+                ["query_mode"] = QueryMode.Bypass.ToString()
+            }
         };
     }
 

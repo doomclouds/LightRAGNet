@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-19-query-mode-context-parity-archives.md](./2026-05/2026-05-19-query-mode-context-parity-archives.md): 接入 `QueryMode.Bypass` 直连 LLM 和 `QueryMode.Naive` vector-only 查询路由，并保留 KG keyword policy 边界。
 - [2026-05-18-document-deletion-parity-archives.md](./2026-05/2026-05-18-document-deletion-parity-archives.md): 补齐 indexed document deletion 的核心存储清理、API/任务状态、Blazor 删除体验、clear-all 安全边界和可选真实存储验证。
 - [2026-05-18-document-lifecycle-alignment-archives.md](./2026-05/2026-05-18-document-lifecycle-alignment-archives.md): 引入可测试的文档生命周期、`doc_status` workspace 持久化、失败重试和删除计划合同，为后续 Python LightRAG 对齐奠定数据一致性基础。
 - [2026-05-17-testability-foundation-archives.md](./2026-05/2026-05-17-testability-foundation-archives.md): 建立 `src/` 与 `tests/` 分层，并为文档分块、检索上下文、图谱合并和任务队列补上首层可维护测试覆盖。
