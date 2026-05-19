@@ -7,6 +7,7 @@ using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Storage;
@@ -160,6 +161,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DocumentDeletionService>();
         services.AddSingleton<KnowledgeGraphMergeService>();
         services.AddSingleton<RetrievalContextService>();
+        services.AddSingleton<NaiveQueryService>();
         services.AddSingleton<LightRAG>();
 
         #endregion

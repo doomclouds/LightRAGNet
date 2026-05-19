@@ -5,6 +5,7 @@ using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Storage;
@@ -171,6 +172,7 @@ public sealed class RagTaskProcessorServiceTests
             documentProcessingService,
             knowledgeGraphMergeService,
             retrievalContextService,
+            new NaiveQueryService(vectorStore, rerankService, tokenizer),
             tokenizer,
             textChunksStore,
             fullDocsStore,

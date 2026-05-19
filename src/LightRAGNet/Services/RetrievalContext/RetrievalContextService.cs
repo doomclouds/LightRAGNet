@@ -40,6 +40,11 @@ public class RetrievalContextService(
         QueryParam queryParam,
         CancellationToken cancellationToken = default)
     {
+        if (queryParam.Mode is QueryMode.Naive or QueryMode.Bypass)
+        {
+            throw new NotSupportedException($"Query mode '{queryParam.Mode}' is not supported by RetrievalContextService.");
+        }
+
         var llKeywordsStr = string.Join(", ", keywords.LowLevelKeywords);
         var hlKeywordsStr = string.Join(", ", keywords.HighLevelKeywords);
         
@@ -73,29 +78,75 @@ public class RetrievalContextService(
         // Build context string
         var context = BuildContextString(searchResult, queryParam);
         
-        // Build raw data
-        var rawData = new Dictionary<string, object>
+        var rawData = BuildRawData(searchResult, keywords, queryParam);
+
+        return new QueryContextResult
+        {
+            Context = context,
+            RawData = rawData
+        };
+    }
+
+    private static Dictionary<string, object> BuildRawData(
+        KGSearchResult searchResult,
+        KeywordsResult keywords,
+        QueryParam queryParam)
+    {
+        return new Dictionary<string, object>
         {
             ["data"] = new Dictionary<string, object>
             {
-                ["references"] = searchResult.References.Select((r, i) => new Dictionary<string, object>
+                ["entities"] = searchResult.Entities.Select(entity => new Dictionary<string, object>
                 {
-                    ["reference_id"] = (i + 1).ToString(),
-                    ["file_path"] = r.FilePath
+                    ["entity_name"] = entity.Name,
+                    ["entity_type"] = entity.Type,
+                    ["description"] = entity.Description,
+                    ["rank"] = entity.Rank,
+                    ["source_id"] = entity.SourceId ?? string.Empty,
+                    ["file_path"] = entity.FilePath ?? string.Empty
+                }).ToList(),
+                ["relationships"] = searchResult.Relations.Select(relation => new Dictionary<string, object>
+                {
+                    ["src_id"] = relation.SourceId,
+                    ["tgt_id"] = relation.TargetId,
+                    ["keywords"] = relation.Keywords,
+                    ["description"] = relation.Description,
+                    ["rank"] = relation.Rank,
+                    ["weight"] = relation.Weight,
+                    ["source_id"] = relation.RSourceId ?? string.Empty
+                }).ToList(),
+                ["chunks"] = searchResult.Chunks.Select(chunk => new Dictionary<string, object>
+                {
+                    ["chunk_id"] = chunk.ChunkId,
+                    ["content"] = chunk.Content,
+                    ["file_path"] = chunk.FilePath,
+                    ["reference_id"] = chunk.ReferenceId
+                }).ToList(),
+                ["references"] = searchResult.References.Select((reference, index) => new Dictionary<string, object>
+                {
+                    ["reference_id"] = string.IsNullOrEmpty(reference.ReferenceId)
+                        ? (index + 1).ToString()
+                        : reference.ReferenceId,
+                    ["file_path"] = reference.FilePath
                 }).ToList()
             },
             ["metadata"] = new Dictionary<string, object>
             {
                 ["query_mode"] = queryParam.Mode.ToString(),
                 ["high_level_keywords"] = keywords.HighLevelKeywords,
-                ["low_level_keywords"] = keywords.LowLevelKeywords
+                ["low_level_keywords"] = keywords.LowLevelKeywords,
+                ["keywords"] = new Dictionary<string, object>
+                {
+                    ["high_level"] = keywords.HighLevelKeywords,
+                    ["low_level"] = keywords.LowLevelKeywords
+                },
+                ["processing_info"] = new Dictionary<string, object>
+                {
+                    ["total_entities_found"] = searchResult.Entities.Count,
+                    ["total_relations_found"] = searchResult.Relations.Count,
+                    ["final_chunks_count"] = searchResult.Chunks.Count
+                }
             }
-        };
-        
-        return new QueryContextResult
-        {
-            Context = context,
-            RawData = rawData
         };
     }
     

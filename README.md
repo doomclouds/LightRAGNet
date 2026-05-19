@@ -43,8 +43,8 @@ LightRAGNet/
 - ✅ **Global Mode**: Multi-hop graph traversal to discover indirect associations, suitable for exploratory queries
 - ✅ **Mix Mode**: Combines knowledge graph retrieval and vector retrieval, integrating multiple information sources
 - ✅ **Hybrid Mode**: Uses the same implementation as Mix mode, with consistent behavior
-- ❌ **Naive Mode**: Vector retrieval only (currently not implemented)
-- ❌ **Bypass Mode**: Bypasses retrieval and generates directly (currently not implemented)
+- ✅ **Naive Mode**: Uses chunk vector retrieval only, without knowledge graph retrieval
+- ✅ **Bypass Mode**: Bypasses retrieval and sends the query directly to the LLM
 
 ### Infrastructure
 
