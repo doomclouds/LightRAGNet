@@ -6,6 +6,7 @@ using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -546,6 +547,21 @@ public class LightRAG(
             keywords = await llmService.ExtractKeywordsAsync(query, cancellationToken: cancellationToken);
         }
 
+        if (IsKnowledgeGraphQueryMode(queryParam.Mode))
+        {
+            var keywordDecision = QueryKeywordPolicy.NormalizeForKg(query, keywords, queryParam.Mode);
+
+            if (keywordDecision.ShouldFail)
+            {
+                return new QueryResult
+                {
+                    Content = "Sorry, I'm not able to provide an answer to that question.[no-context]"
+                };
+            }
+
+            keywords = keywordDecision.Keywords;
+        }
+
         logger.LogDebug(
             "High-level keywords: {HLKeywords}, Low-level keywords: {LLKeywords}",
             string.Join(", ", keywords.HighLevelKeywords),
@@ -635,6 +651,11 @@ public class LightRAG(
             Content = response,
             RawData = contextResult.RawData
         };
+    }
+
+    private static bool IsKnowledgeGraphQueryMode(QueryMode mode)
+    {
+        return mode is QueryMode.Local or QueryMode.Global or QueryMode.Hybrid or QueryMode.Mix;
     }
 
     private static string BuildRAGResponsePrompt(QueryContextResult contextResult, QueryParam queryParam)
