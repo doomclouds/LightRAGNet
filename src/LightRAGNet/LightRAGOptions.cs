@@ -8,6 +8,21 @@ public class LightRAGOptions
     public string WorkingDir { get; set; } = "./rag_storage";
 
     public string Workspace { get; set; } = "_";
+
+    /// <summary>
+    /// Enables all LLM-backed caches.
+    /// </summary>
+    public bool EnableLlmCache { get; set; } = true;
+
+    /// <summary>
+    /// Enables query response cache entries.
+    /// </summary>
+    public bool EnableQueryCache { get; set; } = true;
+
+    /// <summary>
+    /// Enables keyword extraction cache entries.
+    /// </summary>
+    public bool EnableKeywordCache { get; set; } = true;
     
     /// <summary>
     /// Chunk token size
