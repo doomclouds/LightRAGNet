@@ -1,4 +1,5 @@
 using LightRAGNet.Models;
+using LightRAGNet.Services.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,12 @@ public class RagTaskProcessorService(
     ILogger<RagTaskProcessorService> logger)
     : BackgroundService
 {
+    private static readonly TimeSpan DefaultTerminalProgressDrainTimeout = TimeSpan.FromSeconds(5);
+
+    internal TimeSpan TerminalProgressDrainTimeoutForTesting { get; set; } = DefaultTerminalProgressDrainTimeout;
+
+    internal Func<LightRAG, RagTask, CancellationToken, Task>? AfterProgressHandlerSubscribedForTesting { get; set; }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("RAG task processing service started");
@@ -65,43 +72,108 @@ public class RagTaskProcessorService(
         // Create scope to get LightRAG service
         using var scope = scopeFactory.CreateScope();
         var lightRAG = scope.ServiceProvider.GetRequiredService<LightRAG>();
+        var terminalDrainAttempted = false;
+        var terminalDrainSucceeded = false;
+        var progressHandlerSubscribed = false;
+        await using var progressQueue = new AsyncEventDispatcher<TaskState>(
+            async (state, token) =>
+            {
+                if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed)
+                {
+                    logger.LogDebug(
+                        "Discarding late progress update for terminal task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",
+                        task.TaskId,
+                        state.Stage,
+                        state.Current,
+                        state.Total);
+                    return;
+                }
 
-        // Subscribe to progress update events
+                var progress = state.Total > 0
+                    ? (int)(state.Current * 100.0 / state.Total)
+                    : (int?)null;
+
+                await taskQueue.UpdateTaskProgressAsync(
+                    task.TaskId,
+                    state.Stage,
+                    progress,
+                    token);
+            },
+            logger,
+            keySelector: _ => task.TaskId,
+            cancellationToken: taskCancellationToken);
+
         EventHandler<TaskState> progressHandler = (sender, state) =>
         {
             if (state.DocId == task.RagDocumentId)
             {
-                // Only update progress in document chunking stage (Total > 0)
-                // Other stages (Total == 0) don't update progress, only update stage
-                if (state.Total > 0)
+                try
                 {
-                    var progress = (int)(state.Current * 100.0 / state.Total);
-                    
-                    _ = taskQueue.UpdateTaskProgressAsync(
-                        task.TaskId,
-                        state.Stage,
-                        progress,
-                        taskCancellationToken);
+                    // EnqueueLatestAsync completes after the event is accepted into the dispatcher channel.
+                    _ = progressQueue.EnqueueLatestAsync(state, CancellationToken.None);
                 }
-                else
+                catch (Exception ex)
                 {
-                    // When Total == 0, only update stage, don't update progress (pass null)
-                    _ = taskQueue.UpdateTaskProgressAsync(
+                    logger.LogWarning(
+                        ex,
+                        "Failed to enqueue progress update for task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",
                         task.TaskId,
                         state.Stage,
-                        null, // Don't update progress
-                        taskCancellationToken);
+                        state.Current,
+                        state.Total);
                 }
             }
         };
 
+        void UnsubscribeProgressHandler()
+        {
+            if (!progressHandlerSubscribed)
+            {
+                return;
+            }
+
+            lightRAG.TaskStateChanged -= progressHandler;
+            progressHandlerSubscribed = false;
+        }
+
+        async Task DrainBeforeTerminalStatusAsync(string terminalStatus)
+        {
+            terminalDrainAttempted = true;
+            terminalDrainSucceeded = await DrainProgressQueueBeforeTerminalStatusAsync(
+                progressQueue,
+                task,
+                terminalStatus,
+                CancellationToken.None);
+
+            UnsubscribeProgressHandler();
+
+            if (terminalDrainSucceeded)
+            {
+                terminalDrainSucceeded = await DrainProgressQueueBeforeTerminalStatusAsync(
+                    progressQueue,
+                    task,
+                    $"{terminalStatus} after unsubscribe",
+                    CancellationToken.None);
+            }
+        }
+
         lightRAG.TaskStateChanged += progressHandler;
+        progressHandlerSubscribed = true;
 
         try
         {
+            if (AfterProgressHandlerSubscribedForTesting is not null)
+            {
+                await AfterProgressHandlerSubscribedForTesting(lightRAG, task, taskCancellationToken);
+            }
+
             if (task.OperationType == RagTaskOperationType.DeleteDocument)
             {
-                await ProcessDeleteTaskAsync(task, lightRAG, taskCancellationToken);
+                await ProcessDeleteTaskAsync(
+                    task,
+                    lightRAG,
+                    taskCancellationToken,
+                    () => DrainBeforeTerminalStatusAsync(RagTaskStatus.Completed.ToString()));
                 return;
             }
 
@@ -113,6 +185,8 @@ public class RagTaskProcessorService(
                 taskCancellationToken);
 
             // Update task status to Completed
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Completed.ToString());
+
             task.RagDocumentId = docId;
             task.Status = RagTaskStatus.Completed;
             task.CompletedAt = DateTime.UtcNow;
@@ -126,6 +200,8 @@ public class RagTaskProcessorService(
         {
             // Cancellation due to service shutdown, reset task to Pending so it can be retried after service restart
             logger.LogWarning("Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
+
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
             
             await taskQueue.UpdateTaskStatusAsync(
                 task.TaskId,
@@ -137,6 +213,8 @@ public class RagTaskProcessorService(
         {
             // Cancellation due to service shutdown, reset task to Pending
             logger.LogWarning(ex, "Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
+
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
             
             await taskQueue.UpdateTaskStatusAsync(
                 task.TaskId,
@@ -153,6 +231,8 @@ public class RagTaskProcessorService(
             logger.LogError(ex, "Error occurred while processing task {TaskId}", task.TaskId);
 
             // Update task status to Failed
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Failed.ToString());
+
             task.Status = RagTaskStatus.Failed;
             task.ErrorMessage = ex.Message;
             task.CompletedAt = DateTime.UtcNow;
@@ -165,15 +245,75 @@ public class RagTaskProcessorService(
         }
         finally
         {
-            lightRAG.TaskStateChanged -= progressHandler;
+            UnsubscribeProgressHandler();
+            if (!terminalDrainAttempted || terminalDrainSucceeded)
+            {
+                await DrainProgressQueueBeforeTerminalStatusAsync(
+                    progressQueue,
+                    task,
+                    "final cleanup",
+                    CancellationToken.None);
+            }
+            else
+            {
+                logger.LogDebug(
+                    "Skipping final progress drain for task {TaskId} because the terminal drain did not complete.",
+                    task.TaskId);
+            }
+
             cancellationRegistry.CompleteProcessingTask(task.TaskId);
+        }
+    }
+
+    private async Task<bool> DrainProgressQueueBeforeTerminalStatusAsync(
+        AsyncEventDispatcher<TaskState> progressQueue,
+        RagTask task,
+        string terminalStatus,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutCts = new CancellationTokenSource(TerminalProgressDrainTimeoutForTesting);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            await progressQueue.DrainAsync(linkedCts.Token);
+            return true;
+        }
+        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                ex,
+                "Timed out after {Timeout} while draining progress updates for task {TaskId} before {TerminalStatus}; continuing terminal status update.",
+                TerminalProgressDrainTimeoutForTesting,
+                task.TaskId,
+                terminalStatus);
+            return false;
+        }
+        catch (OperationCanceledException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Progress drain was cancelled for task {TaskId} before {TerminalStatus}; continuing terminal status update.",
+                task.TaskId,
+                terminalStatus);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Progress drain failed for task {TaskId} before {TerminalStatus}; continuing terminal status update.",
+                task.TaskId,
+                terminalStatus);
+            return false;
         }
     }
 
     internal async Task ProcessDeleteTaskAsync(
         RagTask task,
         LightRAG lightRAG,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task>? beforeTerminalStatusUpdate = null)
     {
         if (string.IsNullOrWhiteSpace(task.RagDocumentId))
         {
@@ -191,6 +331,11 @@ public class RagTaskProcessorService(
                 "Delete task {TaskId} targeted missing RAG document {RagDocumentId}; treating deletion as completed.",
                 task.TaskId,
                 task.RagDocumentId);
+
+            if (beforeTerminalStatusUpdate is not null)
+            {
+                await beforeTerminalStatusUpdate();
+            }
 
             task.Status = RagTaskStatus.Completed;
             task.CompletedAt = DateTime.UtcNow;
@@ -214,6 +359,11 @@ public class RagTaskProcessorService(
                 : $" Stage: {result.Stage}.";
 
             throw new InvalidOperationException($"{message}{stageSuffix}");
+        }
+
+        if (beforeTerminalStatusUpdate is not null)
+        {
+            await beforeTerminalStatusUpdate();
         }
 
         task.Status = RagTaskStatus.Completed;

@@ -60,27 +60,72 @@ public class LightRAG(
     /// Background task for processing state updates and dispatching events
     /// </summary>
     private Task? _stateProcessorTask;
+
+    /// <summary>
+    /// Guards state processor startup so concurrent callers share a single consumer.
+    /// </summary>
+    private readonly object _stateProcessorGate = new();
     
     /// <summary>
-    /// Initialize state processor
+    /// Ensure state processor is running
     /// </summary>
-    private void InitializeStateProcessor()
+    private void EnsureStateProcessorStarted()
     {
-        _stateProcessorTask = Task.Run(async () =>
+        lock (_stateProcessorGate)
         {
-            while (await _taskStateBuffer.OutputAvailableAsync())
+            if (_stateProcessorTask is { IsCompleted: false })
             {
-                try
-                {
-                    var state = await _taskStateBuffer.ReceiveAsync();
-                    TaskStateChanged?.Invoke(this, state);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error processing task state update");
-                }
+                return;
             }
-        });
+
+            _stateProcessorTask = Task.Run(ProcessTaskStatesAsync);
+        }
+    }
+
+    private async Task ProcessTaskStatesAsync()
+    {
+        while (await _taskStateBuffer.OutputAvailableAsync())
+        {
+            try
+            {
+                var state = await _taskStateBuffer.ReceiveAsync();
+                PublishTaskState(state);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing task state update");
+            }
+        }
+    }
+
+    private void PublishTaskState(TaskState state)
+    {
+        var handlers = TaskStateChanged?.GetInvocationList()
+            .Cast<EventHandler<TaskState>>()
+            .ToArray();
+
+        if (handlers is null || handlers.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                handler(this, state);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    ex,
+                    "Task state subscriber failed: DocId={DocId}, Stage={Stage}, Current={Current}, Total={Total}",
+                    state.DocId,
+                    state.Stage,
+                    state.Current,
+                    state.Total);
+            }
+        }
     }
 
     /// <summary>
@@ -100,11 +145,7 @@ public class LightRAG(
         string? filePath = null,
         CancellationToken cancellationToken = default)
     {
-        // Initialize state processor (if not already initialized)
-        if (_stateProcessorTask == null || _stateProcessorTask.IsCompleted)
-        {
-            InitializeStateProcessor();
-        }
+        EnsureStateProcessorStarted();
 
         // 1. Prepare lifecycle status and duplicate gate
         var ingestion = await documentLifecycleService.PrepareIngestionAsync(
@@ -413,10 +454,7 @@ public class LightRAG(
         bool deleteLlmCache = false,
         CancellationToken cancellationToken = default)
     {
-        if (_stateProcessorTask == null || _stateProcessorTask.IsCompleted)
-        {
-            InitializeStateProcessor();
-        }
+        EnsureStateProcessorStarted();
 
         var workspace = documentLifecycleService.GetDefaultWorkspace();
         var plan = await documentLifecycleService.CreateDeletionPlanAsync(

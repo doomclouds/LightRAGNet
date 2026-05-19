@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-19-concurrency-race-governance-archives.md](./2026-05/2026-05-19-concurrency-race-governance-archives.md): 建立文件原子写入、事件串行分发、操作取消、按 key 锁和状态泵启动保护等并发边界，收敛近期竞态问题。
 - [2026-05-19-query-llm-cache-parity-archives.md](./2026-05/2026-05-19-query-llm-cache-parity-archives.md): 为查询阶段接入 KG keyword cache、KG/Naive/Bypass non-streaming answer cache，并用 workspace revision 防止文档变更后命中旧答案。
 - [2026-05-19-query-mode-context-parity-archives.md](./2026-05/2026-05-19-query-mode-context-parity-archives.md): 接入 `QueryMode.Bypass` 直连 LLM 和 `QueryMode.Naive` vector-only 查询路由，并保留 KG keyword policy 边界。
 - [2026-05-18-document-deletion-parity-archives.md](./2026-05/2026-05-18-document-deletion-parity-archives.md): 补齐 indexed document deletion 的核心存储清理、API/任务状态、Blazor 删除体验、clear-all 安全边界和可选真实存储验证。

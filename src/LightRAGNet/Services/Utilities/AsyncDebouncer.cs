@@ -2,85 +2,42 @@ namespace LightRAGNet.Services.Utilities;
 
 public sealed class AsyncDebouncer : IAsyncDisposable
 {
-    private readonly object _gate = new();
-    private CancellationTokenSource? _currentCts;
-    private bool _disposed;
+    private readonly AsyncOperationSlot _slot = new();
 
     public async Task DebounceAsync(
         TimeSpan delay,
         Func<CancellationToken, Task> action)
     {
-        CancellationTokenSource? previousCts;
-        CancellationTokenSource currentCts;
-        CancellationToken currentToken;
-
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            previousCts = _currentCts;
-            currentCts = new CancellationTokenSource();
-            currentToken = currentCts.Token;
-            _currentCts = currentCts;
-        }
-
-        if (previousCts is not null)
-        {
-            await previousCts.CancelAsync();
-            previousCts.Dispose();
-        }
-
+        AsyncOperationSlot.Lease lease;
         try
         {
-            await Task.Delay(delay, currentToken);
-            await action(currentToken);
+            lease = await _slot.StartNewAsync();
         }
-        catch (OperationCanceledException) when (currentToken.IsCancellationRequested)
+        catch (ObjectDisposedException)
         {
+            return;
         }
-        finally
-        {
-            var shouldDispose = false;
 
-            lock (_gate)
+        using (lease)
+        {
+            try
             {
-                if (ReferenceEquals(_currentCts, currentCts))
+                await Task.Delay(delay, lease.Token);
+                if (!await _slot.IsCurrentAsync(lease))
                 {
-                    _currentCts = null;
-                    shouldDispose = true;
+                    return;
                 }
-            }
 
-            if (shouldDispose)
+                await action(lease.Token);
+            }
+            catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
             {
-                currentCts.Dispose();
             }
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        CancellationTokenSource? currentCts;
-
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            currentCts = _currentCts;
-            _currentCts = null;
-        }
-
-        if (currentCts is not null)
-        {
-            await currentCts.CancelAsync();
-            currentCts.Dispose();
-        }
+        await _slot.DisposeAsync();
     }
 }

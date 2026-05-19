@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LightRAGNet.Core.IO;
 using LightRAGNet.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -26,33 +27,55 @@ public class JsonKVStore : IKVStore
         LoadData();
     }
     
-    public Task<Dictionary<string, object>?> GetByIdAsync(
+    public async Task<Dictionary<string, object>?> GetByIdAsync(
         string id,
         CancellationToken cancellationToken = default)
     {
-        _data.TryGetValue(id, out var value);
-        return Task.FromResult(value);
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            return _data.TryGetValue(id, out var value)
+                ? CloneRecord(value)
+                : null;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
     
-    public Task<List<Dictionary<string, object>>> GetByIdsAsync(
+    public async Task<List<Dictionary<string, object>>> GetByIdsAsync(
         IEnumerable<string> ids,
         CancellationToken cancellationToken = default)
     {
-        var result = ids
-            .Where(id => _data.ContainsKey(id))
-            .Select(id => _data[id])
-            .ToList();
-        
-        return Task.FromResult(result);
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            return ids
+                .Where(_data.ContainsKey)
+                .Select(id => CloneRecord(_data[id]))
+                .ToList();
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
     
-    public Task<HashSet<string>> FilterKeysAsync(
+    public async Task<HashSet<string>> FilterKeysAsync(
         HashSet<string> keys,
         CancellationToken cancellationToken = default)
     {
-        var existing = _data.Keys.ToHashSet();
-        var filtered = keys.Where(k => !existing.Contains(k)).ToHashSet();
-        return Task.FromResult(filtered);
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            var existing = _data.Keys.ToHashSet(StringComparer.Ordinal);
+            return keys.Where(k => !existing.Contains(k)).ToHashSet();
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
     
     public async Task UpsertAsync(
@@ -64,7 +87,7 @@ public class JsonKVStore : IKVStore
         {
             foreach (var kvp in data)
             {
-                _data[kvp.Key] = kvp.Value;
+                _data[kvp.Key] = CloneRecord(kvp.Value);
             }
         }
         finally
@@ -91,9 +114,17 @@ public class JsonKVStore : IKVStore
         }
     }
     
-    public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_data.Count == 0);
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            return _data.Count == 0;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
     
     public async Task IndexDoneCallbackAsync(CancellationToken cancellationToken = default)
@@ -101,7 +132,7 @@ public class JsonKVStore : IKVStore
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            SaveData();
+            await SaveDataAsync(cancellationToken);
         }
         finally
         {
@@ -114,11 +145,21 @@ public class JsonKVStore : IKVStore
         await _lock.WaitAsync(cancellationToken);
         try
         {
+            var previousData = CloneData(_data);
+
             // Clear data in memory
             _data.Clear();
             
             // Persist empty state to file immediately
-            SaveData();
+            try
+            {
+                await SaveDataAsync(cancellationToken);
+            }
+            catch
+            {
+                _data = previousData;
+                throw;
+            }
             
             _logger.LogInformation("Cleared data in memory and file: {FilePath}", _filePath);
         }
@@ -155,27 +196,66 @@ public class JsonKVStore : IKVStore
         }
     }
     
-    private void SaveData()
+    private async Task SaveDataAsync(CancellationToken cancellationToken)
     {
         try
         {
-            var directory = Path.GetDirectoryName(_filePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            
             var json = JsonSerializer.Serialize(_data, new JsonSerializerOptions
             {
                 WriteIndented = true
             });
             
-            File.WriteAllText(_filePath, json);
+            await AtomicFileWriter.WriteAllTextAsync(
+                _filePath,
+                json,
+                cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save data to {FilePath}", _filePath);
+            throw;
         }
+    }
+
+    private static Dictionary<string, object> CloneRecord(Dictionary<string, object> source)
+    {
+        return source.ToDictionary(
+            pair => pair.Key,
+            pair => CloneValue(pair.Value),
+            StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, Dictionary<string, object>> CloneData(
+        Dictionary<string, Dictionary<string, object>> source)
+    {
+        return source.ToDictionary(
+            pair => pair.Key,
+            pair => CloneRecord(pair.Value),
+            StringComparer.Ordinal);
+    }
+
+    private static object CloneValue(object value)
+    {
+        return value switch
+        {
+            Dictionary<string, object> dictionary => CloneRecord(dictionary),
+            IReadOnlyDictionary<string, object> dictionary => dictionary.ToDictionary(
+                pair => pair.Key,
+                pair => CloneValue(pair.Value),
+                StringComparer.Ordinal),
+            List<string[]> list => list.Select(item => item.ToArray()).ToList(),
+            List<string> list => list.ToList(),
+            string[][] array => array.Select(item => item.ToArray()).ToArray(),
+            string[] array => array.ToArray(),
+            List<object> list => list.Select(CloneValue).ToList(),
+            object[] array => array.Select(item => item is null ? null : CloneValue(item)).ToArray(),
+            JsonElement json => JsonSerializer.Deserialize<object>(json.GetRawText()) ?? json.ToString(),
+            System.Collections.IEnumerable enumerable and not string => enumerable
+                .Cast<object?>()
+                .Select(item => item is null ? null : CloneValue(item))
+                .ToList(),
+            _ => value
+        };
     }
 }
 

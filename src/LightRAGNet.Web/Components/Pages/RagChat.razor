@@ -1,4 +1,5 @@
 @page "/"
+@using LightRAGNet.Services.Utilities
 @using LightRAGNet.Web.Services
 @using LightRAGNet.Web.Models
 @inject ApiClient ApiClient
@@ -85,7 +86,7 @@
     private string _inputMessage = string.Empty;
     private bool _isWaitingResponse;
     private ElementReference _chatContainer;
-    private CancellationTokenSource? _queryCancellationTokenSource;
+    private readonly AsyncOperationSlot _queryOperation = new();
     private IJSObjectReference? _jsModule;
     private bool _shouldScrollAfterRender;
 
@@ -164,10 +165,19 @@
         if (string.IsNullOrWhiteSpace(userMessage))
             return;
 
+        AsyncOperationSlot.Lease queryLease;
+        try
+        {
+            queryLease = await _queryOperation.StartNewAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
         // Clear input and lock UI immediately
         _inputMessage = string.Empty;
         _isWaitingResponse = true;
-        _queryCancellationTokenSource = new CancellationTokenSource();
         
         // Add user message to history
         var userChatMessage = new ChatMessageModel { Role = "User", Text = userMessage };
@@ -183,36 +193,43 @@
         _shouldScrollAfterRender = true;
         StateHasChanged();
 
-        try
+        using (queryLease)
         {
-            await ApiClient.QueryRagAsync(
-                userMessage,
-                async chunk =>
-                {
-                    if (string.IsNullOrEmpty(chunk))
-                        return;
-
-                    // Append chunk to assistant message text
-                    assistantMessage.Text += chunk;
-                    await InvokeAsync(async () =>
+            try
+            {
+                await ApiClient.QueryRagAsync(
+                    userMessage,
+                    async chunk =>
                     {
-                        await ScrollToBottomAsync();
-                        StateHasChanged();
-                    });
-                },
-                _queryCancellationTokenSource.Token);
-        }
-        catch (Exception ex)
-        {
-            assistantMessage.Text = $"Error: {ex.Message}";
-            Snackbar.Add($"Query failed: {ex.Message}", Severity.Error);
-            StateHasChanged();
-        }
-        finally
-        {
-            _isWaitingResponse = false;
-            _queryCancellationTokenSource?.Dispose();
-            _queryCancellationTokenSource = null;
+                        if (string.IsNullOrEmpty(chunk) || queryLease.Token.IsCancellationRequested)
+                            return;
+
+                        // Append chunk to assistant message text
+                        assistantMessage.Text += chunk;
+                        await InvokeAsync(async () =>
+                        {
+                            await ScrollToBottomAsync();
+                            StateHasChanged();
+                        });
+                    },
+                    queryLease.Token);
+            }
+            catch (OperationCanceledException) when (queryLease.Token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Text = $"Error: {ex.Message}";
+                Snackbar.Add($"Query failed: {ex.Message}", Severity.Error);
+                StateHasChanged();
+            }
+            finally
+            {
+                if (await _queryOperation.IsCurrentAsync(queryLease))
+                {
+                    _isWaitingResponse = false;
+                }
+            }
         }
     }
 
@@ -225,8 +242,7 @@
 
     public async ValueTask DisposeAsync()
     {
-        _queryCancellationTokenSource?.Cancel();
-        _queryCancellationTokenSource?.Dispose();
+        await _queryOperation.DisposeAsync();
         
         if (_jsModule != null)
         {

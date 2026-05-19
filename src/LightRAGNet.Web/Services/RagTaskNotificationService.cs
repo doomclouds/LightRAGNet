@@ -1,3 +1,4 @@
+using LightRAGNet.Services.Utilities;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace LightRAGNet.Web.Services;
@@ -5,14 +6,46 @@ namespace LightRAGNet.Web.Services;
 /// <summary>
 /// RAG task status notification service - receives task status updates via SignalR
 /// </summary>
-public class RagTaskNotificationService(
-    ILogger<RagTaskNotificationService> logger,
-    IConfiguration configuration)
+public class RagTaskNotificationService : IAsyncDisposable
 {
+    private readonly ILogger<RagTaskNotificationService> logger;
     private HubConnection? _hubConnection;
-    private readonly string _apiBaseUrl = configuration["ApiBaseUrl"] ?? "http://localhost:5261";
+    private readonly string _apiBaseUrl;
+    private readonly object _disposeGate = new();
+    private readonly CancellationTokenSource _disposeCts = new();
     private readonly SemaphoreSlim _initLock = new(1, 1);
+    private readonly AsyncEventDispatcher<TaskStatusUpdate> _taskStatusDispatchQueue;
+    private readonly AsyncEventDispatcher<NotificationDispatchKey> _systemDispatchQueue;
     private bool _isInitializing;
+    private bool _disposed;
+
+    private enum NotificationDispatchKey
+    {
+        DataCleared
+    }
+
+    public RagTaskNotificationService(
+        ILogger<RagTaskNotificationService> logger,
+        IConfiguration configuration)
+    {
+        this.logger = logger;
+        _apiBaseUrl = configuration["ApiBaseUrl"] ?? "http://localhost:5261";
+        _taskStatusDispatchQueue = new AsyncEventDispatcher<TaskStatusUpdate>(
+            async (update, token) => await NotifyTaskStatusHandlersAsync(update, token),
+            logger,
+            keySelector: update => update.TaskId);
+        _systemDispatchQueue = new AsyncEventDispatcher<NotificationDispatchKey>(
+            async (key, token) =>
+            {
+                if (key == NotificationDispatchKey.DataCleared)
+                {
+                    // Drain the accepted task-status updates snapshot before data-cleared handlers run.
+                    await _taskStatusDispatchQueue.DrainAsync(token);
+                    await NotifyDataClearedHandlersAsync(token);
+                }
+            },
+            logger);
+    }
 
     /// <summary>
     /// Task status update event (async)
@@ -39,6 +72,22 @@ public class RagTaskNotificationService(
     /// </summary>
     public async Task InitializeAsync()
     {
+        CancellationToken disposeToken;
+        lock (_disposeGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            disposeToken = _disposeCts.Token;
+        }
+
+        if (disposeToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         // If already connected or connecting, return directly
         if (_hubConnection != null)
         {
@@ -51,26 +100,35 @@ public class RagTaskNotificationService(
         }
 
         // Use lock to prevent concurrent initialization
+        var lockTaken = false;
         try
         {
-            await _initLock.WaitAsync();
+            await _initLock.WaitAsync(disposeToken);
+            lockTaken = true;
+        }
+        catch (OperationCanceledException) when (disposeToken.IsCancellationRequested)
+        {
+            return;
         }
         catch (ObjectDisposedException)
         {
-            // If SemaphoreSlim has been disposed, recreate (should not happen, but as a safety measure)
-            logger.LogWarning("SemaphoreSlim has been disposed, recreating");
-            return; // Or throw exception, depending on business logic
+            return;
         }
         
         try
         {
+            if (_disposed || disposeToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             // Double check to prevent concurrency
             if (_isInitializing)
             {
                 // Wait for initialization to complete
                 while (_isInitializing && _hubConnection?.State != HubConnectionState.Connected)
                 {
-                    await Task.Delay(100);
+                    await Task.Delay(100, disposeToken);
                 }
                 return;
             }
@@ -110,7 +168,14 @@ public class RagTaskNotificationService(
                 logger.LogInformation("Received task status update: TaskId={TaskId}, Status={Status}, Progress={Progress}, Stage={Stage}", 
                     update.TaskId, update.Status, update.Progress, update.CurrentStage);
 
-                _ = NotifyTaskStatusHandlersAsync(update);
+                try
+                {
+                    _ = _taskStatusDispatchQueue.EnqueueLatestAsync(update);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to enqueue task status update notification: TaskId={TaskId}", update.TaskId);
+                }
             });
 
             // Register handler for receiving data cleared events
@@ -118,75 +183,56 @@ public class RagTaskNotificationService(
             {
                 logger.LogInformation("Received data cleared event, notifying frontend to refresh");
 
-                _ = NotifyDataClearedHandlersAsync();
+                try
+                {
+                    _ = _systemDispatchQueue.EnqueueAsync(NotificationDispatchKey.DataCleared);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to enqueue data cleared notification");
+                }
             });
 
             // Listen to connection state changes
             _hubConnection.Closed += async (error) =>
             {
                 logger.LogWarning("SignalR connection closed: {Error}", error?.Message);
-                if (ConnectionStateChanged != null)
-                {
-                    var tasks = ConnectionStateChanged.GetInvocationList()
-                        .Cast<Func<object, string, Task>>()
-                        .Select(handler => handler(this, "Disconnected"));
-                    await Task.WhenAll(tasks);
-                }
+                await NotifyConnectionStateChangedFromHubCallbackAsync("Disconnected", disposeToken);
             };
 
             _hubConnection.Reconnecting += async (error) =>
             {
                 logger.LogInformation("SignalR reconnecting: {Error}", error?.Message);
-                if (ConnectionStateChanged != null)
-                {
-                    var tasks = ConnectionStateChanged.GetInvocationList()
-                        .Cast<Func<object, string, Task>>()
-                        .Select(handler => handler(this, "Reconnecting"));
-                    await Task.WhenAll(tasks);
-                }
+                await NotifyConnectionStateChangedFromHubCallbackAsync("Reconnecting", disposeToken);
             };
 
             _hubConnection.Reconnected += async (connectionId) =>
             {
                 logger.LogInformation("SignalR reconnected: ConnectionId={ConnectionId}", connectionId);
-                if (ConnectionStateChanged != null)
-                {
-                    var tasks = ConnectionStateChanged.GetInvocationList()
-                        .Cast<Func<object, string, Task>>()
-                        .Select(handler => handler(this, "Connected"));
-                    await Task.WhenAll(tasks);
-                }
+                await NotifyConnectionStateChangedFromHubCallbackAsync("Connected", disposeToken);
                 
                 // Rejoin all task groups after reconnection
-                await JoinAllTasksGroupAsync();
+                await JoinAllTasksGroupAsync(disposeToken);
             };
 
             try
             {
-                await _hubConnection.StartAsync();
+                await _hubConnection.StartAsync(disposeToken);
                 logger.LogInformation("SignalR connection established");
-                if (ConnectionStateChanged != null)
-                {
-                    var tasks = ConnectionStateChanged.GetInvocationList()
-                        .Cast<Func<object, string, Task>>()
-                        .Select(handler => handler(this, "Connected"));
-                    await Task.WhenAll(tasks);
-                }
+                await NotifyConnectionStateChangedHandlersAsync("Connected", disposeToken);
                 
                 // Join all task groups
-                await JoinAllTasksGroupAsync();
+                await JoinAllTasksGroupAsync(disposeToken);
+            }
+            catch (OperationCanceledException) when (disposeToken.IsCancellationRequested)
+            {
+                logger.LogDebug("SignalR connection initialization stopped because service is disposing");
             }
             catch (TaskCanceledException)
             {
                 // Task was cancelled (may be due to page navigation), don't log error
                 logger.LogWarning("SignalR connection initialization cancelled");
-                if (ConnectionStateChanged != null)
-                {
-                    var tasks = ConnectionStateChanged.GetInvocationList()
-                        .Cast<Func<object, string, Task>>()
-                        .Select(handler => handler(this, "Disconnected"));
-                    await Task.WhenAll(tasks);
-                }
+                await NotifyConnectionStateChangedHandlersAsync("Disconnected", disposeToken);
             }
             catch (Exception ex)
             {
@@ -198,38 +244,21 @@ public class RagTaskNotificationService(
                 if (isConnectionRefused)
                 {
                     logger.LogWarning("SignalR connection failed: Server application not started (please start LightRAGNet.Server first)");
-                    if (ConnectionStateChanged != null)
-                    {
-                        var tasks = ConnectionStateChanged.GetInvocationList()
-                            .Cast<Func<object, string, Task>>()
-                            .Select(handler => handler(this, "ServerNotStarted"));
-                        await Task.WhenAll(tasks);
-                    }
+                    await NotifyConnectionStateChangedHandlersAsync("ServerNotStarted", disposeToken);
                 }
                 else
                 {
                     logger.LogError(ex, "SignalR connection failed");
-                    if (ConnectionStateChanged != null)
-                    {
-                        var tasks = ConnectionStateChanged.GetInvocationList()
-                            .Cast<Func<object, string, Task>>()
-                            .Select(handler => handler(this, "Disconnected"));
-                        await Task.WhenAll(tasks);
-                    }
+                    await NotifyConnectionStateChangedHandlersAsync("Disconnected", disposeToken);
                 }
             }
         }
         finally
         {
-            _isInitializing = false;
-            try
+            if (lockTaken)
             {
+                _isInitializing = false;
                 _initLock.Release();
-            }
-            catch (ObjectDisposedException)
-            {
-                // If SemaphoreSlim has been disposed, ignore
-                logger.LogWarning("Attempting to release already disposed SemaphoreSlim");
             }
         }
     }
@@ -237,14 +266,18 @@ public class RagTaskNotificationService(
     /// <summary>
     /// Join all task groups
     /// </summary>
-    private async Task JoinAllTasksGroupAsync()
+    private async Task JoinAllTasksGroupAsync(CancellationToken cancellationToken = default)
     {
         if (_hubConnection?.State == HubConnectionState.Connected)
         {
             try
             {
-                await _hubConnection.InvokeAsync("JoinAllTasksGroup");
+                await _hubConnection.InvokeAsync("JoinAllTasksGroup", cancellationToken);
                 logger.LogInformation("Joined all task groups, can receive task status updates");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Joining task groups stopped because service is disposing");
             }
             catch (Exception ex)
             {
@@ -257,42 +290,137 @@ public class RagTaskNotificationService(
         }
     }
 
-    private async Task NotifyTaskStatusHandlersAsync(TaskStatusUpdate update)
+    private async Task NotifyTaskStatusHandlersAsync(TaskStatusUpdate update, CancellationToken cancellationToken)
     {
-        try
-        {
-            var handlers = TaskStatusUpdated?.GetInvocationList()
-                .Cast<Func<object, TaskStatusUpdate, Task>>()
-                .ToArray();
+        var handlers = TaskStatusUpdated?.GetInvocationList()
+            .Cast<Func<object, TaskStatusUpdate, Task>>()
+            .ToArray();
 
-            if (handlers is null || handlers.Length == 0)
-                return;
+        if (handlers is null || handlers.Length == 0)
+            return;
 
-            await Task.WhenAll(handlers.Select(handler => handler(this, update)));
-        }
-        catch (Exception ex)
+        foreach (var handler in handlers)
         {
-            logger.LogError(ex, "Error calling task status update event handlers: TaskId={TaskId}", update.TaskId);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await handler(this, update);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Task status update event handler cancelled itself: TaskId={TaskId}", update.TaskId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error calling task status update event handler: TaskId={TaskId}", update.TaskId);
+            }
         }
     }
 
-    private async Task NotifyDataClearedHandlersAsync()
+    private async Task NotifyDataClearedHandlersAsync(CancellationToken cancellationToken)
+    {
+        var handlers = DataCleared?.GetInvocationList()
+            .Cast<Func<object, EventArgs, Task>>()
+            .ToArray();
+
+        if (handlers is null || handlers.Length == 0)
+            return;
+
+        foreach (var handler in handlers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await handler(this, EventArgs.Empty);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Data cleared event handler cancelled itself");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error calling data cleared event handler");
+            }
+        }
+    }
+
+    private async Task NotifyConnectionStateChangedFromHubCallbackAsync(string state, CancellationToken cancellationToken)
     {
         try
         {
-            var handlers = DataCleared?.GetInvocationList()
-                .Cast<Func<object, EventArgs, Task>>()
-                .ToArray();
-
-            if (handlers is null || handlers.Length == 0)
-                return;
-
-            await Task.WhenAll(handlers.Select(handler => handler(this, EventArgs.Empty)));
+            await NotifyConnectionStateChangedHandlersAsync(state, cancellationToken);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(ex, "Error calling data cleared event handlers");
+            logger.LogDebug("SignalR lifecycle notification skipped because service is disposing: State={State}", state);
         }
+    }
+
+    private async Task NotifyConnectionStateChangedHandlersAsync(string state, CancellationToken cancellationToken = default)
+    {
+        var handlers = ConnectionStateChanged?.GetInvocationList()
+            .Cast<Func<object, string, Task>>()
+            .ToArray();
+
+        if (handlers is null || handlers.Length == 0)
+            return;
+
+        foreach (var handler in handlers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await handler(this, state);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Connection state change event handler cancelled itself: State={State}", state);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error calling connection state change event handler: State={State}", state);
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        lock (_disposeGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+        }
+
+        await _disposeCts.CancelAsync();
+
+        var lockTaken = false;
+        try
+        {
+            await _initLock.WaitAsync();
+            lockTaken = true;
+
+            if (_hubConnection is not null)
+            {
+                await _hubConnection.DisposeAsync();
+                _hubConnection = null;
+            }
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                _initLock.Release();
+            }
+        }
+
+        await _systemDispatchQueue.DisposeAsync();
+        await _taskStatusDispatchQueue.DisposeAsync();
+        _initLock.Dispose();
+        _disposeCts.Dispose();
     }
 }
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LightRAGNet.Core.IO;
 using LightRAGNet.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,8 +12,6 @@ namespace LightRAGNet.Services.TaskQueue;
 /// </summary>
 public class RagTaskStateStore : IRagTaskStateStore
 {
-    private const int MaxFileReplaceAttempts = 10;
-    private static readonly TimeSpan FileReplaceRetryDelay = TimeSpan.FromMilliseconds(50);
     private readonly string _tasksFilePath;
     private readonly ILogger<RagTaskStateStore> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
@@ -206,10 +205,10 @@ public class RagTaskStateStore : IRagTaskStateStore
 
             var json = JsonSerializer.Serialize(data, _jsonOptions);
             
-            // Atomic write: write to a unique temporary file first, then replace the target.
-            var tempPath = $"{_tasksFilePath}.{Guid.NewGuid():N}.tmp";
-            await File.WriteAllTextAsync(tempPath, json, cancellationToken);
-            await ReplaceTaskFileWithRetryAsync(tempPath, cancellationToken);
+            await AtomicFileWriter.WriteAllTextAsync(
+                _tasksFilePath,
+                json,
+                cancellationToken: cancellationToken);
             
             _logger.LogDebug("Task state saved to file, task count: {Count}", tasks.Count);
         }
@@ -217,59 +216,6 @@ public class RagTaskStateStore : IRagTaskStateStore
         {
             _logger.LogError(ex, "Failed to save task state to file");
             throw;
-        }
-    }
-
-    private async Task ReplaceTaskFileWithRetryAsync(
-        string tempPath,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            for (var attempt = 1; attempt <= MaxFileReplaceAttempts; attempt++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    File.Move(tempPath, _tasksFilePath, overwrite: true);
-                    return;
-                }
-                catch (Exception ex) when (IsTransientFileReplaceException(ex) && attempt < MaxFileReplaceAttempts)
-                {
-                    _logger.LogDebug(
-                        ex,
-                        "Task state file is temporarily unavailable, retrying replace attempt {Attempt}/{MaxAttempts}",
-                        attempt,
-                        MaxFileReplaceAttempts);
-
-                    await Task.Delay(FileReplaceRetryDelay, cancellationToken);
-                }
-            }
-        }
-        finally
-        {
-            TryDeleteTempFile(tempPath);
-        }
-    }
-
-    private static bool IsTransientFileReplaceException(Exception exception)
-    {
-        return exception is IOException or UnauthorizedAccessException;
-    }
-
-    private void TryDeleteTempFile(string tempPath)
-    {
-        try
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to delete task state temporary file: {TempPath}", tempPath);
         }
     }
 
