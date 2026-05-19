@@ -187,7 +187,7 @@ public class QdrantVectorStore : IVectorStore
         return new VectorDocument
         {
             Id = originalId,
-            Vector = point.Vectors.Vector.Data.ToArray(),
+            Vector = ReadDenseVector(point.Vectors.Vector),
             Metadata = point.Payload.ToDictionary(
                 kvp => kvp.Key,
                 kvp => ConvertPayloadValue(kvp.Value)!),
@@ -229,7 +229,7 @@ public class QdrantVectorStore : IVectorStore
             return new VectorDocument
             {
                 Id = originalId,
-                Vector = point.Vectors.Vector.Data.ToArray(),
+                Vector = ReadDenseVector(point.Vectors.Vector),
                 Metadata = point.Payload.ToDictionary(
                     kvp => kvp.Key,
                     kvp => ConvertPayloadValue(kvp.Value)!),
@@ -238,6 +238,11 @@ public class QdrantVectorStore : IVectorStore
                     : string.Empty
             };
         }).ToList();
+    }
+
+    private static float[] ReadDenseVector(VectorOutput vector)
+    {
+        return vector.GetDenseVector()?.Data.ToArray() ?? [];
     }
     
     private async Task EnsureCollectionExistsAsync(

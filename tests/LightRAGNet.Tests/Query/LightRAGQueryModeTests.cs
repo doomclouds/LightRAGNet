@@ -411,7 +411,6 @@ public sealed class LightRAGQueryModeTests
             fullRelationsStore,
             entityChunksStore,
             relationChunksStore,
-            llmCacheStore,
             lifecycleService,
             documentDeletionService,
             NullLogger<LightRAG>.Instance);

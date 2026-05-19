@@ -42,8 +42,6 @@ public class LightRAG(
     IKVStore entityChunksStore,
     [FromKeyedServices(KVContracts.RelationChunks)]
     IKVStore relationChunksStore,
-    [FromKeyedServices(KVContracts.LLMCache)]
-    IKVStore llmCacheStore,
     DocumentLifecycleService documentLifecycleService,
     DocumentDeletionService documentDeletionService,
     ILogger<LightRAG> logger)

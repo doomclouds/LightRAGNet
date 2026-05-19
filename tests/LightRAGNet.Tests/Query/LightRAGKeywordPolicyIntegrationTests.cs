@@ -186,7 +186,6 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             fullRelationsStore,
             entityChunksStore,
             relationChunksStore,
-            llmCacheStore,
             lifecycleService,
             documentDeletionService,
             NullLogger<LightRAG>.Instance);

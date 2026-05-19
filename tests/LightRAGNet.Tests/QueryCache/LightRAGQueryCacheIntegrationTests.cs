@@ -413,7 +413,6 @@ public sealed class LightRAGQueryCacheIntegrationTests
             fullRelationsStore,
             entityChunksStore,
             relationChunksStore,
-            llmCacheStore,
             lifecycleService,
             documentDeletionService,
             NullLogger<LightRAG>.Instance);
