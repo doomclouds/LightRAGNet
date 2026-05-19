@@ -651,12 +651,17 @@ public class LightRAG(
             };
         }
 
-        var response = await llmService.GenerateAsync(
+        var cacheContext = await CreateQueryAnswerCacheContextAsync(
+            queryParam,
+            useWorkspaceRevision: true,
+            cancellationToken);
+        var response = await GenerateQueryAnswerAsync(
             query,
+            queryParam,
+            keywords,
             systemPrompt,
-            queryParam.ConversationHistory,
-            temperature: 0.3f,
-            cancellationToken: cancellationToken);
+            cacheContext,
+            cancellationToken);
 
         return new QueryResult
         {
@@ -707,12 +712,17 @@ public class LightRAG(
             };
         }
 
-        var response = await llmService.GenerateAsync(
+        var cacheContext = await CreateQueryAnswerCacheContextAsync(
+            queryParam,
+            useWorkspaceRevision: false,
+            cancellationToken);
+        var response = await GenerateQueryAnswerAsync(
             query,
+            queryParam,
+            new KeywordsResult(),
             systemPrompt: null,
-            historyMessages: queryParam.ConversationHistory,
-            temperature: 0.3f,
-            cancellationToken: cancellationToken);
+            cacheContext,
+            cancellationToken);
 
         return new QueryResult
         {
@@ -786,12 +796,17 @@ public class LightRAG(
             };
         }
 
-        var response = await llmService.GenerateAsync(
+        var cacheContext = await CreateQueryAnswerCacheContextAsync(
+            queryParam,
+            useWorkspaceRevision: true,
+            cancellationToken);
+        var response = await GenerateQueryAnswerAsync(
             query,
+            queryParam,
+            new KeywordsResult(),
             systemPrompt,
-            queryParam.ConversationHistory,
-            temperature: 0.3f,
-            cancellationToken: cancellationToken);
+            cacheContext,
+            cancellationToken);
 
         return new QueryResult
         {
@@ -815,6 +830,86 @@ public class LightRAG(
     private static bool IsKnowledgeGraphQueryMode(QueryMode mode)
     {
         return mode is QueryMode.Local or QueryMode.Global or QueryMode.Hybrid or QueryMode.Mix;
+    }
+
+    private static bool IsQueryAnswerCacheEligible(QueryParam queryParam)
+    {
+        return !queryParam.Stream
+            && !queryParam.OnlyNeedContext
+            && !queryParam.OnlyNeedPrompt
+            && queryParam.ConversationHistory.Count == 0;
+    }
+
+    private async Task<QueryAnswerCacheContext?> CreateQueryAnswerCacheContextAsync(
+        QueryParam queryParam,
+        bool useWorkspaceRevision,
+        CancellationToken cancellationToken)
+    {
+        if (!IsQueryAnswerCacheEligible(queryParam))
+        {
+            return null;
+        }
+
+        var workspace = documentLifecycleService.GetDefaultWorkspace();
+        var revision = 0L;
+        if (useWorkspaceRevision)
+        {
+            var result = await llmCacheService.TryGetWorkspaceQueryRevisionAsync(workspace, cancellationToken);
+            if (!result.Succeeded)
+            {
+                return null;
+            }
+
+            revision = result.Revision;
+        }
+
+        return new QueryAnswerCacheContext(workspace, revision);
+    }
+
+    private async Task<string> GenerateQueryAnswerAsync(
+        string query,
+        QueryParam queryParam,
+        KeywordsResult keywords,
+        string? systemPrompt,
+        QueryAnswerCacheContext? cacheContext,
+        CancellationToken cancellationToken)
+    {
+        if (cacheContext is not null)
+        {
+            var cachedResponse = await llmCacheService.TryGetQueryResponseAsync(
+                cacheContext.Workspace,
+                cacheContext.Revision,
+                query,
+                queryParam,
+                keywords,
+                cancellationToken);
+
+            if (cachedResponse is not null)
+            {
+                return cachedResponse;
+            }
+        }
+
+        var response = await llmService.GenerateAsync(
+            query,
+            systemPrompt,
+            queryParam.ConversationHistory,
+            temperature: 0.3f,
+            cancellationToken: cancellationToken);
+
+        if (cacheContext is not null)
+        {
+            await llmCacheService.SaveQueryResponseAsync(
+                cacheContext.Workspace,
+                cacheContext.Revision,
+                query,
+                queryParam,
+                keywords,
+                response,
+                cancellationToken);
+        }
+
+        return response;
     }
 
     private async Task<QueryKeywordResult> GetQueryKeywordsAsync(
@@ -868,6 +963,10 @@ public class LightRAG(
         KeywordsResult Keywords,
         string? Workspace,
         bool ShouldSaveKeywordCache);
+
+    private sealed record QueryAnswerCacheContext(
+        string Workspace,
+        long Revision);
 
     private static string BuildRAGResponsePrompt(QueryContextResult contextResult, QueryParam queryParam)
     {

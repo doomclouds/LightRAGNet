@@ -169,6 +169,13 @@ public sealed class LightRagLlmCacheService(
         return result.Revision;
     }
 
+    public Task<(bool Succeeded, long Revision)> TryGetWorkspaceQueryRevisionAsync(
+        string workspace,
+        CancellationToken cancellationToken = default)
+    {
+        return ReadWorkspaceQueryRevisionStrictAsync(workspace, cancellationToken);
+    }
+
     public async Task<long> BumpWorkspaceQueryRevisionAsync(
         string workspace,
         CancellationToken cancellationToken = default)
