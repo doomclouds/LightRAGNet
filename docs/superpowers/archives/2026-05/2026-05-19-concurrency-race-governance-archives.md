@@ -73,9 +73,11 @@
 - `c611b02 fix: centralize page operation cancellation`
 - `97884b4 feat: add per-key async lock`
 - `0f79e1f fix: guard lightrag state processor startup`
+- `5bc4d9a fix: clean task queue publication gates`
 
 ## Notes
 
 - Task 5 needed multiple review passes because SignalR lifecycle callbacks can leak service-disposal cancellation if the callback boundary awaits a helper that throws `OperationCanceledException`.
 - Task 6 review caught a subtle CTS lifetime issue: operation replacement should cancel an old lease but must not dispose its CTS while old code may still register the token. The final slot contract makes CTS disposal lease-owned.
 - Task 8 review strengthened the regression test from eventual completed delivery to direct callback concurrency detection, so it now asserts the single-processor invariant rather than only successful completion.
+- Final review caught a resource lifecycle issue in task queue publication gates: per-task terminal tombstones and publish gates now clean up after terminal publication, exception paths, and any already-started stale progress operations drain. If terminal state deletion fails, the queue persists a terminal snapshot before tombstone cleanup so later progress cannot reload stale `Processing` state.

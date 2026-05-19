@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Models;
+using LightRAGNet.Services.Utilities;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -16,8 +17,10 @@ public class RagTaskQueueService(
     ILogger<RagTaskQueueService> logger) : IRagTaskQueueService
 {
     private readonly ConcurrentDictionary<string, RagTask> _tasks = new();
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _publishLocks = new();
+    private readonly PerKeyAsyncLock<string> _publishLocks = new();
     private readonly ConcurrentDictionary<string, byte> _terminalTaskIds = new();
+    private readonly Dictionary<string, TaskLifecycleEntry> _taskLifecycles = [];
+    private readonly object _taskLifecycleGate = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     // Lazy initialization: load tasks on first call
@@ -235,19 +238,24 @@ public class RagTaskQueueService(
 
     public async Task UpdateTaskStatusAsync(string taskId, RagTaskStatus status, string? errorMessage = null, CancellationToken cancellationToken = default)
     {
-        var publishLock = GetPublishLock(taskId);
-        await publishLock.WaitAsync(cancellationToken);
+        using var lifecycleLease = RetainTaskLifecycle(taskId);
+        await using var publishLease = await _publishLocks.LockAsync(taskId, cancellationToken);
+
+        var canCleanupTerminalTombstone = false;
         try
         {
-            await UpdateTaskStatusCoreAsync(taskId, status, errorMessage, cancellationToken);
+            canCleanupTerminalTombstone = await UpdateTaskStatusCoreAsync(taskId, status, errorMessage, cancellationToken);
         }
         finally
         {
-            publishLock.Release();
+            if (canCleanupTerminalTombstone)
+            {
+                lifecycleLease.RequestTerminalCleanup();
+            }
         }
     }
 
-    private async Task UpdateTaskStatusCoreAsync(
+    private async Task<bool> UpdateTaskStatusCoreAsync(
         string taskId,
         RagTaskStatus status,
         string? errorMessage,
@@ -268,7 +276,7 @@ public class RagTaskQueueService(
                 if (task == null)
                 {
                     logger.LogWarning("Task does not exist: {TaskId}", taskId);
-                    return;
+                    return false;
                 }
 
                 _tasks.TryAdd(taskId, task);
@@ -309,7 +317,18 @@ public class RagTaskQueueService(
         if (shouldDelete)
         {
             // After task completion or failure, delete persistent state (only used for temporary task persistence and recovery)
-            await stateStore.DeleteTaskStateAsync(task.TaskId, cancellationToken);
+            try
+            {
+                await stateStore.DeleteTaskStateAsync(task.TaskId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Failed to delete terminal task state; saving terminal snapshot instead: {TaskId}",
+                    task.TaskId);
+                await stateStore.SaveTaskStateAsync(task, CancellationToken.None);
+            }
         }
         else if (shouldSave)
         {
@@ -318,10 +337,12 @@ public class RagTaskQueueService(
         }
 
         await PublishStatusChangedAsync(taskToPublish, cancellationToken);
+        return shouldDelete;
     }
 
     public async Task UpdateTaskProgressAsync(string taskId, TaskStage? stage, int? progress, CancellationToken cancellationToken = default)
     {
+        using var lifecycleLease = RetainTaskLifecycle(taskId);
         RagTask? task;
         bool shouldSave;
         
@@ -374,58 +395,46 @@ public class RagTaskQueueService(
             await BeforeProgressPublishForTesting(taskId);
         }
 
-        var publishLock = GetPublishLock(taskId);
-        await publishLock.WaitAsync(cancellationToken);
+        await using var publishLease = await _publishLocks.LockAsync(taskId, cancellationToken);
         RagTask? taskToPublish = null;
         var shouldDeleteStaleState = false;
+
+        await _lock.WaitAsync(cancellationToken);
         try
         {
-            await _lock.WaitAsync(cancellationToken);
-            try
+            var hasActiveTask = _tasks.TryGetValue(taskId, out var activeTask);
+            if (hasActiveTask &&
+                ReferenceEquals(activeTask, task) &&
+                activeTask.Status is not (RagTaskStatus.Completed or RagTaskStatus.Failed))
             {
-                var hasActiveTask = _tasks.TryGetValue(taskId, out var activeTask);
-                if (hasActiveTask &&
-                    ReferenceEquals(activeTask, task) &&
-                    activeTask.Status is not (RagTaskStatus.Completed or RagTaskStatus.Failed))
-                {
-                    taskToPublish = CloneTaskForPublication(activeTask);
-                }
-                else
-                {
-                    shouldDeleteStaleState = !hasActiveTask;
-                }
+                taskToPublish = CloneTaskForPublication(activeTask);
             }
-            finally
+            else
             {
-                _lock.Release();
+                shouldDeleteStaleState = !hasActiveTask;
             }
-
-            if (taskToPublish is null)
-            {
-                if (shouldDeleteStaleState)
-                {
-                    await stateStore.DeleteTaskStateAsync(taskId, CancellationToken.None);
-                }
-
-                logger.LogDebug(
-                    "Discarded stale progress update for terminal or replaced task {TaskId}: Stage={Stage}, Progress={Progress}",
-                    taskId,
-                    stage,
-                    progress);
-                return;
-            }
-
-            await PublishStatusChangedAsync(taskToPublish, cancellationToken);
         }
         finally
         {
-            publishLock.Release();
+            _lock.Release();
         }
-    }
 
-    private SemaphoreSlim GetPublishLock(string taskId)
-    {
-        return _publishLocks.GetOrAdd(taskId, _ => new SemaphoreSlim(1, 1));
+        if (taskToPublish is null)
+        {
+            if (shouldDeleteStaleState)
+            {
+                await stateStore.DeleteTaskStateAsync(taskId, CancellationToken.None);
+            }
+
+            logger.LogDebug(
+                "Discarded stale progress update for terminal or replaced task {TaskId}: Stage={Stage}, Progress={Progress}",
+                taskId,
+                stage,
+                progress);
+            return;
+        }
+
+        await PublishStatusChangedAsync(taskToPublish, cancellationToken);
     }
 
     private static RagTask CloneTaskForPublication(RagTask task)
@@ -605,6 +614,8 @@ public class RagTaskQueueService(
             _tasks.Clear();
             await stateStore.ClearAllTasksAsync(cancellationToken);
             _tasksLoaded = false; // Reset load flag, will reinitialize on next load
+            _terminalTaskIds.Clear();
+            ClearIdleTaskLifecycles();
             logger.LogInformation("Cleared all tasks");
         }
         finally
@@ -685,15 +696,113 @@ public class RagTaskQueueService(
 
     private async Task PublishStatusChangedWithGateAsync(RagTask task, CancellationToken cancellationToken)
     {
-        var publishLock = GetPublishLock(task.TaskId);
-        await publishLock.WaitAsync(cancellationToken);
-        try
+        await using var publishLease = await _publishLocks.LockAsync(task.TaskId, cancellationToken);
+        await PublishStatusChangedAsync(task, cancellationToken);
+    }
+
+    private TaskLifecycleLease RetainTaskLifecycle(string taskId)
+    {
+        lock (_taskLifecycleGate)
         {
-            await PublishStatusChangedAsync(task, cancellationToken);
+            if (!_taskLifecycles.TryGetValue(taskId, out var entry))
+            {
+                entry = new TaskLifecycleEntry();
+                _taskLifecycles.Add(taskId, entry);
+            }
+
+            entry.ReferenceCount++;
+            return new TaskLifecycleLease(this, taskId, entry);
         }
-        finally
+    }
+
+    private void RequestTerminalCleanup(string taskId, TaskLifecycleEntry entry)
+    {
+        lock (_taskLifecycleGate)
         {
-            publishLock.Release();
+            if (_taskLifecycles.TryGetValue(taskId, out var current) &&
+                ReferenceEquals(current, entry))
+            {
+                entry.RemoveTerminalTombstoneWhenIdle = true;
+                TryCleanupTaskLifecycleLocked(taskId, entry);
+                return;
+            }
+        }
+
+        _terminalTaskIds.TryRemove(taskId, out _);
+    }
+
+    private void ReleaseTaskLifecycle(string taskId, TaskLifecycleEntry entry)
+    {
+        lock (_taskLifecycleGate)
+        {
+            entry.ReferenceCount--;
+            TryCleanupTaskLifecycleLocked(taskId, entry);
+        }
+    }
+
+    private void ClearIdleTaskLifecycles()
+    {
+        lock (_taskLifecycleGate)
+        {
+            foreach (var (taskId, entry) in _taskLifecycles.ToArray())
+            {
+                entry.RemoveTerminalTombstoneWhenIdle = true;
+                TryCleanupTaskLifecycleLocked(taskId, entry);
+            }
+        }
+    }
+
+    private void TryCleanupTaskLifecycleLocked(string taskId, TaskLifecycleEntry entry)
+    {
+        if (entry.ReferenceCount != 0 ||
+            !_taskLifecycles.TryGetValue(taskId, out var current) ||
+            !ReferenceEquals(current, entry))
+        {
+            return;
+        }
+
+        _taskLifecycles.Remove(taskId);
+        if (entry.RemoveTerminalTombstoneWhenIdle)
+        {
+            _terminalTaskIds.TryRemove(taskId, out _);
+        }
+    }
+
+    private sealed class TaskLifecycleEntry
+    {
+        public int ReferenceCount { get; set; }
+
+        public bool RemoveTerminalTombstoneWhenIdle { get; set; }
+    }
+
+    private sealed class TaskLifecycleLease : IDisposable
+    {
+        private readonly RagTaskQueueService _owner;
+        private readonly string _taskId;
+        private readonly TaskLifecycleEntry _entry;
+        private int _disposed;
+
+        public TaskLifecycleLease(
+            RagTaskQueueService owner,
+            string taskId,
+            TaskLifecycleEntry entry)
+        {
+            _owner = owner;
+            _taskId = taskId;
+            _entry = entry;
+        }
+
+        public void RequestTerminalCleanup()
+        {
+            _owner.RequestTerminalCleanup(_taskId, _entry);
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                _owner.ReleaseTaskLifecycle(_taskId, _entry);
+            }
         }
     }
 }
