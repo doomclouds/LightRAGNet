@@ -15,6 +15,7 @@ public sealed class InMemoryVectorStore : IVectorStore
         StringComparer.Ordinal);
 
     public List<(string Collection, IReadOnlyList<string> Ids)> DeleteCalls { get; } = [];
+    public List<(string Collection, string Query, int TopK, float Threshold)> QueryCalls { get; } = [];
     public List<(string Collection, IReadOnlyList<VectorDocument> Documents)> UpsertCalls { get; } = [];
 
     public string? ThrowOnDeleteCollection { get; set; }
@@ -41,7 +42,21 @@ public sealed class InMemoryVectorStore : IVectorStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new List<SearchResult>());
+        QueryCalls.Add((collection, query, topK, threshold));
+
+        var results = GetCollection(collection)
+            .Values
+            .Take(topK)
+            .Select(document => new SearchResult
+            {
+                Id = document.Id,
+                Score = 1.0f,
+                Metadata = Clone(document.Metadata),
+                Content = document.Content
+            })
+            .ToList();
+
+        return Task.FromResult(results);
     }
 
     public Task UpsertAsync(
