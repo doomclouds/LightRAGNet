@@ -27,6 +27,35 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task EnqueueTaskAsync_WhenTaskMutatesAfterPublish_PublishedEventKeepsSnapshot()
+    {
+        var store = new InMemoryRagTaskStateStore();
+        var publishedTasks = new List<RagTask>();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                publishedTasks.Add(call.Arg<RagTaskStatusChangedEvent>().Task);
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        var pendingNotification = publishedTasks.Should().ContainSingle().Subject;
+
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+
+        pendingNotification.Status.Should().Be(RagTaskStatus.Pending);
+        pendingNotification.StartedAt.Should().BeNull();
+        publishedTasks.Should().HaveCount(2);
+        publishedTasks[1].Status.Should().Be(RagTaskStatus.Processing);
+    }
+
+    [Fact]
     public async Task EnqueueDeletionTaskAsync_WhenIndexTaskPendingForDocument_ReturnsNullAndDoesNotCreateTask()
     {
         var (service, _, _, _) = CreateService();
@@ -176,6 +205,273 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task UpdateTaskProgressAsync_WhenTerminalStatusWinsDuringSave_DoesNotRepublishOrPersistProgress()
+    {
+        var store = new BlockingProgressSaveTaskStateStore();
+        var notifications = new List<RagTask>();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                notifications.Add(CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task));
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        notifications.Clear();
+        store.BlockProgressSaveFor(taskId!);
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        await store.WaitForBlockedProgressSaveAsync(TimeSpan.FromSeconds(2));
+
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Completed);
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+
+        store.ReleaseBlockedProgressSave();
+        await progressTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        notifications.Should().ContainSingle(task => task.Status == RagTaskStatus.Completed);
+        notifications
+            .SkipWhile(task => task.Status != RagTaskStatus.Completed)
+            .Skip(1)
+            .Should()
+            .BeEmpty();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateTaskProgressAsync_WhenStopAllSavesFailedState_DoesNotDeleteFailedState()
+    {
+        var store = new BlockingProgressSaveTaskStateStore();
+        var notifications = new List<RagTask>();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                notifications.Add(CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task));
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        notifications.Clear();
+        store.BlockProgressSaveFor(taskId!);
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        await store.WaitForBlockedProgressSaveAsync(TimeSpan.FromSeconds(2));
+
+        var stoppedCount = await service.StopAllTasksAsync();
+        stoppedCount.Should().Be(1);
+
+        store.ReleaseBlockedProgressSave();
+        await progressTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var persistedTask = await store.LoadTaskStateAsync(taskId!);
+        persistedTask.Should().NotBeNull();
+        persistedTask!.Status.Should().Be(RagTaskStatus.Failed);
+        persistedTask.ErrorMessage.Should().Be("Task stopped (when clearing data)");
+        notifications.Should().ContainSingle(task => task.Status == RagTaskStatus.Failed);
+        notifications
+            .SkipWhile(task => task.Status != RagTaskStatus.Failed)
+            .Skip(1)
+            .Should()
+            .BeEmpty();
+    }
+
+    [Fact]
+    public async Task UpdateTaskProgressAsync_WhenTerminalDeleteIsInFlight_DoesNotReloadStaleProcessingTask()
+    {
+        var store = new BlockingProgressSaveTaskStateStore();
+        var notifications = new List<RagTask>();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                notifications.Add(CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task));
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        notifications.Clear();
+        store.BlockDeleteFor(taskId!);
+        store.BlockProgressSaveFor(taskId!);
+
+        var completedTask = service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Completed);
+        await store.WaitForBlockedDeleteAsync(TimeSpan.FromSeconds(2));
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        var progressSaveBlocked = store.WaitForBlockedProgressSaveSignalAsync();
+        var timeout = Task.Delay(TimeSpan.FromSeconds(2));
+        var firstProgressResult = await Task.WhenAny(progressSaveBlocked, progressTask, timeout);
+        firstProgressResult.Should().NotBe(timeout);
+
+        store.ReleaseBlockedDelete();
+        await completedTask.WaitAsync(TimeSpan.FromSeconds(2));
+        store.ReleaseBlockedProgressSave();
+        await progressTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        notifications.Should().ContainSingle(task => task.Status == RagTaskStatus.Completed);
+        notifications
+            .SkipWhile(task => task.Status != RagTaskStatus.Completed)
+            .Skip(1)
+            .Should()
+            .BeEmpty();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateTaskProgressAsync_WhenTerminalStatusWinsDuringPublish_DoesNotPublishStaleProgress()
+    {
+        var store = new InMemoryRagTaskStateStore();
+        var notifications = new List<RagTask>();
+        var progressPublishReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProgressPublish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completedPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var notification = CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task);
+                notifications.Add(notification);
+                if (notification.Status == RagTaskStatus.Completed)
+                {
+                    completedPublished.TrySetResult();
+                }
+
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        service.BeforeProgressPublishForTesting = currentTaskId =>
+        {
+            if (currentTaskId == taskId)
+            {
+                progressPublishReady.TrySetResult();
+                return releaseProgressPublish.Task;
+            }
+
+            return Task.CompletedTask;
+        };
+        notifications.Clear();
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        await progressPublishReady.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var completedTask = service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Completed);
+        await completedPublished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        releaseProgressPublish.TrySetResult();
+        await Task.WhenAll(progressTask, completedTask).WaitAsync(TimeSpan.FromSeconds(2));
+
+        notifications.Should().ContainSingle(task => task.Status == RagTaskStatus.Completed);
+        notifications
+            .SkipWhile(task => task.Status != RagTaskStatus.Completed)
+            .Skip(1)
+            .Should()
+            .BeEmpty();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateTaskProgressAsync_WhenProgressPublishIsInFlight_BlocksTerminalPublish()
+    {
+        var store = new InMemoryRagTaskStateStore();
+        var notifications = new List<RagTask>();
+        var progressPublishStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProgressPublish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completedPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var notification = CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task);
+                if (notification.Status == RagTaskStatus.Processing &&
+                    notification.CurrentStage == TaskStage.DocumentChunking)
+                {
+                    progressPublishStarted.TrySetResult();
+                    await releaseProgressPublish.Task.WaitAsync(call.Arg<CancellationToken>());
+                }
+
+                lock (notifications)
+                {
+                    notifications.Add(notification);
+                }
+
+                if (notification.Status == RagTaskStatus.Completed)
+                {
+                    completedPublished.TrySetResult();
+                }
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        notifications.Clear();
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        await progressPublishStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var completedTask = service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Completed);
+        var completedBeforeProgressReleased = await Task.WhenAny(
+            completedPublished.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(150))) == completedPublished.Task;
+
+        completedBeforeProgressReleased.Should().BeFalse(
+            "terminal publication must wait for the in-flight progress publication gate");
+
+        releaseProgressPublish.TrySetResult();
+        await Task.WhenAll(progressTask, completedTask).WaitAsync(TimeSpan.FromSeconds(2));
+
+        notifications.Should().HaveCount(2);
+        notifications[0].Status.Should().Be(RagTaskStatus.Processing);
+        notifications[0].CurrentStage.Should().Be(TaskStage.DocumentChunking);
+        notifications[1].Status.Should().Be(RagTaskStatus.Completed);
+        notifications
+            .SkipWhile(task => task.Status != RagTaskStatus.Completed)
+            .Skip(1)
+            .Should()
+            .BeEmpty();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task RetryTaskAsync_WhenFailedAndBelowMaxRetries_RequeuesTask()
     {
         var (service, store, _, _) = CreateService();
@@ -290,5 +586,132 @@ public sealed class RagTaskQueueServiceTests
             NullLogger<RagTaskQueueService>.Instance);
 
         return (service, store, mediator, cancellationRegistry);
+    }
+
+    private static RagTask CloneTask(RagTask task)
+    {
+        return new RagTask
+        {
+            TaskId = task.TaskId,
+            DocumentId = task.DocumentId,
+            RagDocumentId = task.RagDocumentId,
+            OperationType = task.OperationType,
+            DeleteLlmCache = task.DeleteLlmCache,
+            DeleteFilePath = task.DeleteFilePath,
+            Content = task.Content,
+            FilePath = task.FilePath,
+            Status = task.Status,
+            CurrentStage = task.CurrentStage,
+            Progress = task.Progress,
+            ErrorMessage = task.ErrorMessage,
+            CreatedAt = task.CreatedAt,
+            StartedAt = task.StartedAt,
+            CompletedAt = task.CompletedAt,
+            Priority = task.Priority,
+            RetryCount = task.RetryCount,
+            MaxRetries = task.MaxRetries
+        };
+    }
+
+    private sealed class BlockingProgressSaveTaskStateStore : IRagTaskStateStore
+    {
+        private readonly Dictionary<string, RagTask> tasksById = [];
+        private readonly TaskCompletionSource blockedProgressSave =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseBlockedProgressSave =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource blockedDelete =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseBlockedDelete =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private string? blockedTaskId;
+        private string? blockedDeleteTaskId;
+
+        public void BlockProgressSaveFor(string taskId)
+        {
+            blockedTaskId = taskId;
+        }
+
+        public void BlockDeleteFor(string taskId)
+        {
+            blockedDeleteTaskId = taskId;
+        }
+
+        public async Task WaitForBlockedProgressSaveAsync(TimeSpan timeout)
+        {
+            await blockedProgressSave.Task.WaitAsync(timeout);
+        }
+
+        public Task WaitForBlockedProgressSaveSignalAsync()
+        {
+            return blockedProgressSave.Task;
+        }
+
+        public async Task WaitForBlockedDeleteAsync(TimeSpan timeout)
+        {
+            await blockedDelete.Task.WaitAsync(timeout);
+        }
+
+        public void ReleaseBlockedProgressSave()
+        {
+            releaseBlockedProgressSave.TrySetResult();
+        }
+
+        public void ReleaseBlockedDelete()
+        {
+            releaseBlockedDelete.TrySetResult();
+        }
+
+        public async Task SaveTaskStateAsync(RagTask task, CancellationToken cancellationToken = default)
+        {
+            if (task.TaskId == blockedTaskId &&
+                task.Status == RagTaskStatus.Processing &&
+                task.CurrentStage == TaskStage.DocumentChunking)
+            {
+                blockedProgressSave.TrySetResult();
+                await releaseBlockedProgressSave.Task.WaitAsync(cancellationToken);
+            }
+
+            tasksById[task.TaskId] = CloneTask(task);
+        }
+
+        public Task<List<RagTask>> LoadAllTasksAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(tasksById.Values.Select(CloneTask).ToList());
+        }
+
+        public Task<RagTask?> LoadTaskStateAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(tasksById.TryGetValue(taskId, out var task) ? CloneTask(task) : null);
+        }
+
+        public async Task DeleteTaskStateAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            if (taskId == blockedDeleteTaskId)
+            {
+                blockedDelete.TrySetResult();
+                await releaseBlockedDelete.Task.WaitAsync(cancellationToken);
+            }
+
+            tasksById.Remove(taskId);
+        }
+
+        public Task SaveAllTasksAsync(List<RagTask> tasks, CancellationToken cancellationToken = default)
+        {
+            tasksById.Clear();
+
+            foreach (var task in tasks)
+            {
+                tasksById[task.TaskId] = CloneTask(task);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
+        {
+            tasksById.Clear();
+            return Task.CompletedTask;
+        }
     }
 }

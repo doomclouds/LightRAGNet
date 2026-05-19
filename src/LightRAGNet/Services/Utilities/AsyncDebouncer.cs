@@ -4,6 +4,7 @@ public sealed class AsyncDebouncer : IAsyncDisposable
 {
     private readonly object _gate = new();
     private CancellationTokenSource? _currentCts;
+    private long _version;
     private bool _disposed;
 
     public async Task DebounceAsync(
@@ -13,6 +14,7 @@ public sealed class AsyncDebouncer : IAsyncDisposable
         CancellationTokenSource? previousCts;
         CancellationTokenSource currentCts;
         CancellationToken currentToken;
+        long currentVersion;
 
         lock (_gate)
         {
@@ -24,6 +26,7 @@ public sealed class AsyncDebouncer : IAsyncDisposable
             previousCts = _currentCts;
             currentCts = new CancellationTokenSource();
             currentToken = currentCts.Token;
+            currentVersion = ++_version;
             _currentCts = currentCts;
         }
 
@@ -36,6 +39,17 @@ public sealed class AsyncDebouncer : IAsyncDisposable
         try
         {
             await Task.Delay(delay, currentToken);
+
+            lock (_gate)
+            {
+                if (_disposed ||
+                    !ReferenceEquals(_currentCts, currentCts) ||
+                    currentVersion != _version)
+                {
+                    return;
+                }
+            }
+
             await action(currentToken);
         }
         catch (OperationCanceledException) when (currentToken.IsCancellationRequested)

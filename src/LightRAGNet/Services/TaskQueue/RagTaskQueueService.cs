@@ -16,11 +16,15 @@ public class RagTaskQueueService(
     ILogger<RagTaskQueueService> logger) : IRagTaskQueueService
 {
     private readonly ConcurrentDictionary<string, RagTask> _tasks = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _publishLocks = new();
+    private readonly ConcurrentDictionary<string, byte> _terminalTaskIds = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     // Lazy initialization: load tasks on first call
     private bool _tasksLoaded;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
+
+    internal Func<string, Task>? BeforeProgressPublishForTesting { get; set; }
 
     private async Task EnsureTasksLoadedAsync(CancellationToken cancellationToken = default)
     {
@@ -231,7 +235,26 @@ public class RagTaskQueueService(
 
     public async Task UpdateTaskStatusAsync(string taskId, RagTaskStatus status, string? errorMessage = null, CancellationToken cancellationToken = default)
     {
+        var publishLock = GetPublishLock(taskId);
+        await publishLock.WaitAsync(cancellationToken);
+        try
+        {
+            await UpdateTaskStatusCoreAsync(taskId, status, errorMessage, cancellationToken);
+        }
+        finally
+        {
+            publishLock.Release();
+        }
+    }
+
+    private async Task UpdateTaskStatusCoreAsync(
+        string taskId,
+        RagTaskStatus status,
+        string? errorMessage,
+        CancellationToken cancellationToken)
+    {
         RagTask? task;
+        RagTask taskToPublish;
         var shouldDelete = false;
         var shouldSave = false;
         
@@ -247,6 +270,7 @@ public class RagTaskQueueService(
                     logger.LogWarning("Task does not exist: {TaskId}", taskId);
                     return;
                 }
+
                 _tasks.TryAdd(taskId, task);
             }
 
@@ -263,6 +287,7 @@ public class RagTaskQueueService(
             {
                 task.CompletedAt = DateTime.UtcNow;
                 shouldDelete = true;
+                _terminalTaskIds.TryAdd(taskId, 0);
                 // Remove completed tasks from memory (no longer need to keep)
                 _tasks.TryRemove(taskId, out _);
                 logger.LogInformation("Task completed/failed, removed from memory cache: {TaskId}, {OldStatus} -> {NewStatus}", taskId, oldStatus, status);
@@ -272,6 +297,8 @@ public class RagTaskQueueService(
                 shouldSave = true;
                 logger.LogInformation("Task status updated: {TaskId}, {OldStatus} -> {NewStatus}", taskId, oldStatus, status);
             }
+
+            taskToPublish = CloneTaskForPublication(task);
         }
         finally
         {
@@ -290,7 +317,7 @@ public class RagTaskQueueService(
             await stateStore.SaveTaskStateAsync(task, cancellationToken);
         }
 
-        await PublishStatusChangedAsync(task, cancellationToken);
+        await PublishStatusChangedAsync(taskToPublish, cancellationToken);
     }
 
     public async Task UpdateTaskProgressAsync(string taskId, TaskStage? stage, int? progress, CancellationToken cancellationToken = default)
@@ -303,6 +330,11 @@ public class RagTaskQueueService(
         {
             if (!_tasks.TryGetValue(taskId, out task))
             {
+                if (_terminalTaskIds.ContainsKey(taskId))
+                {
+                    return;
+                }
+
                 task = await stateStore.LoadTaskStateAsync(taskId, cancellationToken);
                 if (task == null)
                 {
@@ -337,8 +369,88 @@ public class RagTaskQueueService(
             await stateStore.SaveTaskStateAsync(task, cancellationToken);
         }
 
-        // Publish status change event to notify frontend
-        await PublishStatusChangedAsync(task, cancellationToken);
+        if (BeforeProgressPublishForTesting is not null)
+        {
+            await BeforeProgressPublishForTesting(taskId);
+        }
+
+        var publishLock = GetPublishLock(taskId);
+        await publishLock.WaitAsync(cancellationToken);
+        RagTask? taskToPublish = null;
+        var shouldDeleteStaleState = false;
+        try
+        {
+            await _lock.WaitAsync(cancellationToken);
+            try
+            {
+                var hasActiveTask = _tasks.TryGetValue(taskId, out var activeTask);
+                if (hasActiveTask &&
+                    ReferenceEquals(activeTask, task) &&
+                    activeTask.Status is not (RagTaskStatus.Completed or RagTaskStatus.Failed))
+                {
+                    taskToPublish = CloneTaskForPublication(activeTask);
+                }
+                else
+                {
+                    shouldDeleteStaleState = !hasActiveTask;
+                }
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            if (taskToPublish is null)
+            {
+                if (shouldDeleteStaleState)
+                {
+                    await stateStore.DeleteTaskStateAsync(taskId, CancellationToken.None);
+                }
+
+                logger.LogDebug(
+                    "Discarded stale progress update for terminal or replaced task {TaskId}: Stage={Stage}, Progress={Progress}",
+                    taskId,
+                    stage,
+                    progress);
+                return;
+            }
+
+            await PublishStatusChangedAsync(taskToPublish, cancellationToken);
+        }
+        finally
+        {
+            publishLock.Release();
+        }
+    }
+
+    private SemaphoreSlim GetPublishLock(string taskId)
+    {
+        return _publishLocks.GetOrAdd(taskId, _ => new SemaphoreSlim(1, 1));
+    }
+
+    private static RagTask CloneTaskForPublication(RagTask task)
+    {
+        return new RagTask
+        {
+            TaskId = task.TaskId,
+            DocumentId = task.DocumentId,
+            RagDocumentId = task.RagDocumentId,
+            OperationType = task.OperationType,
+            DeleteLlmCache = task.DeleteLlmCache,
+            DeleteFilePath = task.DeleteFilePath,
+            Content = task.Content,
+            FilePath = task.FilePath,
+            Status = task.Status,
+            CurrentStage = task.CurrentStage,
+            Progress = task.Progress,
+            ErrorMessage = task.ErrorMessage,
+            CreatedAt = task.CreatedAt,
+            StartedAt = task.StartedAt,
+            CompletedAt = task.CompletedAt,
+            Priority = task.Priority,
+            RetryCount = task.RetryCount,
+            MaxRetries = task.MaxRetries
+        };
     }
 
     public async Task ReorderTaskAsync(string taskId, int newPriority, CancellationToken cancellationToken = default)
@@ -430,6 +542,7 @@ public class RagTaskQueueService(
             }
 
             task.Status = RagTaskStatus.Pending;
+            _terminalTaskIds.TryRemove(taskId, out _);
             task.RetryCount++;
             task.ErrorMessage = null;
             task.StartedAt = null;
@@ -454,7 +567,7 @@ public class RagTaskQueueService(
     {
         try
         {
-            await mediator.Publish(new RagTaskStatusChangedEvent(task), cancellationToken);
+            await mediator.Publish(new RagTaskStatusChangedEvent(CloneTaskForPublication(task)), cancellationToken);
         }
         catch (Exception ex)
         {
@@ -551,7 +664,7 @@ public class RagTaskQueueService(
                 // Save state
                 await stateStore.SaveTaskStateAsync(task, cancellationToken);
                 stoppedCount++;
-                tasksToNotify.Add(task);
+                tasksToNotify.Add(CloneTaskForPublication(task));
             }
 
             logger.LogInformation("Stopped {Count} tasks (Processing and Pending status)", stoppedCount);
@@ -564,9 +677,23 @@ public class RagTaskQueueService(
         // Publish status change events
         foreach (var task in tasksToNotify)
         {
-            await PublishStatusChangedAsync(task, cancellationToken);
+            await PublishStatusChangedWithGateAsync(task, cancellationToken);
         }
 
         return stoppedCount;
+    }
+
+    private async Task PublishStatusChangedWithGateAsync(RagTask task, CancellationToken cancellationToken)
+    {
+        var publishLock = GetPublishLock(task.TaskId);
+        await publishLock.WaitAsync(cancellationToken);
+        try
+        {
+            await PublishStatusChangedAsync(task, cancellationToken);
+        }
+        finally
+        {
+            publishLock.Release();
+        }
     }
 }

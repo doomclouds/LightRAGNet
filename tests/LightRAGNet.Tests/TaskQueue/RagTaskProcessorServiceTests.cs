@@ -1,5 +1,6 @@
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Core.Models;
 using LightRAGNet.Models;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
@@ -21,6 +22,117 @@ namespace LightRAGNet.Tests.TaskQueue;
 
 public sealed class RagTaskProcessorServiceTests
 {
+    [Fact]
+    public async Task ProcessTaskAsync_WhenProgressArrivesQuickly_SerializesProgressBeforeCompleted()
+    {
+        var task = new RagTask
+        {
+            TaskId = "task-progress-ordering",
+            DocumentId = 101,
+            RagDocumentId = "doc-progress-ordering",
+            Content = "alpha beta gamma delta epsilon zeta eta theta",
+            FilePath = "progress-ordering.md",
+            Status = RagTaskStatus.Pending
+        };
+        var taskQueue = new RecordingRagTaskQueueService(task);
+        var statusStore = await CreateProcessedStatusStoreAsync(
+            task.RagDocumentId!,
+            task.Content,
+            task.FilePath);
+        var scopeFactory = new SingleServiceScopeFactory(CreateLightRag(statusStore));
+        var processor = new RagTaskProcessorService(
+            taskQueue,
+            new RagTaskCancellationRegistry(),
+            scopeFactory,
+            NullLogger<RagTaskProcessorService>.Instance);
+        processor.AfterProgressHandlerSubscribedForTesting = (lightRag, currentTask, _) =>
+        {
+            RaiseTaskStateChanged(lightRag, CreateProgressState(currentTask));
+            return Task.CompletedTask;
+        };
+        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        await processor.StartAsync(stopCts.Token);
+        await taskQueue.WaitForProgressWriteStartedAsync(TimeSpan.FromSeconds(2));
+        var completedBeforeProgressWritesWereReleased = await taskQueue.WaitForStatusAsync(
+            RagTaskStatus.Completed,
+            TimeSpan.FromMilliseconds(200));
+        taskQueue.ReleaseProgressWrites();
+
+        if (!completedBeforeProgressWritesWereReleased)
+        {
+            (await taskQueue.WaitForStatusAsync(RagTaskStatus.Completed, TimeSpan.FromSeconds(2)))
+                .Should()
+                .BeTrue();
+        }
+
+        await taskQueue.WaitForProgressWritesToCompleteAsync(TimeSpan.FromSeconds(2));
+        await processor.StopAsync(CancellationToken.None);
+
+        taskQueue.ProgressWrites.Should().OnlyContain(write => write.TaskId == task.TaskId);
+        taskQueue.Events.Should().NotBeEmpty();
+        taskQueue.Events[^1].Should().Be("status:Completed");
+
+        var completedIndex = taskQueue.Events.IndexOf("status:Completed");
+        completedIndex.Should().BeGreaterThanOrEqualTo(0);
+        taskQueue.Events
+            .Skip(completedIndex + 1)
+            .Should()
+            .NotContain(evt => evt.StartsWith("progress:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ProcessTaskAsync_WhenProgressWriteNeverCompletes_StillWritesCompletedStatus()
+    {
+        var task = new RagTask
+        {
+            TaskId = "task-progress-never-completes",
+            DocumentId = 102,
+            RagDocumentId = "doc-progress-never-completes",
+            Content = "alpha beta gamma delta epsilon zeta eta theta",
+            FilePath = "progress-never-completes.md",
+            Status = RagTaskStatus.Pending
+        };
+        var taskQueue = new RecordingRagTaskQueueService(task);
+        var statusStore = await CreateProcessedStatusStoreAsync(
+            task.RagDocumentId!,
+            task.Content,
+            task.FilePath);
+        var processor = new RagTaskProcessorService(
+            taskQueue,
+            new RagTaskCancellationRegistry(),
+            new SingleServiceScopeFactory(CreateLightRag(statusStore)),
+            NullLogger<RagTaskProcessorService>.Instance);
+        processor.TerminalProgressDrainTimeoutForTesting = TimeSpan.FromMilliseconds(50);
+        processor.AfterProgressHandlerSubscribedForTesting = (lightRag, currentTask, _) =>
+        {
+            RaiseTaskStateChanged(lightRag, CreateProgressState(currentTask));
+            return Task.CompletedTask;
+        };
+        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var completed = false;
+
+        try
+        {
+            await processor.StartAsync(stopCts.Token);
+            await taskQueue.WaitForProgressWriteStartedAsync(TimeSpan.FromSeconds(2));
+
+            completed = await taskQueue.WaitForStatusAsync(RagTaskStatus.Completed, TimeSpan.FromSeconds(1));
+            if (!completed)
+            {
+                taskQueue.ReleaseProgressWrites();
+            }
+
+            completed.Should().BeTrue();
+
+            taskQueue.Events.Should().Contain("status:Completed");
+        }
+        finally
+        {
+            await processor.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
     [Fact]
     public async Task ProcessDeleteTaskAsync_MissingRagDocument_CompletesTask()
     {
@@ -108,17 +220,27 @@ public sealed class RagTaskProcessorServiceTests
         });
         var tokenizer = new FakeTokenizer();
         var llmService = Substitute.For<ILLMService>();
+        llmService.ExtractEntitiesAsync(
+                Arg.Any<string>(),
+                Arg.Any<List<string>>(),
+                Arg.Any<float>(),
+                Arg.Any<int?>(),
+                Arg.Any<int?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new EntityExtractionResult());
         var embeddingService = Substitute.For<IEmbeddingService>();
-        var vectorStore = Substitute.For<IVectorStore>();
-        var graphStore = Substitute.For<IGraphStore>();
+        embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([1.0f, 0.5f]);
+        var vectorStore = new InMemoryVectorStore();
+        var graphStore = new InMemoryGraphStore();
         var rerankService = Substitute.For<IRerankService>();
-        var textChunksStore = Substitute.For<IKVStore>();
-        var fullDocsStore = Substitute.For<IKVStore>();
-        var fullEntitiesStore = Substitute.For<IKVStore>();
-        var fullRelationsStore = Substitute.For<IKVStore>();
-        var entityChunksStore = Substitute.For<IKVStore>();
-        var relationChunksStore = Substitute.For<IKVStore>();
-        var llmCacheStore = Substitute.For<IKVStore>();
+        var textChunksStore = new InMemoryKvStore();
+        var fullDocsStore = new InMemoryKvStore();
+        var fullEntitiesStore = new InMemoryKvStore();
+        var fullRelationsStore = new InMemoryKvStore();
+        var entityChunksStore = new InMemoryKvStore();
+        var relationChunksStore = new InMemoryKvStore();
+        var llmCacheStore = new InMemoryKvStore();
         var lifecycleService = new DocumentLifecycleService(
             statusStore,
             options,
@@ -191,4 +313,228 @@ public sealed class RagTaskProcessorServiceTests
             documentDeletionService,
             NullLogger<LightRAG>.Instance);
     }
+
+    private static async Task<InMemoryDocumentStatusStore> CreateProcessedStatusStoreAsync(
+        string docId,
+        string content,
+        string filePath)
+    {
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = new DocumentLifecycleService(
+            statusStore,
+            Options.Create(new LightRAGOptions
+            {
+                Workspace = "workspace-a"
+            }),
+            NullLogger<DocumentLifecycleService>.Instance);
+
+        await lifecycleService.PrepareIngestionAsync(content, docId, filePath);
+        await lifecycleService.MarkProcessedAsync("workspace-a", docId);
+
+        return statusStore;
+    }
+
+    private static TaskState CreateProgressState(RagTask task)
+    {
+        return new TaskState
+        {
+            Stage = TaskStage.DocumentChunking,
+            Current = 0,
+            Total = 0,
+            Description = "test progress",
+            DocId = task.RagDocumentId
+        };
+    }
+
+    private static void RaiseTaskStateChanged(LightRAG lightRag, TaskState state)
+    {
+        var eventField = typeof(LightRAG).GetField(
+            "TaskStateChanged",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var handler = eventField?.GetValue(lightRag) as EventHandler<TaskState>;
+        handler?.Invoke(lightRag, state);
+    }
+
+    private sealed class RecordingRagTaskQueueService(RagTask pendingTask) : IRagTaskQueueService
+    {
+        private readonly object gate = new();
+        private readonly TaskCompletionSource completedStatus =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource progressWriteStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource progressWritesReleased =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource progressWritesCompleted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int returned;
+        private int startedProgressWrites;
+        private int completedProgressWrites;
+
+        public List<string> Events { get; } = [];
+
+        public List<(string TaskId, TaskStage? Stage, int? Progress)> ProgressWrites { get; } = [];
+
+        public Task<string?> EnqueueTaskAsync(
+            int documentId,
+            string content,
+            string filePath,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<string?> EnqueueDeletionTaskAsync(
+            int documentId,
+            string ragDocumentId,
+            string filePath,
+            bool deleteLlmCache,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<RagTask?> GetNextTaskAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Interlocked.Exchange(ref returned, 1) == 0 ? pendingTask : null);
+        }
+
+        public Task<List<RagTask>> GetAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new List<RagTask> { pendingTask });
+
+        public Task<RagTask?> GetTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(string.Equals(taskId, pendingTask.TaskId, StringComparison.Ordinal) ? pendingTask : null);
+
+        public Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(documentId == pendingTask.DocumentId ? pendingTask : null);
+
+        public Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(
+            IEnumerable<int> documentIds,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(documentIds.Contains(pendingTask.DocumentId)
+                ? new Dictionary<int, RagTask> { [pendingTask.DocumentId] = pendingTask }
+                : []);
+
+        public Task UpdateTaskStatusAsync(
+            string taskId,
+            RagTaskStatus status,
+            string? errorMessage = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            lock (gate)
+            {
+                Events.Add($"status:{status}");
+            }
+
+            pendingTask.Status = status;
+            pendingTask.ErrorMessage = errorMessage;
+
+            if (status == RagTaskStatus.Completed)
+            {
+                completedStatus.TrySetResult();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public async Task UpdateTaskProgressAsync(
+            string taskId,
+            TaskStage? stage,
+            int? progress,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            lock (gate)
+            {
+                ProgressWrites.Add((taskId, stage, progress));
+            }
+
+            Interlocked.Increment(ref startedProgressWrites);
+            progressWriteStarted.TrySetResult();
+
+            await progressWritesReleased.Task.WaitAsync(cancellationToken);
+
+            lock (gate)
+            {
+                Events.Add($"progress:{stage}");
+            }
+
+            if (Interlocked.Increment(ref completedProgressWrites) >= Volatile.Read(ref startedProgressWrites))
+            {
+                progressWritesCompleted.TrySetResult();
+            }
+        }
+
+        public Task ReorderTaskAsync(string taskId, int newPriority, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task ClearAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> HasProcessingTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
+
+        public async Task WaitForProgressWriteStartedAsync(TimeSpan timeout)
+        {
+            await progressWriteStarted.Task.WaitAsync(timeout);
+        }
+
+        public async Task<bool> WaitForStatusAsync(RagTaskStatus status, TimeSpan timeout)
+        {
+            var statusTask = status switch
+            {
+                RagTaskStatus.Completed => completedStatus.Task,
+                _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unsupported status wait.")
+            };
+
+            var completed = await Task.WhenAny(statusTask, Task.Delay(timeout)) == statusTask;
+            return completed;
+        }
+
+        public void ReleaseProgressWrites()
+        {
+            progressWritesReleased.TrySetResult();
+        }
+
+        public async Task WaitForProgressWritesToCompleteAsync(TimeSpan timeout)
+        {
+            if (Volatile.Read(ref startedProgressWrites) == Volatile.Read(ref completedProgressWrites))
+            {
+                return;
+            }
+
+            await progressWritesCompleted.Task.WaitAsync(timeout);
+        }
+    }
+
+    private sealed class SingleServiceScopeFactory(LightRAG lightRag) : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope()
+        {
+            return new Scope(lightRag);
+        }
+
+        private sealed class Scope(LightRAG lightRag) : IServiceScope, IServiceProvider
+        {
+            public IServiceProvider ServiceProvider => this;
+
+            public object? GetService(Type serviceType)
+            {
+                return serviceType == typeof(LightRAG) ? lightRag : null;
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+    }
+
 }
