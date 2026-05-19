@@ -369,6 +369,10 @@ public class LightRAG(
                 docId,
                 cancellationToken);
 
+            await llmCacheService.BumpWorkspaceQueryRevisionAsync(
+                ingestion.Workspace,
+                CancellationToken.None);
+
             logger.LogInformation("Document {DocId} inserted successfully", docId);
 
             PostTaskState(new TaskState
@@ -460,13 +464,22 @@ public class LightRAG(
             DocId = docId
         });
 
-        return await documentDeletionService.DeleteAsync(
+        var result = await documentDeletionService.DeleteAsync(
             new DocumentDeletionRequest(
                 plan.Workspace,
                 docId,
                 plan.ChunkIds,
                 plan.DeleteLlmCache),
             cancellationToken);
+
+        if (result.Succeeded && plan.Found)
+        {
+            await llmCacheService.BumpWorkspaceQueryRevisionAsync(
+                plan.Workspace,
+                CancellationToken.None);
+        }
+
+        return result;
     }
 
     private static List<string> ReadStringList(Dictionary<string, object> data, string key)
