@@ -241,10 +241,61 @@ public sealed class LightRAGLifecycleIntegrationTests
         vectorStore.Get("chunks", "chunk-a").Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task DeleteDocumentAsync_MissingLifecycleStatusButFullDocExists_DeletesStorage()
+    {
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = CreateLifecycleService(statusStore);
+        var textChunks = new InMemoryKvStore();
+        textChunks.Seed("chunk-orphan", new() { ["content"] = "orphan content" });
+        var fullDocs = new InMemoryKvStore();
+        fullDocs.Seed("doc-orphan", new()
+        {
+            ["content"] = "orphan content",
+            ["chunks_list"] = new List<string> { "chunk-orphan" }
+        });
+        var fullEntities = new InMemoryKvStore();
+        fullEntities.Seed("doc-orphan", new()
+        {
+            ["entity_names"] = new List<string>()
+        });
+        var fullRelations = new InMemoryKvStore();
+        fullRelations.Seed("doc-orphan", new()
+        {
+            ["relation_pairs"] = new List<object>()
+        });
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-orphan",
+            Content = "orphan content",
+            Vector = [1.0f, 0.5f]
+        });
+        var rag = CreateLightRag(
+            lifecycleService,
+            textChunksStore: textChunks,
+            fullDocsStore: fullDocs,
+            fullEntitiesStore: fullEntities,
+            fullRelationsStore: fullRelations,
+            vectorStore: vectorStore);
+
+        var result = await rag.DeleteDocumentAsync("doc-orphan");
+
+        result.Found.Should().BeTrue();
+        result.Succeeded.Should().BeTrue();
+        textChunks.Items.Should().NotContainKey("chunk-orphan");
+        fullDocs.Items.Should().NotContainKey("doc-orphan");
+        fullEntities.Items.Should().NotContainKey("doc-orphan");
+        fullRelations.Items.Should().NotContainKey("doc-orphan");
+        vectorStore.Get("chunks", "chunk-orphan").Should().BeNull();
+    }
+
     private static LightRAG CreateLightRag(
         DocumentLifecycleService lifecycleService,
         IKVStore? textChunksStore = null,
         IKVStore? fullDocsStore = null,
+        IKVStore? fullEntitiesStore = null,
+        IKVStore? fullRelationsStore = null,
         IVectorStore? vectorStore = null,
         ITokenizer? tokenizer = null,
         IEmbeddingService? embeddingService = null)
@@ -279,8 +330,8 @@ public sealed class LightRAGLifecycleIntegrationTests
         var rerankService = Substitute.For<IRerankService>();
         textChunksStore ??= Substitute.For<IKVStore>();
         fullDocsStore ??= Substitute.For<IKVStore>();
-        var fullEntitiesStore = Substitute.For<IKVStore>();
-        var fullRelationsStore = Substitute.For<IKVStore>();
+        fullEntitiesStore ??= Substitute.For<IKVStore>();
+        fullRelationsStore ??= Substitute.For<IKVStore>();
         var entityChunksStore = Substitute.For<IKVStore>();
         var relationChunksStore = Substitute.For<IKVStore>();
         var llmCacheStore = Substitute.For<IKVStore>();

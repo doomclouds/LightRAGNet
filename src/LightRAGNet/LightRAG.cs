@@ -10,6 +10,7 @@ using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using System.Threading.Tasks.Dataflow;
 
 namespace LightRAGNet;
@@ -420,13 +421,30 @@ public class LightRAG(
 
         if (!plan.Found)
         {
-            return new DocumentDeletionResult(
-                docId,
-                plan.Workspace,
-                Found: false,
-                Succeeded: false,
-                Stage: string.Empty,
-                Message: "Document not found.");
+            var fallbackFullDoc = await fullDocsStore.GetByIdAsync(docId, cancellationToken);
+            if (fallbackFullDoc is null)
+            {
+                return new DocumentDeletionResult(
+                    docId,
+                    plan.Workspace,
+                    Found: false,
+                    Succeeded: false,
+                    Stage: string.Empty,
+                    Message: "Document not found.");
+            }
+
+            plan = new DocumentDeletionPlan
+            {
+                DocId = docId,
+                Workspace = plan.Workspace,
+                Found = true,
+                ChunkIds = ReadStringList(fallbackFullDoc, "chunks_list"),
+                DeleteFullDocument = true,
+                DeleteTextChunks = true,
+                DeleteChunkVectors = true,
+                DeleteDocumentGraphMetadata = true,
+                DeleteLlmCache = deleteLlmCache
+            };
         }
 
         PostTaskState(new TaskState
@@ -445,6 +463,53 @@ public class LightRAG(
                 plan.ChunkIds,
                 plan.DeleteLlmCache),
             cancellationToken);
+    }
+
+    private static List<string> ReadStringList(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value) || value is null)
+        {
+            return [];
+        }
+
+        return value switch
+        {
+            JsonElement json => ReadJsonStringList(json),
+            IEnumerable<string> strings => strings
+                .Select(item => item.Trim())
+                .Where(item => item.Length > 0)
+                .ToList(),
+            IEnumerable<object> objects => objects
+                .Select(item => item?.ToString()?.Trim() ?? string.Empty)
+                .Where(item => item.Length > 0)
+                .ToList(),
+            string text when !string.IsNullOrWhiteSpace(text) => [text.Trim()],
+            _ => []
+        };
+    }
+
+    private static List<string> ReadJsonStringList(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Array => value.EnumerateArray()
+                .Select(ReadJsonScalar)
+                .Where(item => item.Length > 0)
+                .ToList(),
+            JsonValueKind.String => string.IsNullOrWhiteSpace(value.GetString()) ? [] : [value.GetString()!.Trim()],
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => [value.ToString()],
+            _ => []
+        };
+    }
+
+    private static string ReadJsonScalar(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString()?.Trim() ?? string.Empty,
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => value.ToString(),
+            _ => string.Empty
+        };
     }
 
     /// <summary>

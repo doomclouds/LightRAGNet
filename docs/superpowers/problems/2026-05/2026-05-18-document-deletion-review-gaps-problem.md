@@ -8,15 +8,15 @@
 
 ## Symptom
 
-`document-deletion-parity` 的全量测试和初次最终审查前置验证都通过后，最终代码审查仍发现三类高风险缺口：跨文档 retained relation 可能被 Neo4j `DETACH DELETE` 连带删除，`clear-all` 仍保留手拼 `FileUrl` 的路径穿越风险，后台任务只被标记 `Failed` 但没有真实取消。后续运行还暴露出第四类旁路：RAG 侧 `doc_status` 已不存在时，后台删除任务把 `Document not found` 当失败，导致本地 Markdown row/file 无法完成清理。
+`document-deletion-parity` 的全量测试和初次最终审查前置验证都通过后，最终代码审查仍发现三类高风险缺口：跨文档 retained relation 可能被 Neo4j `DETACH DELETE` 连带删除，`clear-all` 仍保留手拼 `FileUrl` 的路径穿越风险，后台任务只被标记 `Failed` 但没有真实取消。后续运行还暴露出第四类旁路：RAG 侧 `doc_status` 已不存在时，后台删除任务把 `Document not found` 当失败，或者把任务当完成但跳过真实 RAG 清理，导致 `full_docs`、chunk KV 和 Neo4j 节点关系残留。
 
 ## Trigger / Context
 
-这个问题出现在把 Python LightRAG 的单文档删除语义搬到 .NET 后。单文档 API、任务流、UI 和多数存储清理都已补齐，但同一删除能力还存在 bulk clear-all 路径、跨文档图关系、后台处理器并发、以及“RAG 存储目标已经缺失但 Server 仍有删除任务”的幂等清理旁路。
+这个问题出现在把 Python LightRAG 的单文档删除语义搬到 .NET 后。单文档 API、任务流、UI 和多数存储清理都已补齐，但同一删除能力还存在 bulk clear-all 路径、跨文档图关系、后台处理器并发、以及“生命周期状态缺失但其它 RAG 元数据仍存在”的恢复清理旁路。
 
 ## Root Cause
 
-实现和测试过早围绕“当前文档自己的索引”收敛：实体保护只看当前 `full_relations`，没有继续从 graph edges / `relation_chunks` 识别其它文档仍保留的关系。文件删除安全也只修了单文档 delete 路径，`clear-all` 仍有第二套字符串拼接逻辑。任务停止只更新队列状态，没有给正在执行的 processor 一个可取消 token。删除任务处理器还把 `LightRAG.DeleteDocumentAsync` 的 `Found=false` 与真实删除失败混在一起；对删除语义来说，“目标已不存在”应视为幂等完成，而不是阻塞本地元数据清理。
+实现和测试过早围绕“当前文档自己的索引”收敛：实体保护只看当前 `full_relations`，没有继续从 graph edges / `relation_chunks` 识别其它文档仍保留的关系。文件删除安全也只修了单文档 delete 路径，`clear-all` 仍有第二套字符串拼接逻辑。任务停止只更新队列状态，没有给正在执行的 processor 一个可取消 token。删除入口还把 `doc_status` 当成唯一真相；当 `doc_status` 为空但 `full_docs`、`text_chunks`、`full_entities`、`full_relations` 仍存在时，删除计划直接返回 not found，无法清理残留图谱和 KV 数据。
 
 ## Fix
 
@@ -27,10 +27,12 @@
 - 补上跨文档 retained relation、clear-all traversal、stop-before-delete、processing token cancellation 回归测试。
 - `RagTaskProcessorService.ProcessDeleteTaskAsync` 对 `DocumentDeletionResult.Found == false` 的删除任务按完成处理，并记录 warning；完成事件继续交给 Server handler 删除 Markdown row 和上传文件。
 - 补上 `RagTaskProcessorServiceTests.ProcessDeleteTaskAsync_MissingRagDocument_CompletesTask`，覆盖 RAG 侧目标已缺失时的队列幂等删除语义。
+- `LightRAG.DeleteDocumentAsync` 在 `doc_status` 缺失时回退读取 `full_docs[docId].chunks_list`，只要 `full_docs` 仍存在就继续走 `DocumentDeletionService` 清理 chunk vectors、text chunks、full document metadata、entity/relation metadata 和图谱引用。
+- 补上 `LightRAGLifecycleIntegrationTests.DeleteDocumentAsync_MissingLifecycleStatusButFullDocExists_DeletesStorage`，覆盖 `doc_status` 丢失但 RAG 元数据仍存在的恢复删除场景。
 
 ## Why This Fix
 
-这些修复把删除语义从“主路径可用”提升到“所有删除入口共享同一安全和一致性边界”。只在 `clear-all` 里再加一次字符串过滤会继续制造双规则；只把任务状态改成 Failed 也挡不住正在执行的后台写入；把 RAG 侧 not found 继续标失败，则会让已经达到删除目标的任务卡住本地清理。共享安全服务、外部关系扫描、真实 cancellation token，以及删除任务幂等完成策略，是更稳定的边界。
+这些修复把删除语义从“主路径可用”提升到“所有删除入口共享同一安全和一致性边界”。只在 `clear-all` 里再加一次字符串过滤会继续制造双规则；只把任务状态改成 Failed 也挡不住正在执行的后台写入；只把 RAG 侧 not found 当完成，又会在 `doc_status` 丢失但 `full_docs` 仍存在时制造静默残留。共享安全服务、外部关系扫描、真实 cancellation token、full_docs fallback，以及删除任务幂等完成策略，是更稳定的边界。
 
 ## Recognition Clues
 
@@ -39,6 +41,8 @@
 - `StopAllTasksAsync` 只更新 `RagTaskStatus.Failed`，没有任何 token registry、linked token 或 cancel 调用。
 - 日志出现 `RagTaskProcessorService` 处理 `DeleteDocument` 任务时报 `Document not found.`，但 Server 数据库里对应 Markdown row 仍处于 `Deleting` 或 `DeletionFailed`。
 - `LightRAG.DeleteDocumentAsync` 已有 unknown document 返回 `Found=false` 的测试，但后台 processor 没有单独覆盖这个结果的队列语义。
+- SQLite `MarkdownDocuments` 已为空、Qdrant 点数为 0，但 `rag_storage/full_docs.json`、`text_chunks.json`、`entity_chunks.json` 或 Neo4j 仍保留同一文档的 `file_path/source_id`。
+- `doc_status.json` 为 `{}`，但其它 RAG JSON 文件仍含同一个 `doc--...`。
 - 代码评审发现“测试都绿，但旁路没有复用主路径安全/一致性合同”。
 
 ## Applicability / Non-Applicability
@@ -50,6 +54,7 @@
 - API 状态机和后台 processor 通过共享队列协作，但停止操作需要中断正在执行的工作。
 - 文件删除安全已经在一个入口修复，另一个入口仍自己解析路径或 URL。
 - 删除请求的目标资源可能已经被手工清库、重复任务、历史数据不一致或上一次部分成功的删除移除。
+- 生命周期状态文件可能丢失、被清空或未随旧版本迁移，但 `full_docs` 仍能提供 chunk id 列表。
 
 ### Does Not Apply When
 
@@ -57,6 +62,7 @@
 - bulk 操作只清理内存状态，不触碰文件系统、图数据库或向量库。
 - 后台任务本身不接收 `CancellationToken`，需要先做更大的可取消性改造。
 - 非删除操作遇到 missing document；index/query 等非幂等操作仍应暴露错误而不是伪装完成。
+- `full_docs` 也不存在的删除请求；这时没有可恢复元数据，按幂等完成本地清理即可。
 
 ## Related Artifacts
 
@@ -70,6 +76,8 @@
   - [MarkdownDocumentsController.cs](../../../../src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs)
   - [RagTaskCancellationRegistry.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskCancellationRegistry.cs)
   - [RagTaskProcessorService.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs)
+  - [LightRAG.cs](../../../../src/LightRAGNet/LightRAG.cs)
   - [DocumentDeletionServiceTests.cs](../../../../tests/LightRAGNet.Tests/DocumentDeletion/DocumentDeletionServiceTests.cs)
+  - [LightRAGLifecycleIntegrationTests.cs](../../../../tests/LightRAGNet.Tests/DocumentLifecycle/LightRAGLifecycleIntegrationTests.cs)
   - [RagTaskProcessorServiceTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskProcessorServiceTests.cs)
   - [MarkdownDocumentsControllerTests.cs](../../../../tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs)

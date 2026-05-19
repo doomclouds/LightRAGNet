@@ -18,11 +18,12 @@
                                    MaximumFileCount="10"
                                    OnFilesChanged="@OnFilesChanged"
                                    Disabled="@_uploading">
-                        <CustomContent>
+                        <CustomContent Context="fileUpload">
                             <MudButton Variant="Variant.Filled" 
                                       Color="Color.Primary" 
                                       StartIcon="@Icons.Material.Filled.CloudUpload"
-                                      HtmlTag="label">
+                                      ButtonType="ButtonType.Button"
+                                      OnClick="@fileUpload.OpenFilePickerAsync">
                                 Select Files (Multiple)
                             </MudButton>
                         </CustomContent>
