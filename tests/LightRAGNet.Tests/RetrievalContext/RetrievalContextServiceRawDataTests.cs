@@ -58,7 +58,31 @@ public sealed class RetrievalContextServiceRawDataTests
         graphStore.GetNodeDegreesBatchAsync(Arg.Any<List<string>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, int> { ["Alpha"] = 1 });
         graphStore.GetNodesEdgesBatchAsync(Arg.Any<List<string>>(), Arg.Any<CancellationToken>())
-            .Returns(new Dictionary<string, List<(string SourceId, string TargetId)>>());
+            .Returns(new Dictionary<string, List<(string SourceId, string TargetId)>>
+            {
+                ["Alpha"] = [("Alpha", "Beta")]
+            });
+        graphStore.GetEdgesBatchAsync(Arg.Any<List<(string SourceId, string TargetId)>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<(string SourceId, string TargetId), GraphEdge>
+            {
+                [("Alpha", "Beta")] = new()
+                {
+                    SourceId = "Alpha",
+                    TargetId = "Beta",
+                    Properties = new Dictionary<string, object>
+                    {
+                        ["keywords"] = "depends on",
+                        ["description"] = "Alpha depends on Beta",
+                        ["weight"] = 2.5d,
+                        ["source_id"] = "chunk-b"
+                    }
+                }
+            });
+        graphStore.GetEdgeDegreesBatchAsync(Arg.Any<List<(string SourceId, string TargetId)>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<(string SourceId, string TargetId), int>
+            {
+                [("Alpha", "Beta")] = 3
+            });
 
         var embeddingService = Substitute.For<IEmbeddingService>();
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -71,6 +95,11 @@ public sealed class RetrievalContextServiceRawDataTests
             {
                 ["content"] = "chunk content",
                 ["file_path"] = "docs/a.md"
+            },
+            ["chunk-b"] = new()
+            {
+                ["content"] = "relationship chunk content",
+                ["file_path"] = "docs/b.md"
             }
         });
 
@@ -98,10 +127,61 @@ public sealed class RetrievalContextServiceRawDataTests
 
         var data = result!.RawData["data"].Should().BeOfType<Dictionary<string, object>>().Subject;
         data.Should().ContainKeys("entities", "relationships", "chunks", "references");
-        data["entities"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>();
-        data["relationships"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>();
-        data["chunks"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>();
-        data["references"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>();
+
+        var entities = data["entities"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>().Subject;
+        entities.Should().ContainSingle().Which.Should().BeEquivalentTo(new Dictionary<string, object>
+        {
+            ["entity_name"] = "Alpha",
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["rank"] = 1,
+            ["source_id"] = "chunk-a",
+            ["file_path"] = "docs/a.md"
+        });
+
+        var relationships = data["relationships"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>().Subject;
+        relationships.Should().ContainSingle().Which.Should().BeEquivalentTo(new Dictionary<string, object>
+        {
+            ["src_id"] = "Alpha",
+            ["tgt_id"] = "Beta",
+            ["keywords"] = "depends on",
+            ["description"] = "Alpha depends on Beta",
+            ["rank"] = 3,
+            ["weight"] = 2.5d,
+            ["source_id"] = "chunk-b"
+        });
+
+        var chunks = data["chunks"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>().Subject;
+        chunks.Should().BeEquivalentTo([
+            new Dictionary<string, object>
+            {
+                ["chunk_id"] = "chunk-a",
+                ["content"] = "chunk content",
+                ["file_path"] = "docs/a.md",
+                ["reference_id"] = "1"
+            },
+            new Dictionary<string, object>
+            {
+                ["chunk_id"] = "chunk-b",
+                ["content"] = "relationship chunk content",
+                ["file_path"] = "docs/b.md",
+                ["reference_id"] = "2"
+            }
+        ], options => options.WithStrictOrdering());
+
+        var references = data["references"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>().Subject;
+        references.Should().BeEquivalentTo([
+            new Dictionary<string, object>
+            {
+                ["reference_id"] = "1",
+                ["file_path"] = "docs/a.md"
+            },
+            new Dictionary<string, object>
+            {
+                ["reference_id"] = "2",
+                ["file_path"] = "docs/b.md"
+            }
+        ], options => options.WithStrictOrdering());
 
         var metadata = result.RawData["metadata"].Should().BeOfType<Dictionary<string, object>>().Subject;
         metadata["query_mode"].Should().Be("Local");
@@ -114,7 +194,7 @@ public sealed class RetrievalContextServiceRawDataTests
 
         var processingInfo = metadata["processing_info"].Should().BeOfType<Dictionary<string, object>>().Subject;
         processingInfo["total_entities_found"].Should().Be(1);
-        processingInfo["total_relations_found"].Should().Be(0);
-        processingInfo["final_chunks_count"].Should().Be(1);
+        processingInfo["total_relations_found"].Should().Be(1);
+        processingInfo["final_chunks_count"].Should().Be(2);
     }
 }
