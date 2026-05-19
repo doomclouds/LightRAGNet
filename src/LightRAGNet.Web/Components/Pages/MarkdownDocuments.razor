@@ -374,7 +374,7 @@
     private async Task DeleteDocument(MarkdownDocumentDto document)
     {
         var documentId = document.Id;
-        var result = await DialogService.ShowMessageBox(
+        var result = await DialogService.ShowMessageBoxAsync(
             "Confirm Delete",
             GetDeleteConfirmationMessage(document),
             yesText: "Delete",
@@ -481,7 +481,7 @@
 
     private async Task AddToRagSystem(int id)
     {
-        var result = await DialogService.ShowMessageBox(
+        var result = await DialogService.ShowMessageBoxAsync(
             "Add to RAG System",
             "Are you sure you want to add this document to the RAG system?",
             yesText: "Confirm",

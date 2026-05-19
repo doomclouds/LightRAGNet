@@ -30,33 +30,30 @@
             }
             else
             {
-                foreach (var chatMessage in _chatHistory)
-                {
-                    if (chatMessage.Role == "User")
+                <MudStack Spacing="2" Class="pa-3">
+                    @foreach (var chatMessage in _chatHistory)
                     {
-                        <MudChat ChatPosition="ChatBubblePosition.End">
-                            <MudChatHeader Name="User"/>
-                            <MudChatBubble>
-                                <MudText>@chatMessage.Text</MudText>
-                            </MudChatBubble>
-                        </MudChat>
+                        <div class="d-flex @(chatMessage.Role == "User" ? "justify-end" : "justify-start")">
+                            <MudPaper Elevation="0"
+                                      Class="@GetMessageBubbleClass(chatMessage)"
+                                      Style="max-width: 78%; overflow-wrap: anywhere;">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@GetMessageSender(chatMessage)</MudText>
+                                @if (chatMessage.Role == "Assistant")
+                                {
+                                    <MudMarkdown Value="@chatMessage.Text" />
+                                    @if (string.IsNullOrEmpty(chatMessage.Text))
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
+                                    }
+                                }
+                                else
+                                {
+                                    <MudText>@chatMessage.Text</MudText>
+                                }
+                            </MudPaper>
+                        </div>
                     }
-                    else if (chatMessage.Role == "Assistant")
-                    {
-                        <MudChat ChatPosition="ChatBubblePosition.Start">
-                            <MudChatHeader Name="RAG Assistant"/>
-                            <MudChatBubble>
-                                <MudMarkdown Value="@chatMessage.Text" />
-                            </MudChatBubble>
-                            @if (string.IsNullOrEmpty(chatMessage.Text))
-                            {
-                                <MudChatFooter>
-                                    <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
-                                </MudChatFooter>
-                            }
-                        </MudChat>
-                    }
-                }
+                </MudStack>
             }
         </MudPaper>
     </div>
@@ -93,6 +90,18 @@
     private bool _shouldScrollAfterRender;
 
     private bool CanNotSendMessage => string.IsNullOrWhiteSpace(_inputMessage) || _isWaitingResponse;
+
+    private static string GetMessageSender(ChatMessageModel message)
+    {
+        return message.Role == "User" ? "User" : "RAG Assistant";
+    }
+
+    private static string GetMessageBubbleClass(ChatMessageModel message)
+    {
+        return message.Role == "User"
+            ? "pa-3 rounded-lg mud-theme-primary"
+            : "pa-3 rounded-lg mud-theme-surface";
+    }
 
     protected override void OnInitialized()
     {

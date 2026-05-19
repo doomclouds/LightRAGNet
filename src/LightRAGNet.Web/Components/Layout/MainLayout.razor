@@ -121,7 +121,7 @@
 
     private async Task ClearAllData()
     {
-        var result = await DialogService.ShowMessageBox(
+        var result = await DialogService.ShowMessageBoxAsync(
             "Clear All Data",
             "Warning: This operation will delete all documents, tasks and RAG storage content (including Qdrant vector data, Neo4j graph data, KV stores, etc.), and cannot be recovered!\n\nAre you sure you want to continue?",
             yesText: "Confirm Clear",

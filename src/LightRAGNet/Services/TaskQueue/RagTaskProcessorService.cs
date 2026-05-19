@@ -170,7 +170,7 @@ public class RagTaskProcessorService(
         }
     }
 
-    private async Task ProcessDeleteTaskAsync(
+    internal async Task ProcessDeleteTaskAsync(
         RagTask task,
         LightRAG lightRAG,
         CancellationToken cancellationToken)
@@ -184,6 +184,25 @@ public class RagTaskProcessorService(
             task.RagDocumentId,
             task.DeleteLlmCache,
             cancellationToken);
+
+        if (!result.Succeeded && !result.Found)
+        {
+            logger.LogWarning(
+                "Delete task {TaskId} targeted missing RAG document {RagDocumentId}; treating deletion as completed.",
+                task.TaskId,
+                task.RagDocumentId);
+
+            task.Status = RagTaskStatus.Completed;
+            task.CompletedAt = DateTime.UtcNow;
+            task.CurrentStage = TaskStage.Completed;
+
+            await taskQueue.UpdateTaskStatusAsync(
+                task.TaskId,
+                RagTaskStatus.Completed,
+                cancellationToken: cancellationToken);
+
+            return;
+        }
 
         if (!result.Succeeded)
         {

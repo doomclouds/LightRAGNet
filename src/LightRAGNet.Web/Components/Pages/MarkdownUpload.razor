@@ -18,14 +18,14 @@
                                    MaximumFileCount="10"
                                    OnFilesChanged="@OnFilesChanged"
                                    Disabled="@_uploading">
-                        <ActivatorContent>
+                        <CustomContent>
                             <MudButton Variant="Variant.Filled" 
                                       Color="Color.Primary" 
                                       StartIcon="@Icons.Material.Filled.CloudUpload"
                                       HtmlTag="label">
                                 Select Files (Multiple)
                             </MudButton>
-                        </ActivatorContent>
+                        </CustomContent>
                         <SelectedTemplate>
                             @if (_selectedFiles.Count > 0)
                             {
