@@ -25,19 +25,33 @@ public class QueryResult
     /// <summary>
     /// Reference list
     /// </summary>
-    public List<ReferenceItem> ReferenceList => 
-        RawData?.TryGetValue("data", out var data) == true &&
-        data is Dictionary<string, object> dataDict &&
-        dataDict.TryGetValue("references", out var refs) &&
-        refs is List<object> refList
-            ? refList.OfType<Dictionary<string, object>>()
-                .Select(r => new ReferenceItem
-                {
-                    ReferenceId = r.GetValueOrDefault("reference_id")?.ToString() ?? "",
-                    FilePath = r.GetValueOrDefault("file_path")?.ToString() ?? ""
-                })
-                .ToList()
-            : new List<ReferenceItem>();
+    public List<ReferenceItem> ReferenceList
+    {
+        get
+        {
+            if (RawData?.TryGetValue("data", out var data) != true ||
+                data is not Dictionary<string, object> dataDict ||
+                dataDict.TryGetValue("references", out var refs) != true)
+            {
+                return [];
+            }
+
+            if (refs is IEnumerable<Dictionary<string, object>> dictionaryRefs)
+            {
+                return dictionaryRefs.Select(ToReferenceItem).ToList();
+            }
+
+            if (refs is IEnumerable<object> objectRefs)
+            {
+                return objectRefs
+                    .OfType<Dictionary<string, object>>()
+                    .Select(ToReferenceItem)
+                    .ToList();
+            }
+
+            return [];
+        }
+    }
     
     /// <summary>
     /// Metadata
@@ -47,6 +61,15 @@ public class QueryResult
         metadata is Dictionary<string, object> metaDict
             ? metaDict
             : new Dictionary<string, object>();
+
+    private static ReferenceItem ToReferenceItem(Dictionary<string, object> reference)
+    {
+        return new ReferenceItem
+        {
+            ReferenceId = reference.GetValueOrDefault("reference_id")?.ToString() ?? string.Empty,
+            FilePath = reference.GetValueOrDefault("file_path")?.ToString() ?? string.Empty
+        };
+    }
 }
 
 public class ReferenceItem
