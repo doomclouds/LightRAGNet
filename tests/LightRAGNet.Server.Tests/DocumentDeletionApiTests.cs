@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace LightRAGNet.Server.Tests;
 
+[Collection(ServerFilesystemTestCollection.Name)]
 public sealed class DocumentDeletionApiTests
 {
     [Fact]

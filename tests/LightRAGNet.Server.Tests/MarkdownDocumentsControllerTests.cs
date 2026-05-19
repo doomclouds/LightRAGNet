@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace LightRAGNet.Server.Tests;
 
+[Collection(ServerFilesystemTestCollection.Name)]
 public sealed class MarkdownDocumentsControllerTests
 {
     [Fact]
