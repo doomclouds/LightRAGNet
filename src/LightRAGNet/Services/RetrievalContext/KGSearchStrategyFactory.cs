@@ -46,7 +46,6 @@ internal class KGSearchStrategyFactory
     {
         return _strategies.TryGetValue(mode, out var strategy)
             ? strategy
-            : _strategies[QueryMode.Mix]; // Default to Mix strategy
+            : throw new NotSupportedException($"Query mode '{mode}' is not a knowledge graph search mode.");
     }
 }
-

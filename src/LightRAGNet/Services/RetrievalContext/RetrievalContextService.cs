@@ -40,6 +40,11 @@ public class RetrievalContextService(
         QueryParam queryParam,
         CancellationToken cancellationToken = default)
     {
+        if (queryParam.Mode is QueryMode.Naive or QueryMode.Bypass)
+        {
+            throw new NotSupportedException($"Query mode '{queryParam.Mode}' is not supported by RetrievalContextService.");
+        }
+
         var llKeywordsStr = string.Join(", ", keywords.LowLevelKeywords);
         var hlKeywordsStr = string.Join(", ", keywords.HighLevelKeywords);
         
