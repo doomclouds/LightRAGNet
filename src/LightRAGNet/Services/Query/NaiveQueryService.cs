@@ -11,7 +11,6 @@ public sealed class NaiveQueryService(
     IRerankService rerankService,
     ITokenizer tokenizer)
 {
-    private readonly ChunkTokenLimiter _chunkTokenLimiter = new(tokenizer);
     private readonly ReferenceListBuilder _referenceListBuilder = new();
 
     public async Task<QueryContextResult?> BuildContextAsync(
@@ -46,16 +45,17 @@ public sealed class NaiveQueryService(
 
         var promptOverheadTokens = tokenizer.CountTokens(
             NaiveQueryPromptBuilder.BuildPromptOverhead(queryParam));
-        var availableChunkTokens = Math.Max(
-            0,
-            queryParam.MaxTotalTokens - promptOverheadTokens - tokenizer.CountTokens(query) - 200);
-        var limitedChunks = _chunkTokenLimiter.Limit(chunks, availableChunkTokens);
-        if (limitedChunks.Count == 0)
+        var availableChunkTokens = queryParam.MaxTotalTokens - promptOverheadTokens - tokenizer.CountTokens(query) - 200;
+        if (availableChunkTokens <= 0)
         {
             return null;
         }
 
-        var (references, chunksWithRefIds) = _referenceListBuilder.Build(limitedChunks);
+        var (references, chunksWithRefIds) = LimitChunksByFinalContext(chunks, availableChunkTokens);
+        if (chunksWithRefIds.Count == 0)
+        {
+            return null;
+        }
 
         return new QueryContextResult
         {
@@ -78,9 +78,31 @@ public sealed class NaiveQueryService(
 
         return rerankResults
             .OrderByDescending(result => result.RelevanceScore)
+            .DistinctBy(result => result.Index)
             .Where(result => result.Index >= 0 && result.Index < chunks.Count)
             .Select(result => chunks[result.Index])
             .ToList();
+    }
+
+    private (List<ReferenceItem> References, List<ChunkData> ChunksWithRefIds) LimitChunksByFinalContext(
+        IEnumerable<ChunkData> chunks,
+        int availableChunkTokens)
+    {
+        var acceptedChunks = new List<ChunkData>();
+        foreach (var chunk in chunks)
+        {
+            var candidateChunks = acceptedChunks.Concat([chunk]).ToList();
+            var (candidateReferences, candidateChunksWithRefIds) = _referenceListBuilder.Build(candidateChunks);
+            var candidateContext = BuildContext(candidateChunksWithRefIds, candidateReferences);
+            if (tokenizer.CountTokens(candidateContext) > availableChunkTokens)
+            {
+                break;
+            }
+
+            acceptedChunks.Add(chunk);
+        }
+
+        return _referenceListBuilder.Build(acceptedChunks);
     }
 
     private static string BuildContext(
@@ -121,12 +143,12 @@ public sealed class NaiveQueryService(
                     ["content"] = chunk.Content,
                     ["file_path"] = chunk.FilePath,
                     ["reference_id"] = chunk.ReferenceId
-                }).ToList(),
+                }).Cast<object>().ToList(),
                 ["references"] = references.Select(reference => new Dictionary<string, object>
                 {
                     ["reference_id"] = reference.ReferenceId,
                     ["file_path"] = reference.FilePath
-                }).ToList()
+                }).Cast<object>().ToList()
             },
             ["metadata"] = new Dictionary<string, object>
             {
