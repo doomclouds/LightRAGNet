@@ -8,6 +8,7 @@ using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.Query;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -383,6 +384,11 @@ public sealed class LightRAGLifecycleIntegrationTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            new LightRagCacheKeyBuilder(),
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         return new LightRAG(
             llmService,
@@ -391,6 +397,7 @@ public sealed class LightRAGLifecycleIntegrationTests
             knowledgeGraphMergeService,
             retrievalContextService,
             new NaiveQueryService(vectorStore, rerankService, tokenizer),
+            llmCacheService,
             tokenizer,
             textChunksStore,
             fullDocsStore,

@@ -1,11 +1,14 @@
 using System.Net;
+using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Tests;
 
@@ -102,6 +105,46 @@ public sealed class MarkdownDocumentsControllerTests
             queue.RowsWerePresentWhenStopWasCalled.Should().BeTrue();
             queue.StopAllTasksCallOrder.Should().BeLessThan(queue.ClearAllTasksCallOrder);
         }
+    }
+
+    [Fact]
+    public async Task ClearAllData_WhenClearSucceeds_BumpsWorkspaceQueryRevision()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var responseStream = await response.Content.ReadAsStreamAsync();
+        using var json = await JsonDocument.ParseAsync(responseStream);
+        json.RootElement
+            .GetProperty("details")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Should()
+            .Contain("Bumped query cache revision");
+        using var scope = factory.Services.CreateScope();
+        var cacheService = scope.ServiceProvider.GetRequiredService<LightRagLlmCacheService>();
+        (await cacheService.GetWorkspaceQueryRevisionAsync("_")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ClearAllData_WhenWorkspaceHasWhitespace_BumpsTrimmedWorkspaceRevision()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.PostConfigure<LightRAGOptions>(options => options.Workspace = " workspace-a ");
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var scope = factory.Services.CreateScope();
+        var cacheService = scope.ServiceProvider.GetRequiredService<LightRagLlmCacheService>();
+        (await cacheService.GetWorkspaceQueryRevisionAsync("workspace-a")).Should().Be(1);
+        (await cacheService.GetWorkspaceQueryRevisionAsync(" workspace-a ")).Should().Be(0);
     }
 
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)

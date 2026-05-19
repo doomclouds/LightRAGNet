@@ -9,6 +9,7 @@ using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Hubs;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
@@ -658,6 +659,19 @@ public class MarkdownDocumentsController(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Error occurred while clearing Neo4j data: {Error}", ex.Message);
+            }
+
+            try
+            {
+                var cacheService = serviceProvider.GetRequiredService<LightRagLlmCacheService>();
+                var options = serviceProvider.GetRequiredService<IOptions<LightRAGOptions>>().Value;
+                var workspace = string.IsNullOrWhiteSpace(options.Workspace) ? "_" : options.Workspace.Trim();
+                await cacheService.BumpWorkspaceQueryRevisionAsync(workspace, CancellationToken.None);
+                results.Add("Bumped query cache revision");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to bump query cache revision during clear-all");
             }
 
             logger.LogInformation("Cleared all data: {Results}", string.Join(", ", results));
