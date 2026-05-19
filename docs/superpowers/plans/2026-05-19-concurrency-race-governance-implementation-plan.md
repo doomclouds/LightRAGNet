@@ -16,6 +16,18 @@
 - Existing problem asset: `docs/superpowers/problems/2026-05/2026-05-19-markdown-documents-debounce-race-problem.md`
 - Existing problem asset: `docs/superpowers/problems/2026-05/2026-05-19-task-state-file-replace-lock-problem.md`
 
+## Alignment With Original Governance Approach
+
+This plan follows the previously agreed approach: build small concurrency infrastructure first, then migrate high-risk call sites. The concrete mapping is:
+
+- `AtomicFileWriter`: foundation helper in Core, used by `RagTaskStateStore` and `JsonKVStore`.
+- `AsyncEventDispatcher<T>`: Channel-based event dispatcher with optional keyed coalescing, used by task progress and SignalR UI notifications.
+- `AsyncOperationSlot`: current-operation CTS ownership, used by `AsyncDebouncer` and `RagChat`.
+- `PerKeyAsyncLock`: keyed resource serialization helper, added as foundation infrastructure before broader task/document/workspace migrations.
+- Concurrency regression tests: captured as reusable test patterns in helper tests and final verification scan.
+
+The first recommended step, the current `RagTaskStateStore` short-lock fix, has already been committed before this plan. This plan starts from step 2: the small concurrency foundation, then targeted migrations.
+
 ## File Structure
 
 - Create `src/LightRAGNet.Core/IO/AtomicFileWriteOptions.cs`
@@ -33,12 +45,12 @@
   - Persists through `AtomicFileWriter`.
 - Create `tests/LightRAGNet.Tests/Storage/JsonKVStoreConcurrencyTests.cs`
   - Covers read snapshots, concurrent upsert/read/delete, and persistence failure propagation.
-- Create `src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs`
-  - Serializes events per key, supports cross-key parallelism, optional coalescing, graceful completion, and centralized exception logging.
-- Create `tests/LightRAGNet.Tests/Utilities/AsyncKeyedEventQueueTests.cs`
-  - Covers per-key order, cross-key parallelism, coalesced last value, handler exception isolation, and dispose.
+- Create `src/LightRAGNet/Services/Utilities/AsyncEventDispatcher.cs`
+  - Uses `Channel<T>` to serialize event handling, supports optional keyed coalescing, `DrainAsync`, cancellation-aware disposal, and centralized exception logging.
+- Create `tests/LightRAGNet.Tests/Utilities/AsyncEventDispatcherTests.cs`
+  - Covers serial order, keyed coalescing, drain-before-terminal behavior, handler exception isolation, and dispose.
 - Modify `src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs`
-  - Replaces fire-and-forget progress updates with a per-task keyed queue and drains it before final completion/failure persistence.
+  - Replaces fire-and-forget progress updates with `AsyncEventDispatcher<TaskState>` and drains it before final completion/failure persistence.
 - Modify `tests/LightRAGNet.Tests/TaskQueue/RagTaskProcessorServiceTests.cs`
   - Adds deterministic tests for progress ordering and no progress writes after terminal status.
 - Modify `src/LightRAGNet.Web/Services/RagTaskNotificationService.cs`
@@ -47,6 +59,10 @@
   - Source-level safety net for the Web service dispatch contract because the current core test project does not host Blazor components.
 - Create `src/LightRAGNet/Services/Utilities/AsyncOperationSlot.cs`
   - Owns replace/cancel/dispose semantics for one active async operation.
+- Create `src/LightRAGNet/Services/Utilities/PerKeyAsyncLock.cs`
+  - Provides fine-grained serialization for taskId, documentId, and workspace resources without introducing a global lock.
+- Create `tests/LightRAGNet.Tests/Utilities/PerKeyAsyncLockTests.cs`
+  - Covers same-key serialization, different-key parallelism, cancellation, and key cleanup.
 - Modify `src/LightRAGNet/Services/Utilities/AsyncDebouncer.cs`
   - Reuses `AsyncOperationSlot` or mirrors its semantics through the same public behavior.
 - Create `tests/LightRAGNet.Tests/Utilities/AsyncOperationSlotTests.cs`
@@ -54,9 +70,9 @@
 - Modify `src/LightRAGNet.Web/Components/Pages/RagChat.razor`
   - Replaces shared `_queryCancellationTokenSource` access after awaits with a locally captured operation token.
 - Modify `src/LightRAGNet/LightRAG.cs`
-  - Adds a thread-safe state processor startup guard and lifecycle-aware shutdown boundary for the existing state buffer.
+  - Adds a thread-safe state processor startup guard and subscriber-isolated state publishing for the existing state buffer.
 - Create `tests/LightRAGNet.Tests/DocumentLifecycle/LightRAGStateProcessorTests.cs`
-  - Covers concurrent insert/delete startup and event pump single-start behavior through observable progress delivery.
+  - Covers concurrent insert/delete startup, subscriber exception isolation, and cross-document progress delivery.
 - Create after implementation is accepted: `docs/superpowers/archives/2026-05/2026-05-19-concurrency-race-governance-archive.md`
   - Records final delivered scope and verification evidence.
 
@@ -334,6 +350,28 @@ public sealed class JsonKVStoreConcurrencyTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_ReturnsNestedSnapshot_NotInternalList()
+    {
+        using var directory = TempDirectory.Create();
+        var store = CreateStore(directory, "kv.json");
+        await store.UpsertAsync(new()
+        {
+            ["doc-1"] = new Dictionary<string, object>
+            {
+                ["content"] = "original",
+                ["chunks_list"] = new List<object> { "chunk-a" }
+            }
+        });
+
+        var value = await store.GetByIdAsync("doc-1");
+        ((List<object>)value!["chunks_list"]).Add("chunk-b");
+
+        var secondRead = await store.GetByIdAsync("doc-1");
+        secondRead!["chunks_list"].Should().BeAssignableTo<List<object>>()
+            .Which.Should().Equal("chunk-a");
+    }
+
+    [Fact]
     public async Task GetByIdsAsync_ReturnsSnapshots_NotInternalDictionaries()
     {
         using var directory = TempDirectory.Create();
@@ -403,6 +441,26 @@ public sealed class JsonKVStoreConcurrencyTests
 
         File.ReadAllText(filePath).Should().Contain("persisted");
         Directory.GetFiles(directory.Path, "*.tmp").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task IndexDoneCallbackAsync_WhenPersistenceFails_ThrowsToCaller()
+    {
+        using var directory = TempDirectory.Create();
+        var blockedDirectory = Path.Combine(directory.Path, "blocked");
+        File.WriteAllText(blockedDirectory, "this path is a file");
+        var store = new JsonKVStore(
+            Path.Combine(blockedDirectory, "kv.json"),
+            NullLogger<JsonKVStore>.Instance);
+        await store.UpsertAsync(new()
+        {
+            ["doc-1"] = new Dictionary<string, object> { ["content"] = "persisted" }
+        });
+
+        var act = () => store.IndexDoneCallbackAsync();
+
+        await act.Should().ThrowAsync<Exception>()
+            .Where(ex => ex is IOException or UnauthorizedAccessException);
     }
 
     private static JsonKVStore CreateStore(TempDirectory directory, string fileName)
@@ -514,7 +572,7 @@ public async Task<Dictionary<string, object>?> GetByIdAsync(
     try
     {
         return _data.TryGetValue(id, out var value)
-            ? new Dictionary<string, object>(value)
+            ? CloneRecord(value)
             : null;
     }
     finally
@@ -532,7 +590,7 @@ public async Task<List<Dictionary<string, object>>> GetByIdsAsync(
     {
         return ids
             .Where(_data.ContainsKey)
-            .Select(id => new Dictionary<string, object>(_data[id]))
+            .Select(id => CloneRecord(_data[id]))
             .ToList();
     }
     finally
@@ -568,6 +626,30 @@ public async Task<bool> IsEmptyAsync(CancellationToken cancellationToken = defau
     {
         _lock.Release();
     }
+}
+
+private static Dictionary<string, object> CloneRecord(Dictionary<string, object> source)
+{
+    return source.ToDictionary(
+        pair => pair.Key,
+        pair => CloneValue(pair.Value),
+        StringComparer.Ordinal);
+}
+
+private static object CloneValue(object value)
+{
+    return value switch
+    {
+        Dictionary<string, object> dictionary => CloneRecord(dictionary),
+        IReadOnlyDictionary<string, object> dictionary => dictionary.ToDictionary(
+            pair => pair.Key,
+            pair => CloneValue(pair.Value),
+            StringComparer.Ordinal),
+        List<object> list => list.Select(CloneValue).ToList(),
+        object[] array => array.Select(CloneValue).ToList(),
+        JsonElement json => JsonSerializer.Deserialize<object>(json.GetRawText()) ?? json.ToString(),
+        _ => value
+    };
 }
 ```
 
@@ -618,15 +700,15 @@ git add src/LightRAGNet/Services/TaskQueue/RagTaskStateStore.cs src/LightRAGNet.
 git commit -m "fix: centralize json file persistence"
 ```
 
-## Task 3: Async Keyed Event Queue
+## Task 3: Async Event Dispatcher Foundation
 
 **Files:**
-- Create: `src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs`
-- Test: `tests/LightRAGNet.Tests/Utilities/AsyncKeyedEventQueueTests.cs`
+- Create: `src/LightRAGNet/Services/Utilities/AsyncEventDispatcher.cs`
+- Test: `tests/LightRAGNet.Tests/Utilities/AsyncEventDispatcherTests.cs`
 
-- [ ] **Step 1: Write failing keyed event queue tests**
+- [ ] **Step 1: Write failing dispatcher tests**
 
-Create `tests/LightRAGNet.Tests/Utilities/AsyncKeyedEventQueueTests.cs`:
+Create `tests/LightRAGNet.Tests/Utilities/AsyncEventDispatcherTests.cs`:
 
 ```csharp
 using FluentAssertions;
@@ -635,64 +717,34 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LightRAGNet.Tests.Utilities;
 
-public sealed class AsyncKeyedEventQueueTests
+public sealed class AsyncEventDispatcherTests
 {
     [Fact]
-    public async Task EnqueueAsync_SameKey_RunsInOrder()
+    public async Task EnqueueAsync_ProcessesEventsSerially()
     {
         var seen = new List<int>();
-        await using var queue = new AsyncKeyedEventQueue<string, int>(
-            async (_, value, _) =>
+        await using var dispatcher = new AsyncEventDispatcher<int>(
+            async (value, _) =>
             {
                 await Task.Delay(value == 1 ? 30 : 1);
                 seen.Add(value);
             },
-            NullLogger<AsyncKeyedEventQueue<string, int>>.Instance);
+            NullLogger<AsyncEventDispatcher<int>>.Instance);
 
-        await queue.EnqueueAsync("task-1", 1);
-        await queue.EnqueueAsync("task-1", 2);
-        await queue.DrainAsync("task-1");
+        await dispatcher.EnqueueAsync(1);
+        await dispatcher.EnqueueAsync(2);
+        await dispatcher.DrainAsync();
 
         seen.Should().Equal(1, 2);
     }
 
     [Fact]
-    public async Task EnqueueAsync_DifferentKeys_CanRunConcurrently()
-    {
-        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondCompleted = false;
-        await using var queue = new AsyncKeyedEventQueue<string, int>(
-            async (key, _, token) =>
-            {
-                if (key == "a")
-                {
-                    firstStarted.SetResult();
-                    await release.Task.WaitAsync(token);
-                    return;
-                }
-
-                secondCompleted = true;
-            },
-            NullLogger<AsyncKeyedEventQueue<string, int>>.Instance);
-
-        await queue.EnqueueAsync("a", 1);
-        await firstStarted.Task;
-        await queue.EnqueueAsync("b", 2);
-        await queue.DrainAsync("b");
-        release.SetResult();
-        await queue.DrainAsync("a");
-
-        secondCompleted.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task EnqueueLatestAsync_SameKey_ProcessesLastPendingValue()
+    public async Task EnqueueLatestAsync_WhenKeyMatches_ProcessesOnlyLatestPendingValue()
     {
         var seen = new List<int>();
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var queue = new AsyncKeyedEventQueue<string, int>(
-            async (_, value, token) =>
+        await using var dispatcher = new AsyncEventDispatcher<int>(
+            async (value, token) =>
             {
                 seen.Add(value);
                 if (value == 1)
@@ -700,23 +752,47 @@ public sealed class AsyncKeyedEventQueueTests
                     await releaseFirst.Task.WaitAsync(token);
                 }
             },
-            NullLogger<AsyncKeyedEventQueue<string, int>>.Instance);
+            NullLogger<AsyncEventDispatcher<int>>.Instance,
+            keySelector: value => "task-1");
 
-        await queue.EnqueueAsync("task-1", 1);
-        await queue.EnqueueLatestAsync("task-1", 2);
-        await queue.EnqueueLatestAsync("task-1", 3);
+        await dispatcher.EnqueueAsync(1);
+        await dispatcher.EnqueueLatestAsync(2);
+        await dispatcher.EnqueueLatestAsync(3);
         releaseFirst.SetResult();
-        await queue.DrainAsync("task-1");
+        await dispatcher.DrainAsync();
 
         seen.Should().Equal(1, 3);
     }
 
     [Fact]
-    public async Task EnqueueAsync_HandlerThrows_DoesNotStopLaterEvents()
+    public async Task DrainAsync_WaitsForQueuedAndCoalescedEvents()
+    {
+        var seen = new List<string>();
+        await using var dispatcher = new AsyncEventDispatcher<string>(
+            async (value, _) =>
+            {
+                await Task.Delay(10);
+                seen.Add(value);
+            },
+            NullLogger<AsyncEventDispatcher<string>>.Instance,
+            keySelector: value => value.Split(':')[0]);
+
+        await dispatcher.EnqueueAsync("a:1");
+        await dispatcher.EnqueueLatestAsync("b:1");
+        await dispatcher.EnqueueLatestAsync("b:2");
+        await dispatcher.DrainAsync();
+
+        seen.Should().Contain("a:1");
+        seen.Should().Contain("b:2");
+        seen.Should().NotContain("b:1");
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenHandlerThrows_DoesNotStopLaterEvents()
     {
         var seen = new List<int>();
-        await using var queue = new AsyncKeyedEventQueue<string, int>(
-            (_, value, _) =>
+        await using var dispatcher = new AsyncEventDispatcher<int>(
+            (value, _) =>
             {
                 if (value == 1)
                 {
@@ -726,78 +802,87 @@ public sealed class AsyncKeyedEventQueueTests
                 seen.Add(value);
                 return Task.CompletedTask;
             },
-            NullLogger<AsyncKeyedEventQueue<string, int>>.Instance);
+            NullLogger<AsyncEventDispatcher<int>>.Instance);
 
-        await queue.EnqueueAsync("task-1", 1);
-        await queue.EnqueueAsync("task-1", 2);
-        await queue.DrainAsync("task-1");
+        await dispatcher.EnqueueAsync(1);
+        await dispatcher.EnqueueAsync(2);
+        await dispatcher.DrainAsync();
 
         seen.Should().Equal(2);
     }
 }
 ```
 
-- [ ] **Step 2: Run failing keyed queue tests**
+- [ ] **Step 2: Run the failing dispatcher tests**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~AsyncKeyedEventQueueTests
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~AsyncEventDispatcherTests
 ```
 
-Expected: FAIL because `AsyncKeyedEventQueue` does not exist.
+Expected: FAIL because `AsyncEventDispatcher<T>` does not exist.
 
-- [ ] **Step 3: Implement keyed event queue**
+- [ ] **Step 3: Implement Channel-based dispatcher**
 
-Create `src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs`:
+Create `src/LightRAGNet/Services/Utilities/AsyncEventDispatcher.cs`:
 
 ```csharp
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
 namespace LightRAGNet.Services.Utilities;
 
-public sealed class AsyncKeyedEventQueue<TKey, TValue> : IAsyncDisposable
-    where TKey : notnull
+public sealed class AsyncEventDispatcher<T> : IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<TKey, KeyState> _states = new();
-    private readonly Func<TKey, TValue, CancellationToken, Task> _handler;
-    private readonly ILogger<AsyncKeyedEventQueue<TKey, TValue>> _logger;
+    private readonly Channel<DispatchItem> _channel;
+    private readonly Func<T, CancellationToken, Task> _handler;
+    private readonly ILogger _logger;
+    private readonly Func<T, string?>? _keySelector;
+    private readonly ConcurrentDictionary<string, long> _latestByKey = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _disposeCts;
-    private readonly object _disposeGate = new();
+    private readonly Task _readerTask;
+    private readonly object _drainGate = new();
+    private TaskCompletionSource _drainSignal = CompletedDrainSignal();
+    private long _nextSequence;
+    private long _pendingCount;
     private bool _disposed;
 
-    public AsyncKeyedEventQueue(
-        Func<TKey, TValue, CancellationToken, Task> handler,
-        ILogger<AsyncKeyedEventQueue<TKey, TValue>> logger,
+    public AsyncEventDispatcher(
+        Func<T, CancellationToken, Task> handler,
+        ILogger logger,
+        Func<T, string?>? keySelector = null,
         CancellationToken cancellationToken = default)
     {
         _handler = handler;
         _logger = logger;
+        _keySelector = keySelector;
         _disposeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    }
-
-    public Task EnqueueAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
-    {
-        return EnqueueCoreAsync(key, value, coalesceLatest: false, cancellationToken);
-    }
-
-    public Task EnqueueLatestAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
-    {
-        return EnqueueCoreAsync(key, value, coalesceLatest: true, cancellationToken);
-    }
-
-    public async Task DrainAsync(TKey key, CancellationToken cancellationToken = default)
-    {
-        if (!_states.TryGetValue(key, out var state))
+        _channel = Channel.CreateUnbounded<DispatchItem>(new UnboundedChannelOptions
         {
-            return;
-        }
+            SingleReader = true,
+            SingleWriter = false
+        });
+        _readerTask = Task.Run(ProcessAsync);
+    }
 
+    public Task EnqueueAsync(T value, CancellationToken cancellationToken = default)
+    {
+        return EnqueueCoreAsync(value, coalesceByKey: false, cancellationToken);
+    }
+
+    public Task EnqueueLatestAsync(T value, CancellationToken cancellationToken = default)
+    {
+        return EnqueueCoreAsync(value, coalesceByKey: true, cancellationToken);
+    }
+
+    public async Task DrainAsync(CancellationToken cancellationToken = default)
+    {
         Task drainTask;
-        lock (state.Gate)
+        lock (_drainGate)
         {
-            drainTask = state.DrainSignal.Task;
+            drainTask = _drainSignal.Task;
         }
 
         await drainTask.WaitAsync(cancellationToken);
@@ -805,177 +890,162 @@ public sealed class AsyncKeyedEventQueue<TKey, TValue> : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        List<Task> processors;
-        lock (_disposeGate)
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _disposeCts.Cancel();
-            processors = _states.Values
-                .Select(state =>
-                {
-                    lock (state.Gate)
-                    {
-                        return state.ProcessorTask;
-                    }
-                })
-                .Where(task => task is not null)
-                .Cast<Task>()
-                .ToList();
+            return;
         }
+
+        _disposed = true;
+        _channel.Writer.TryComplete();
+        _disposeCts.Cancel();
 
         try
         {
-            await Task.WhenAll(processors);
+            await _readerTask;
         }
         catch
         {
-            // Individual handler failures are logged by the processor.
+            // Handler failures are logged in the reader loop.
         }
         finally
         {
-            foreach (var state in _states.Values)
+            Interlocked.Exchange(ref _pendingCount, 0);
+            lock (_drainGate)
             {
-                lock (state.Gate)
-                {
-                    state.DrainSignal.TrySetResult();
-                }
+                _drainSignal.TrySetResult();
             }
-
             _disposeCts.Dispose();
         }
     }
 
-    private Task EnqueueCoreAsync(
-        TKey key,
-        TValue value,
-        bool coalesceLatest,
-        CancellationToken cancellationToken)
+    private Task EnqueueCoreAsync(T value, bool coalesceByKey, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-        lock (_disposeGate)
+        var sequence = Interlocked.Increment(ref _nextSequence);
+        string? key = null;
+        if (coalesceByKey)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            var state = _states.GetOrAdd(key, _ => new KeyState());
-            lock (state.Gate)
+            key = _keySelector?.Invoke(value);
+            if (!string.IsNullOrWhiteSpace(key))
             {
-                if (coalesceLatest)
-                {
-                    state.LatestValue = value;
-                    state.HasLatestValue = true;
-                }
-                else
-                {
-                    state.Queue.Enqueue(value);
-                }
-
-                if (state.DrainSignal.Task.IsCompleted)
-                {
-                    state.DrainSignal = CreateDrainSignal();
-                }
-
-                if (state.ProcessorTask is not { IsCompleted: false })
-                {
-                    state.ProcessorTask = Task.Run(() => ProcessKeyAsync(key, state));
-                }
+                _latestByKey[key] = sequence;
             }
+        }
+
+        MarkPending();
+        if (!_channel.Writer.TryWrite(new DispatchItem(value, key, sequence)))
+        {
+            MarkCompleted();
+            throw new ObjectDisposedException(nameof(AsyncEventDispatcher<T>));
         }
 
         return Task.CompletedTask;
     }
 
-    private async Task ProcessKeyAsync(TKey key, KeyState state)
+    private async Task ProcessAsync()
     {
         var token = _disposeCts.Token;
-
-        while (true)
+        await foreach (var item in _channel.Reader.ReadAllAsync(token))
         {
-            TValue value;
-
-            lock (state.Gate)
-            {
-                if (state.Queue.Count > 0)
-                {
-                    value = state.Queue.Dequeue();
-                }
-                else if (state.HasLatestValue)
-                {
-                    value = state.LatestValue!;
-                    state.LatestValue = default;
-                    state.HasLatestValue = false;
-                }
-                else
-                {
-                    state.ProcessorTask = null;
-                    state.DrainSignal.TrySetResult();
-                    return;
-                }
-            }
-
             try
             {
-                await _handler(key, value, token);
+                if (ShouldSkipCoalescedItem(item))
+                {
+                    continue;
+                }
+
+                await _handler(item.Value, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                lock (state.Gate)
-                {
-                    state.Queue.Clear();
-                    state.LatestValue = default;
-                    state.HasLatestValue = false;
-                    state.ProcessorTask = null;
-                    state.DrainSignal.TrySetResult();
-                }
-
                 return;
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Async keyed event handler failed for key {Key} and value {Value}",
-                    key,
-                    value);
+                _logger.LogError(ex, "Async event dispatcher handler failed for value {Value}", item.Value);
+            }
+            finally
+            {
+                MarkCompleted();
             }
         }
     }
 
-    private static TaskCompletionSource CreateDrainSignal()
+    private bool ShouldSkipCoalescedItem(DispatchItem item)
     {
-        return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (string.IsNullOrWhiteSpace(item.Key))
+        {
+            return false;
+        }
+
+        if (!_latestByKey.TryGetValue(item.Key, out var latestSequence))
+        {
+            return false;
+        }
+
+        if (latestSequence != item.Sequence)
+        {
+            return true;
+        }
+
+        _latestByKey.TryRemove(item.Key, out _);
+        return false;
     }
 
-    private sealed class KeyState
+    private void MarkPending()
     {
-        public object Gate { get; } = new();
-        public Queue<TValue> Queue { get; } = new();
-        public TValue? LatestValue { get; set; }
-        public bool HasLatestValue { get; set; }
-        public Task? ProcessorTask { get; set; }
-        public TaskCompletionSource DrainSignal { get; set; } = CompletedDrainSignal();
-
-        private static TaskCompletionSource CompletedDrainSignal()
+        if (Interlocked.Increment(ref _pendingCount) == 1)
         {
-            var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            signal.SetResult();
-            return signal;
+            lock (_drainGate)
+            {
+                if (_drainSignal.Task.IsCompleted)
+                {
+                    _drainSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                }
+            }
         }
     }
+
+    private void MarkCompleted()
+    {
+        if (Interlocked.Decrement(ref _pendingCount) == 0)
+        {
+            CompleteDrainIfEmpty();
+        }
+    }
+
+    private void CompleteDrainIfEmpty()
+    {
+        if (Interlocked.Read(ref _pendingCount) != 0)
+        {
+            return;
+        }
+
+        lock (_drainGate)
+        {
+            _drainSignal.TrySetResult();
+        }
+    }
+
+    private static TaskCompletionSource CompletedDrainSignal()
+    {
+        var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        signal.SetResult();
+        return signal;
+    }
+
+    private sealed record DispatchItem(T Value, string? Key, long Sequence);
 }
 ```
 
-- [ ] **Step 4: Run keyed queue tests**
+- [ ] **Step 4: Run dispatcher tests**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~AsyncKeyedEventQueueTests
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~AsyncEventDispatcherTests
 ```
 
 Expected: PASS.
@@ -983,10 +1053,9 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src/LightRAGNet/Services/Utilities/AsyncKeyedEventQueue.cs tests/LightRAGNet.Tests/Utilities/AsyncKeyedEventQueueTests.cs
-git commit -m "feat: add keyed async event queue"
+git add src/LightRAGNet/Services/Utilities/AsyncEventDispatcher.cs tests/LightRAGNet.Tests/Utilities/AsyncEventDispatcherTests.cs
+git commit -m "feat: add async event dispatcher"
 ```
-
 ## Task 4: Serialize Task Progress Updates
 
 **Files:**
@@ -1107,14 +1176,14 @@ using LightRAGNet.Services.Utilities;
 Inside `ProcessTaskAsync`, before subscribing to `TaskStateChanged`, create:
 
 ```csharp
-await using var progressQueue = new AsyncKeyedEventQueue<string, TaskState>(
-    async (taskId, state, token) =>
+await using var progressQueue = new AsyncEventDispatcher<TaskState>(
+    async (state, token) =>
     {
         if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled)
         {
             logger.LogDebug(
                 "Discarding late progress update for terminal task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",
-                taskId,
+                task.TaskId,
                 state.Stage,
                 state.Current,
                 state.Total);
@@ -1126,31 +1195,74 @@ await using var progressQueue = new AsyncKeyedEventQueue<string, TaskState>(
             : (int?)null;
 
         await taskQueue.UpdateTaskProgressAsync(
-            taskId,
+            task.TaskId,
             state.Stage,
             progress,
             token);
     },
-    logger);
+    logger,
+    keySelector: _ => task.TaskId);
 ```
 
 Replace both `_ = taskQueue.UpdateTaskProgressAsync(...)` branches in the event handler with:
 
 ```csharp
-_ = progressQueue.EnqueueLatestAsync(task.TaskId, state, CancellationToken.None);
+try
+{
+    _ = progressQueue.EnqueueLatestAsync(state, CancellationToken.None);
+}
+catch (Exception ex)
+{
+    logger.LogWarning(
+        ex,
+        "Failed to enqueue progress update for task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",
+        task.TaskId,
+        state.Stage,
+        state.Current,
+        state.Total);
+}
 ```
 
-Before every terminal `UpdateTaskStatusAsync` call for `Completed`, `Failed`, or service-shutdown reset, add:
+For successful insert/delete completion, drain before mutating the task into a terminal status:
 
 ```csharp
-await progressQueue.DrainAsync(task.TaskId, CancellationToken.None);
+await progressQueue.DrainAsync(CancellationToken.None);
+task.Status = RagTaskStatus.Completed;
+task.CompletedAt = DateTime.UtcNow;
+task.CurrentStage = TaskStage.Completed;
+await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Completed, cancellationToken: taskCancellationToken);
+```
+
+For failure, drain before marking `Failed` so progress already emitted by the pipeline is not discarded as late terminal progress:
+
+```csharp
+await progressQueue.DrainAsync(CancellationToken.None);
+task.Status = RagTaskStatus.Failed;
+task.ErrorMessage = ex.Message;
+task.CompletedAt = DateTime.UtcNow;
+await taskQueue.UpdateTaskStatusAsync(
+    task.TaskId,
+    RagTaskStatus.Failed,
+    ex.Message,
+    taskCancellationToken);
+```
+
+For service-shutdown reset, also drain before setting the queue-visible status back to `Pending`:
+
+```csharp
+await progressQueue.DrainAsync(CancellationToken.None);
+await taskQueue.UpdateTaskStatusAsync(
+    task.TaskId,
+    RagTaskStatus.Pending,
+    null,
+    CancellationToken.None);
 ```
 
 In `finally`, keep event unsubscribe before disposal:
 
 ```csharp
 lightRAG.TaskStateChanged -= progressHandler;
-await progressQueue.DrainAsync(task.TaskId, CancellationToken.None);
+await progressQueue.DrainAsync(CancellationToken.None);
 cancellationRegistry.CompleteProcessingTask(task.TaskId);
 ```
 
@@ -1199,7 +1311,7 @@ public sealed class RagTaskNotificationServiceSourceTests
             "RagTaskNotificationService.cs"));
 
         source.Should().NotContain("_ = NotifyTaskStatusHandlersAsync(update);");
-        source.Should().Contain("EnqueueLatestAsync(update.TaskId");
+        source.Should().Contain("EnqueueLatestAsync(update");
     }
 
     [Fact]
@@ -1214,6 +1326,7 @@ public sealed class RagTaskNotificationServiceSourceTests
 
         source.Should().NotContain("_ = NotifyDataClearedHandlersAsync();");
         source.Should().Contain("EnqueueAsync(NotificationDispatchKey.DataCleared");
+        source.Should().Contain("DrainAsync(token)");
     }
 
     private static string FindRepositoryRoot()
@@ -1254,20 +1367,31 @@ Add using:
 using LightRAGNet.Services.Utilities;
 ```
 
+Change the class declaration so DI can dispose the dispatchers and SignalR connection:
+
+```csharp
+public class RagTaskNotificationService(
+    ILogger<RagTaskNotificationService> logger,
+    IConfiguration configuration)
+    : IAsyncDisposable
+```
+
 Add fields:
 
 ```csharp
-private readonly AsyncKeyedEventQueue<string, TaskStatusUpdate> _taskStatusDispatchQueue =
+private readonly AsyncEventDispatcher<TaskStatusUpdate> _taskStatusDispatchQueue =
     new(
-        async (_, update, token) => await NotifyTaskStatusHandlersAsync(update, token),
-        logger);
+        async (update, token) => await NotifyTaskStatusHandlersAsync(update, token),
+        logger,
+        keySelector: update => update.TaskId);
 
-private readonly AsyncKeyedEventQueue<NotificationDispatchKey, EventArgs> _systemDispatchQueue =
+private readonly AsyncEventDispatcher<NotificationDispatchKey> _systemDispatchQueue =
     new(
-        async (key, _, token) =>
+        async (key, token) =>
         {
             if (key == NotificationDispatchKey.DataCleared)
             {
+                await _taskStatusDispatchQueue.DrainAsync(token);
                 await NotifyDataClearedHandlersAsync(token);
             }
         },
@@ -1284,13 +1408,13 @@ private enum NotificationDispatchKey
 Replace the task status callback body with:
 
 ```csharp
-_ = _taskStatusDispatchQueue.EnqueueLatestAsync(update.TaskId, update);
+_ = _taskStatusDispatchQueue.EnqueueLatestAsync(update);
 ```
 
 Replace the data cleared callback body with:
 
 ```csharp
-_ = _systemDispatchQueue.EnqueueAsync(NotificationDispatchKey.DataCleared, EventArgs.Empty);
+_ = _systemDispatchQueue.EnqueueAsync(NotificationDispatchKey.DataCleared);
 ```
 
 Change handler methods to accept cancellation tokens:
@@ -1323,6 +1447,22 @@ private async Task NotifyTaskStatusHandlersAsync(TaskStatusUpdate update, Cancel
 ```
 
 Apply the same sequential pattern to `NotifyDataClearedHandlersAsync`.
+
+Add service disposal:
+
+```csharp
+public async ValueTask DisposeAsync()
+{
+    if (_hubConnection is not null)
+    {
+        await _hubConnection.DisposeAsync();
+    }
+
+    await _systemDispatchQueue.DisposeAsync();
+    await _taskStatusDispatchQueue.DisposeAsync();
+    _initLock.Dispose();
+}
+```
 
 - [ ] **Step 5: Run notification and build checks**
 
@@ -1659,7 +1799,198 @@ git add src/LightRAGNet/Services/Utilities/AsyncOperationSlot.cs src/LightRAGNet
 git commit -m "fix: centralize page operation cancellation"
 ```
 
-## Task 7: Guard LightRAG State Processor Startup
+## Task 7: Per-Key Async Lock Foundation
+
+**Files:**
+- Create: `src/LightRAGNet/Services/Utilities/PerKeyAsyncLock.cs`
+- Test: `tests/LightRAGNet.Tests/Utilities/PerKeyAsyncLockTests.cs`
+
+- [ ] **Step 1: Write failing keyed lock tests**
+
+Create `tests/LightRAGNet.Tests/Utilities/PerKeyAsyncLockTests.cs`:
+
+```csharp
+using FluentAssertions;
+using LightRAGNet.Services.Utilities;
+
+namespace LightRAGNet.Tests.Utilities;
+
+public sealed class PerKeyAsyncLockTests
+{
+    [Fact]
+    public async Task LockAsync_SameKey_SerializesWork()
+    {
+        var locker = new PerKeyAsyncLock<string>();
+        var inside = 0;
+        var maxInside = 0;
+
+        var workers = Enumerable.Range(0, 20).Select(async _ =>
+        {
+            await using var lease = await locker.LockAsync("doc-1");
+            var current = Interlocked.Increment(ref inside);
+            maxInside = Math.Max(maxInside, current);
+            await Task.Delay(5);
+            Interlocked.Decrement(ref inside);
+        });
+
+        await Task.WhenAll(workers);
+
+        maxInside.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task LockAsync_DifferentKeys_CanRunInParallel()
+    {
+        var locker = new PerKeyAsyncLock<string>();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = false;
+
+        var first = Task.Run(async () =>
+        {
+            await using var lease = await locker.LockAsync("doc-a");
+            firstEntered.SetResult();
+            await releaseFirst.Task;
+        });
+
+        await firstEntered.Task;
+        await using (await locker.LockAsync("doc-b"))
+        {
+            secondEntered = true;
+        }
+
+        releaseFirst.SetResult();
+        await first;
+        secondEntered.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task LockAsync_WhenWaitingCancellationRequested_Throws()
+    {
+        var locker = new PerKeyAsyncLock<string>();
+        await using var first = await locker.LockAsync("doc-1");
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var act = () => locker.LockAsync("doc-1", cts.Token).AsTask();
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+}
+```
+
+- [ ] **Step 2: Run failing keyed lock tests**
+
+Run:
+
+```powershell
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~PerKeyAsyncLockTests
+```
+
+Expected: FAIL because `PerKeyAsyncLock<TKey>` does not exist.
+
+- [ ] **Step 3: Implement PerKeyAsyncLock**
+
+Create `src/LightRAGNet/Services/Utilities/PerKeyAsyncLock.cs`:
+
+```csharp
+using System.Collections.Concurrent;
+
+namespace LightRAGNet.Services.Utilities;
+
+public sealed class PerKeyAsyncLock<TKey>
+    where TKey : notnull
+{
+    private readonly ConcurrentDictionary<TKey, RefCountedSemaphore> _locks = new();
+
+    public async ValueTask<Lease> LockAsync(TKey key, CancellationToken cancellationToken = default)
+    {
+        var entry = _locks.AddOrUpdate(
+            key,
+            _ => new RefCountedSemaphore(),
+            (_, existing) =>
+            {
+                existing.AddRef();
+                return existing;
+            });
+
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken);
+            return new Lease(this, key, entry);
+        }
+        catch
+        {
+            ReleaseRef(key, entry);
+            throw;
+        }
+    }
+
+    private void Release(TKey key, RefCountedSemaphore entry)
+    {
+        entry.Semaphore.Release();
+        ReleaseRef(key, entry);
+    }
+
+    private void ReleaseRef(TKey key, RefCountedSemaphore entry)
+    {
+        if (entry.ReleaseRef() == 0)
+        {
+            if (_locks.TryGetValue(key, out var current) && ReferenceEquals(current, entry))
+            {
+                _locks.TryRemove(key, out _);
+                entry.Semaphore.Dispose();
+            }
+        }
+    }
+
+    private sealed class RefCountedSemaphore
+    {
+        private int _refCount = 1;
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+        public void AddRef() => Interlocked.Increment(ref _refCount);
+        public int ReleaseRef() => Interlocked.Decrement(ref _refCount);
+    }
+
+    public readonly struct Lease : IAsyncDisposable
+    {
+        private readonly PerKeyAsyncLock<TKey> _owner;
+        private readonly TKey _key;
+        private readonly RefCountedSemaphore _entry;
+
+        internal Lease(PerKeyAsyncLock<TKey> owner, TKey key, RefCountedSemaphore entry)
+        {
+            _owner = owner;
+            _key = key;
+            _entry = entry;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _owner.Release(_key, _entry);
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Run keyed lock tests**
+
+Run:
+
+```powershell
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter FullyQualifiedName~PerKeyAsyncLockTests
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add src/LightRAGNet/Services/Utilities/PerKeyAsyncLock.cs tests/LightRAGNet.Tests/Utilities/PerKeyAsyncLockTests.cs
+git commit -m "feat: add per-key async lock"
+```
+## Task 8: Guard LightRAG State Processor Dispatch
 
 **Files:**
 - Modify: `src/LightRAGNet/LightRAG.cs`
@@ -1699,6 +2030,36 @@ public sealed class LightRAGStateProcessorTests
         {
             states.Should().Contain(state => state.DocId == "doc-a" && state.Stage == TaskStage.Completed);
             states.Should().Contain(state => state.DocId == "doc-b" && state.Stage == TaskStage.Completed);
+        }
+    }
+
+    [Fact]
+    public async Task TaskStateChanged_WhenOneSubscriberThrows_StillNotifiesOtherSubscribers()
+    {
+        var rag = CreateLightRagForStateProcessorTest(progressChunkCount: 2);
+        var delivered = new List<TaskStage>();
+        var gate = new object();
+        var throwOnce = 0;
+        rag.TaskStateChanged += (_, _) =>
+        {
+            if (Interlocked.Exchange(ref throwOnce, 1) == 0)
+            {
+                throw new InvalidOperationException("subscriber failed");
+            }
+        };
+        rag.TaskStateChanged += (_, state) =>
+        {
+            lock (gate)
+            {
+                delivered.Add(state.Stage);
+            }
+        };
+
+        await rag.InsertAsync("alpha beta gamma", docId: "doc-a", filePath: "docs/a.md");
+
+        lock (gate)
+        {
+            delivered.Should().Contain(TaskStage.Completed);
         }
     }
 }
@@ -1749,11 +2110,41 @@ private async Task ProcessTaskStatesAsync()
         try
         {
             var state = await _taskStateBuffer.ReceiveAsync();
-            TaskStateChanged?.Invoke(this, state);
+            PublishTaskState(state);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error processing task state update");
+        }
+    }
+}
+
+private void PublishTaskState(TaskState state)
+{
+    var handlers = TaskStateChanged?.GetInvocationList()
+        .Cast<EventHandler<TaskState>>()
+        .ToArray();
+
+    if (handlers is null || handlers.Length == 0)
+    {
+        return;
+    }
+
+    foreach (var handler in handlers)
+    {
+        try
+        {
+            handler(this, state);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Task state subscriber failed: DocId={DocId}, Stage={Stage}, Current={Current}, Total={Total}",
+                state.DocId,
+                state.Stage,
+                state.Current,
+                state.Total);
         }
     }
 }
@@ -1782,7 +2173,7 @@ git add src/LightRAGNet/LightRAG.cs tests/LightRAGNet.Tests/DocumentLifecycle/Li
 git commit -m "fix: guard lightrag state processor startup"
 ```
 
-## Task 8: Final Verification And Archive
+## Task 9: Final Verification And Archive
 
 **Files:**
 - Create: `docs/superpowers/archives/2026-05/2026-05-19-concurrency-race-governance-archive.md`
@@ -1858,10 +2249,11 @@ Create `docs/superpowers/archives/2026-05/2026-05-19-concurrency-race-governance
 
 - Added `AtomicFileWriter` under Core and migrated task state / JSON KV persistence.
 - Added locked snapshot reads to `JsonKVStore`.
-- Added `AsyncKeyedEventQueue` and migrated task progress updates away from unmanaged fire-and-forget calls.
+- Added `AsyncEventDispatcher` and migrated task progress updates away from unmanaged fire-and-forget calls.
 - Serialized frontend task/data notifications.
 - Added `AsyncOperationSlot` and migrated `AsyncDebouncer` / `RagChat` cancellation ownership.
-- Guarded `LightRAG` state processor startup.
+- Added `PerKeyAsyncLock` for keyed task/document/workspace serialization.
+- Guarded `LightRAG` state processor startup and isolated subscriber failures.
 
 ## Verification Snapshot
 
@@ -1896,8 +2288,9 @@ Stage only paths that changed. If the completion gate reports `none` for problem
   - Task progress serialization is covered by Tasks 3 and 4.
   - UI notification serialization is covered by Task 5.
   - Page operation lifetime cleanup is covered by Task 6.
-  - LightRAG state pump startup boundary is covered by Task 7.
-  - Final verification and requirement archive are covered by Task 8.
+  - Keyed resource serialization is covered by Task 7.
+  - LightRAG state pump startup and subscriber isolation are covered by Task 8.
+  - Final verification and requirement archive are covered by Task 9.
 - Dependency boundary:
   - `AtomicFileWriter` is in Core so Storage can reuse it without a circular reference.
   - UI code depends on existing LightRAGNet service utilities, matching the current Web project dependency shape.
@@ -1905,3 +2298,7 @@ Stage only paths that changed. If the completion gate reports `none` for problem
   - Core helpers have direct unit tests.
   - Persistence and task processor changes have behavioral tests.
   - Blazor notification dispatch gets a source-level guard plus Web build because the existing test project does not host Blazor components.
+
+
+
+

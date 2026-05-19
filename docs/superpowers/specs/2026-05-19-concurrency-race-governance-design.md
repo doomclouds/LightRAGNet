@@ -2,7 +2,7 @@
 
 - Date: `2026-05-19`
 - Topic slug: `concurrency-race-governance`
-- Status: `Draft`
+- Status: `Approved for implementation`
 - Scope: `LightRAGNet`
 
 ## Problem
@@ -109,14 +109,13 @@ Target:
 - 目录 ACL 修复。
 - JSON schema 迁移。
 
-### AsyncKeyedEventQueue
+### AsyncEventDispatcher<T>
 
 职责：
 
-- 接收带 key 的异步事件。
-- 同一 key 内顺序处理。
-- 不同 key 可并行处理。
-- 支持最后值 coalesce，用于高频进度更新。
+- 用 `Channel<T>` 接收异步事件并串行消费。
+- 支持按 key coalesce，用于高频进度更新。
+- 支持显式 drain，让 terminal status 前可以等已入队事件处理完。
 - handler 异常集中记录。
 
 适用位置：
@@ -169,8 +168,8 @@ Target:
 
 ### Phase 2: Task Progress Serialization
 
-- 增加 `AsyncKeyedEventQueue`。
-- 在 `RagTaskProcessorService` 中把 fire-and-forget 进度更新改为 keyed queue。
+- 增加 `AsyncEventDispatcher<T>`。
+- 在 `RagTaskProcessorService` 中把 fire-and-forget 进度更新改为 `AsyncEventDispatcher<TaskState>`。
 - 对 completed/failed/cancelled task 增加迟到进度丢弃测试。
 - 验证高频 `MergingRelations` 进度不会重叠保存，也不会把完成状态改回处理中。
 
