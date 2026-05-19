@@ -6,6 +6,7 @@ using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.Query;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Storage;
@@ -165,6 +166,11 @@ public sealed class RagTaskProcessorServiceTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            new LightRagCacheKeyBuilder(),
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         return new LightRAG(
             llmService,
@@ -173,6 +179,7 @@ public sealed class RagTaskProcessorServiceTests
             knowledgeGraphMergeService,
             retrievalContextService,
             new NaiveQueryService(vectorStore, rerankService, tokenizer),
+            llmCacheService,
             tokenizer,
             textChunksStore,
             fullDocsStore,

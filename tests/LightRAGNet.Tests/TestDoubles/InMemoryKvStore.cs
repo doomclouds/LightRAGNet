@@ -11,6 +11,7 @@ public sealed class InMemoryKvStore : IKVStore
         pair => Clone(pair.Value),
         StringComparer.Ordinal);
     public List<IReadOnlyList<string>> DeleteCalls { get; } = [];
+    public List<string> GetByIdCalls { get; } = [];
     public List<Dictionary<string, Dictionary<string, object>>> UpsertCalls { get; } = [];
 
     public string? ThrowOnDeleteKey { get; set; }
@@ -27,6 +28,7 @@ public sealed class InMemoryKvStore : IKVStore
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        GetByIdCalls.Add(id);
         if (string.Equals(ThrowOnGetKey, id, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Get failed for key '{id}'.");
