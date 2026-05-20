@@ -3,6 +3,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Server.Services;
 using LightRAGNet.Share.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -24,39 +25,29 @@ public class RagQueryController(
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IResult> QueryAsync(
-        [FromBody] QueryRequest request,
+        [FromBody] RagQueryRequest? request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Query))
+        if (request is null || string.IsNullOrWhiteSpace(request.Query))
         {
             return Results.BadRequest(new { error = "Query cannot be empty" });
         }
 
         try
         {
-            var queryParam = new QueryParam
-            {
-                Stream = true, // Enable streaming
-                ConversationHistory = [] // No conversation history, only current query
-            };
+            var queryParam = RagQueryRequestMapper.ToQueryParam(request);
 
             var queryResult = await lightRAG.QueryAsync(
                 request.Query,
                 queryParam,
                 cancellationToken);
 
-            if (queryResult is { IsStreaming: true, ResponseIterator: not null })
-            {
-                var events = WrapChunksAsEventsAsync(queryResult.ResponseIterator, cancellationToken);
-                return new RagQuerySseResult(events, logger);
-            }
-            else
-            {
-                // Fallback to non-streaming response
-                var content = queryResult.Content ?? "";
-                var events = new[] { new TextChunkEvent { Chunk = content } }.ToAsyncEnumerable();
-                return new RagQuerySseResult(events, logger);
-            }
+            var events = WrapQueryResultAsEventsAsync(request, queryResult, cancellationToken);
+            return new RagQuerySseResult(events, logger);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -67,31 +58,29 @@ public class RagQueryController(
         }
     }
 
-    private static async IAsyncEnumerable<RagQueryEvent> WrapChunksAsEventsAsync(
-        IAsyncEnumerable<string> chunks,
+    private static async IAsyncEnumerable<RagQueryEvent> WrapQueryResultAsEventsAsync(
+        RagQueryRequest request,
+        QueryResult queryResult,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var chunk in chunks.WithCancellation(cancellationToken).ConfigureAwait(false))
+        if (queryResult is { IsStreaming: true, ResponseIterator: not null })
         {
-            if (!string.IsNullOrEmpty(chunk))
+            await foreach (var chunk in queryResult.ResponseIterator.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                yield return new TextChunkEvent { Chunk = chunk };
+                if (!string.IsNullOrEmpty(chunk))
+                {
+                    yield return new TextChunkEvent { Chunk = chunk };
+                }
             }
         }
-        
+        else if (!string.IsNullOrEmpty(queryResult.Content))
+        {
+            yield return new TextChunkEvent { Chunk = queryResult.Content };
+        }
+
+        yield return RagQueryRequestMapper.ToMetadataEvent(request, queryResult);
         yield return new DoneEvent();
     }
-}
-
-/// <summary>
-/// Query request model
-/// </summary>
-public class QueryRequest
-{
-    /// <summary>
-    /// User query text
-    /// </summary>
-    public string Query { get; set; } = string.Empty;
 }
 
 /// <summary>
