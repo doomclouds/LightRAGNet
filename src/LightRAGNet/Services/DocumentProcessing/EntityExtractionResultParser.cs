@@ -74,6 +74,6 @@ internal static partial class EntityExtractionResultParser
     [GeneratedRegex("<think>.*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex ThinkBlockRegex();
 
-    [GeneratedRegex("^\\s*</think>\\s*", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("^((?!<think>).)*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex OrphanThinkClosePrefixRegex();
 }

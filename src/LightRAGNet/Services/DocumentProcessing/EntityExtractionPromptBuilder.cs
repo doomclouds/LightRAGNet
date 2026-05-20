@@ -18,9 +18,16 @@ internal static class EntityExtractionPromptBuilder
         int maxEntities,
         int maxRelationships)
     {
+        var normalizedEntityTypes = entityTypes
+            .Select(entityType => entityType.Trim())
+            .Where(entityType => !string.IsNullOrWhiteSpace(entityType))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entityType => entityType, StringComparer.Ordinal)
+            .ToArray();
+
         return new EntityExtractionPrompt(
-            BuildUserPrompt(text, entityTypes, maxEntities, maxRelationships),
-            BuildSystemPrompt(entityTypes, maxEntities, maxRelationships));
+            BuildUserPrompt(text, normalizedEntityTypes, maxEntities, maxRelationships),
+            BuildSystemPrompt(normalizedEntityTypes, maxEntities, maxRelationships));
     }
 
     private static string BuildSystemPrompt(

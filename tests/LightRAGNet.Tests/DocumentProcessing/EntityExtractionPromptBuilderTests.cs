@@ -24,6 +24,27 @@ public sealed class EntityExtractionPromptBuilderTests
     }
 
     [Fact]
+    public void Build_CanonicalPrompt_IsStableForEntityTypesWithDifferentInputOrder()
+    {
+        var firstPrompt = EntityExtractionPromptBuilder.Build(
+            "alpha beta",
+            ["Concept", " Person ", "Concept"],
+            maxEntities: 5,
+            maxRelationships: 7);
+        var secondPrompt = EntityExtractionPromptBuilder.Build(
+            "alpha beta",
+            ["Person", "Concept"],
+            maxEntities: 5,
+            maxRelationships: 7);
+
+        firstPrompt.CanonicalPrompt.Should().Be(secondPrompt.CanonicalPrompt);
+        firstPrompt.SystemPrompt.Should().Contain("Concept, Person");
+        firstPrompt.UserPrompt.Should().Contain("\"Concept\"");
+        firstPrompt.UserPrompt.Should().Contain("\"Person\"");
+        firstPrompt.CanonicalPrompt.Should().NotContain(" Person ");
+    }
+
+    [Fact]
     public void CanonicalPrompt_JoinsUserThenSystemPrompt()
     {
         var prompt = new EntityExtractionPrompt("user prompt", "system prompt");

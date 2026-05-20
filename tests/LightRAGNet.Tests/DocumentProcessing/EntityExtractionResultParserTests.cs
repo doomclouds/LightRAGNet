@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentAssertions;
 using LightRAGNet.Services.DocumentProcessing;
 
@@ -47,6 +48,62 @@ public sealed class EntityExtractionResultParserTests
 
         result.Entities.Should().ContainSingle()
             .Which.Name.Should().Be("Alpha");
+    }
+
+    [Fact]
+    public void Parse_RemovesOrphanThinkClosePrefixBeforeParsing()
+    {
+        const string response = """
+                                partial hidden reasoning</think>entity<|#|>Alpha<|#|>Concept<|#|>Alpha description.
+                                <|COMPLETE|>
+                                """;
+
+        var result = EntityExtractionResultParser.Parse(response, maxEntities: 5, maxRelationships: 5);
+
+        result.Entities.Should().ContainSingle()
+            .Which.Name.Should().Be("Alpha");
+    }
+
+    [Fact]
+    public void Parse_DefaultsInvalidQuotedRelationshipWeights()
+    {
+        const string response = """
+                                relation<|#|>Alpha<|#|>Beta<|#|>related<|#|>Alpha relates to Beta.<|#|>'not-a-number'
+                                relation<|#|>Gamma<|#|>Delta<|#|>related<|#|>Gamma relates to Delta.<|#|>"not-a-number"
+                                <|COMPLETE|>
+                                """;
+
+        var result = EntityExtractionResultParser.Parse(response, maxEntities: 5, maxRelationships: 5);
+
+        result.Relationships.Should().HaveCount(2);
+        result.Relationships.Should().OnlyContain(relationship => relationship.Weight == 1.0f);
+    }
+
+    [Fact]
+    public void Parse_ParsesRelationshipWeightUsingInvariantCulture()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("fr-FR");
+            const string response = """
+                                    relation<|#|>Alpha<|#|>Beta<|#|>related<|#|>Alpha relates to Beta.<|#|>0.75
+                                    <|COMPLETE|>
+                                    """;
+
+            var result = EntityExtractionResultParser.Parse(response, maxEntities: 5, maxRelationships: 5);
+
+            result.Relationships.Should().ContainSingle()
+                .Which.Weight.Should().Be(0.75f);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]
