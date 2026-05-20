@@ -4,7 +4,7 @@
 - Topic slug: `chat-query-ui-adaptation`
 - Status: `Archived`
 - Scope: `UI`
-- Tags: `chat-ui`, `rag-query`, `sse`, `query-mode`, `references`, `error-handling`
+- Tags: `chat-ui`, `rag-query`, `sse`, `query-mode`, `references`, `error-handling`, `json-unicode`
 
 ## Summary
 
@@ -17,6 +17,8 @@
 - Reworked `ApiClient.QueryRagAsync` to send the full request, preserve streaming `ResponseHeadersRead`, surface `ErrorEvent` as `RagQueryException`, expose metadata callbacks, and stop swallowing broad exceptions.
 - Added `ChatMessageModel` metadata fields, `ChatQuerySettingsModel`, and RagChat controls for mode, output type, references, RAG parameters, keywords, and mutually exclusive debug output.
 - Added `LightRAGNet.Web.Tests` with behavior coverage for ApiClient streaming, cancellation, request body shape, chat query settings, metadata application, and chat source guards.
+- Follow-up user validation fixed diagnostics JSON readability for Chinese metadata: complex diagnostic objects now serialize with relaxed JSON escaping so values such as `采集流程` and `100字` render directly instead of `\uXXXX` sequences.
+- Follow-up JSON audit added shared `LightRAGJsonOptions` and migrated human-readable JSON surfaces: `JsonKVStore`, `RagTaskStateStore`, query SSE events, API/SignalR JSON options, Naive context JSON lines, LLM keyword-cache payloads, Sigma graph JS payloads, and DeepSeek prompt JSON snippets now preserve Chinese text directly.
 
 ## Out of Scope
 
@@ -28,6 +30,8 @@
 
 - `dotnet build .\LightRAGNet.slnx --no-restore --verbosity minimal`: passed with `0` warnings and `0` errors.
 - `dotnet test .\LightRAGNet.slnx --no-restore --no-build --verbosity minimal`: passed with `LightRAGNet.Tests` 255/255, `LightRAGNet.Web.Tests` 17/17, and `LightRAGNet.Server.Tests` 29/29.
+- Follow-up diagnostics JSON fix: `RagQueryRequestMapperTests.ToMetadataEvent_PrefersRuntimeKeywordsAndFormatsComplexDiagnostics` first reproduced escaped Chinese output, then passed after `DiagnosticJsonOptions` was added; `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal` passed 29/29, and `dotnet test .\LightRAGNet.slnx --no-restore --no-build --verbosity minimal` passed 309/309.
+- Broad JSON readability follow-up added regression coverage for raw Chinese serialization in shared JSON options, KV persistence, task-state persistence, Naive context JSON lines, LLM keyword-cache payloads, server SSE/API/SignalR source guards, Sigma graph source guards, and DeepSeek prompt JSON source guards. `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal` passed with `LightRAGNet.Tests` 270/270, `LightRAGNet.Web.Tests` 18/18, and `LightRAGNet.Server.Tests` 31/31; `dotnet build .\LightRAGNet.slnx --no-restore --verbosity minimal` passed with 0 warnings and 0 errors.
 - Final review confirmed the empty successful response path is closed: assistant messages now track `IsComplete`, stop showing the spinner after completion, and display `No content returned.` for successful empty results.
 - Task-level reviews covered shared contracts, server mapping, Web streaming behavior, chat message model, UI state semantics, and final release blockers.
 

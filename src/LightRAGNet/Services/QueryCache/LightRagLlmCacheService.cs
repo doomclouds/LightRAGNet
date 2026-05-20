@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,7 @@ public sealed class LightRagLlmCacheService(
     LightRagCacheKeyBuilder keyBuilder,
     ILogger<LightRagLlmCacheService> logger)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new();
+    private static readonly JsonSerializerOptions SerializerOptions = LightRAGJsonOptions.HumanReadable;
 
     public async Task<KeywordsResult?> TryGetKeywordsAsync(
         string workspace,

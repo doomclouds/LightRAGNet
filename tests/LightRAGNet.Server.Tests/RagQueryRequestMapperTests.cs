@@ -115,7 +115,12 @@ public sealed class RagQueryRequestMapperTests
                     ["diagnostic_tags"] = new[] { "cache", "rag" },
                     ["processing_info"] = new Dictionary<string, object>
                     {
-                        ["chunks"] = 2
+                        ["chunks"] = 2,
+                        ["keywords"] = new Dictionary<string, object>
+                        {
+                            ["high_level"] = new[] { "采集流程", "简述" },
+                            ["low_level"] = new[] { "100字" }
+                        }
                     }
                 }
             }
@@ -129,5 +134,8 @@ public sealed class RagQueryRequestMapperTests
         metadata.Diagnostics["diagnostic_tags"].Should().Contain("rag");
         metadata.Diagnostics["diagnostic_tags"].Should().NotBe("System.String[]");
         metadata.Diagnostics["processing_info"].Should().Contain("\"chunks\":2");
+        metadata.Diagnostics["processing_info"].Should().Contain("采集流程");
+        metadata.Diagnostics["processing_info"].Should().Contain("100字");
+        metadata.Diagnostics["processing_info"].Should().NotContain("\\u91C7");
     }
 }

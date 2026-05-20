@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LightRAGNet.Core.IO;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Core.Utils;
 using Microsoft.Extensions.Logging;
 
 namespace LightRAGNet.Storage;
@@ -200,10 +201,7 @@ public class JsonKVStore : IKVStore
     {
         try
         {
-            var json = JsonSerializer.Serialize(_data, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(_data, LightRAGJsonOptions.HumanReadableIndented);
             
             await AtomicFileWriter.WriteAllTextAsync(
                 _filePath,

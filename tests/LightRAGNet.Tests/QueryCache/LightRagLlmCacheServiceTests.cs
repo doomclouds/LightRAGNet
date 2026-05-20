@@ -56,6 +56,30 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
+    public async Task SaveKeywordsAsync_PersistsChinesePayloadWithoutUnicodeEscapes()
+    {
+        var store = new InMemoryKvStore();
+        var service = CreateService(store);
+
+        await service.SaveKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            "请用100字简述采集流程",
+            new KeywordsResult
+            {
+                HighLevelKeywords = ["采集流程", "简述"],
+                LowLevelKeywords = ["100字"]
+            });
+
+        store.Items.Should().ContainSingle();
+        var entry = store.Items.Values.Single();
+        var payload = entry["return"].Should().BeOfType<string>().Subject;
+        payload.Should().Contain("采集流程");
+        payload.Should().Contain("100字");
+        payload.Should().NotContain("\\u91C7");
+    }
+
+    [Fact]
     public async Task SaveAndGetQueryResponseAsync_RoundTripsResponse()
     {
         var store = new InMemoryKvStore();

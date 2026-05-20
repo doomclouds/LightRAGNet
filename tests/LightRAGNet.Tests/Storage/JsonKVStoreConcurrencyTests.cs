@@ -272,6 +272,31 @@ public sealed class JsonKVStoreConcurrencyTests
     }
 
     [Fact]
+    public async Task IndexDoneCallbackAsync_PersistsChineseTextWithoutUnicodeEscapes()
+    {
+        using var tempDirectory = new TempDirectory();
+        var filePath = tempDirectory.GetPath("store.json");
+        var store = CreateStore(filePath);
+        await store.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+        {
+            ["item-1"] = new(StringComparer.Ordinal)
+            {
+                ["name"] = "线性修正业务说明.md",
+                ["keywords"] = new List<string> { "采集流程", "100字" }
+            }
+        });
+
+        await store.IndexDoneCallbackAsync();
+
+        var json = await File.ReadAllTextAsync(filePath);
+        json.Should().Contain("线性修正业务说明.md");
+        json.Should().Contain("采集流程");
+        json.Should().Contain("100字");
+        json.Should().NotContain("\\u7EBF");
+        json.Should().NotContain("\\u91C7");
+    }
+
+    [Fact]
     public async Task IndexDoneCallbackAsync_WhenPersistenceFails_ThrowsToCaller()
     {
         using var tempDirectory = new TempDirectory();

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Share.Models;
 
 namespace LightRAGNet.Server.Services;
@@ -131,7 +132,7 @@ public static class RagQueryRequestMapper
                 string.Join(", ", objects.Select(item => Convert.ToString(item, CultureInfo.InvariantCulture))),
             bool or byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal or DateTime or DateTimeOffset =>
                 Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
-            _ => JsonSerializer.Serialize(value)
+            _ => JsonSerializer.Serialize(value, LightRAGJsonOptions.HumanReadable)
         };
     }
 
@@ -151,7 +152,7 @@ public static class RagQueryRequestMapper
             }
         }
 
-        return element.GetRawText();
+        return JsonSerializer.Serialize(element, LightRAGJsonOptions.HumanReadable);
     }
 
     private static bool IsSimpleDiagnosticValue(object? value)

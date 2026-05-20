@@ -21,6 +21,24 @@ public sealed class RagQueryControllerSourceTests
         broadCatchIndex.Should().BeGreaterThan(cancellationCatchIndex);
     }
 
+    [Fact]
+    public void SerializeEvent_UsesHumanReadableJsonOptions()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Server", "Controllers", "RagQueryController.cs");
+
+        source.Should().Contain("LightRAGJsonOptions.HumanReadable");
+        source.Should().Contain("JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadable)");
+    }
+
+    [Fact]
+    public void Program_UsesHumanReadableJsonOptionsForApiAndSignalR()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Server", "Program.cs");
+
+        source.Should().Contain("options.JsonSerializerOptions.Encoder = LightRAGJsonOptions.HumanReadable.Encoder");
+        source.Should().Contain("options.PayloadSerializerOptions.Encoder = LightRAGJsonOptions.HumanReadable.Encoder");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();

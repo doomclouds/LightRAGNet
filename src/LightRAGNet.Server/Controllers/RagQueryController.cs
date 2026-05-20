@@ -3,6 +3,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Share.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -184,7 +185,7 @@ public sealed class RagQuerySseResult : IResult, IDisposable
         {
             _jsonWriter.Reset(writer);
         }
-        JsonSerializer.Serialize(_jsonWriter, item.Data);
+        JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadable);
     }
 
     public void Dispose()

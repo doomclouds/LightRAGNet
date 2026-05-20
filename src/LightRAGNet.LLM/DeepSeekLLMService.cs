@@ -256,7 +256,7 @@ public class DeepSeekLLMService : ILLMService
 
     private string BuildEntityExtractionUserPrompt(string text, List<string> entityTypes, int maxEntities, int maxRelationships)
     {
-        var entityTypesJson = JsonSerializer.Serialize(entityTypes);
+        var entityTypesJson = JsonSerializer.Serialize(entityTypes, LightRAGJsonOptions.HumanReadable);
         return $"""
                 ---Task---
                 Extract entities and relationships from the input text in Data to be Processed below.
@@ -412,7 +412,7 @@ public class DeepSeekLLMService : ILLMService
         int summaryLengthRecommended)
     {
         var descriptionsJson = string.Join("\n",
-            descriptionList.Select(d => JsonSerializer.Serialize(new { Description = d })));
+            descriptionList.Select(d => JsonSerializer.Serialize(new { Description = d }, LightRAGJsonOptions.HumanReadable)));
 
         return $"""
                 ---Role---

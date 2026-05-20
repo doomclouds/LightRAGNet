@@ -106,6 +106,34 @@ public sealed class NaiveQueryServiceTests
     }
 
     [Fact]
+    public async Task BuildContextAsync_SerializesChineseChunkContextWithoutUnicodeEscapes()
+    {
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Content = "请用100字简述采集流程",
+            Metadata = new Dictionary<string, object> { ["file_path"] = "docs/线性修正业务说明.md" }
+        });
+        var service = CreateService(vectorStore);
+
+        var result = await service.BuildContextAsync(
+            "采集流程",
+            new QueryParam
+            {
+                Mode = QueryMode.Naive,
+                EnableRerank = false
+            },
+            CancellationToken.None);
+
+        result.Should().NotBeNull();
+        result!.Context.Should().Contain("请用100字简述采集流程");
+        result.Context.Should().Contain("[1] docs/线性修正业务说明.md");
+        result.Context.Should().NotContain("\\u8BF7");
+        result.Context.Should().NotContain("\\u91C7");
+    }
+
+    [Fact]
     public async Task BuildContextAsync_WhenNoChunks_ReturnsNull()
     {
         var service = CreateService(new InMemoryVectorStore());

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
@@ -49,6 +50,56 @@ public sealed class DocumentDeletionServiceTests
         fixture.VectorStore.DeleteCalls.Should().Contain(call => call.Collection == "relationships" && call.Ids.Contains("ALPHA<SEP>BETA"));
         fixture.EntityChunks.Items.Should().NotContainKey("ALPHA");
         fixture.RelationChunks.Items.Should().NotContainKey("ALPHA<SEP>BETA");
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenOnlyDocumentOwnsGraphVectors_RemovesHashedVectorRecords()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(
+            chunkIds: ["chunk-a"]);
+        var entityVectorId = HashUtils.ComputeMd5Hash("ALPHA", "ent-");
+        var relationVectorId = HashUtils.ComputeMd5Hash("ALPHA" + "BETA", "rel-");
+
+        fixture.FullEntities.Seed("doc-1", new()
+        {
+            ["entity_names"] = new List<object> { "ALPHA", "BETA" },
+            ["count"] = 2
+        });
+        fixture.FullRelations.Seed("doc-1", new()
+        {
+            ["relation_pairs"] = new List<object> { new List<object> { "ALPHA", "BETA" } },
+            ["count"] = 1
+        });
+        fixture.EntityChunks.Seed("ALPHA", new() { ["chunk_ids"] = new List<object> { "chunk-a" }, ["count"] = 1 });
+        fixture.EntityChunks.Seed("BETA", new() { ["chunk_ids"] = new List<object> { "chunk-a" }, ["count"] = 1 });
+        fixture.RelationChunks.Seed("ALPHA<SEP>BETA", new() { ["chunk_ids"] = new List<object> { "chunk-a" }, ["count"] = 1 });
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["source_id"] = "chunk-a", ["description"] = "alpha desc" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["source_id"] = "chunk-a", ["description"] = "beta desc" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new() { ["source_id"] = "chunk-a", ["description"] = "rel desc", ["keywords"] = "rel" });
+        fixture.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = entityVectorId,
+            Vector = [1.0f],
+            Metadata = new() { ["id"] = entityVectorId, ["entity_name"] = "ALPHA" },
+            Content = "ALPHA\nalpha desc"
+        });
+        fixture.VectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = relationVectorId,
+            Vector = [1.0f],
+            Metadata = new() { ["id"] = relationVectorId, ["src_id"] = "ALPHA", ["tgt_id"] = "BETA" },
+            Content = "ALPHA\nBETA\nrel\nrel desc"
+        });
+
+        var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest(
+            Workspace: "workspace-a",
+            DocId: "doc-1",
+            ChunkIds: ["chunk-a"],
+            DeleteLlmCache: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.VectorStore.Get("entities", entityVectorId).Should().BeNull();
+        fixture.VectorStore.Get("relationships", relationVectorId).Should().BeNull();
     }
 
     [Fact]

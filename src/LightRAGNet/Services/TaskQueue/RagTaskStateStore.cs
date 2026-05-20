@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using LightRAGNet.Core.IO;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,11 +17,7 @@ public class RagTaskStateStore : IRagTaskStateStore
     private readonly ILogger<RagTaskStateStore> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly ConcurrentDictionary<string, RagTask> _tasksCache = new();
-    private readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly JsonSerializerOptions _jsonOptions = LightRAGJsonOptions.HumanReadableCamelCaseIndented;
 
     public RagTaskStateStore(IOptions<LightRAGOptions> options, ILogger<RagTaskStateStore> logger)
     {

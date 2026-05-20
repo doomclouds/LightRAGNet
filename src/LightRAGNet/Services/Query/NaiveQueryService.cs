@@ -113,7 +113,7 @@ public sealed class NaiveQueryService(
         {
             reference_id = chunk.ReferenceId,
             content = chunk.Content
-        }));
+        }, LightRAGJsonOptions.HumanReadable));
 
         var referenceLines = references.Select(reference => $"[{reference.ReferenceId}] {reference.FilePath}");
 

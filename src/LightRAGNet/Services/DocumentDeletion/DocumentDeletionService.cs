@@ -1,4 +1,5 @@
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,11 +118,14 @@ public sealed class DocumentDeletionService
             currentStage = DocumentDeletionStage.DeleteRelationVectors;
             await DeleteVectorsAsync(
                 "relationships",
-                impact.RelationsToDelete.Select(relation => relation.RelationKey),
+                impact.RelationsToDelete.SelectMany(GetRelationVectorIds),
                 cancellationToken);
 
             currentStage = DocumentDeletionStage.DeleteEntityVectors;
-            await DeleteVectorsAsync("entities", impact.EntityIdsToDelete, cancellationToken);
+            await DeleteVectorsAsync(
+                "entities",
+                impact.EntityIdsToDelete.SelectMany(GetEntityVectorIds),
+                cancellationToken);
 
             currentStage = DocumentDeletionStage.UpdateRelationVectors;
             if (impact.RelationUpdates.Count > 0)
@@ -413,6 +417,7 @@ public sealed class DocumentDeletionService
 
         var description = GetString(updatedProperties, "description");
         var content = $"{entityName}\n{description}";
+        var entityVectorId = GetEntityVectorId(entityName);
         var embedding = await _embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
         return new EntityReferenceUpdate(
             entityName,
@@ -420,12 +425,12 @@ public sealed class DocumentDeletionService
             updatedProperties,
             new VectorDocument
             {
-                Id = entityName,
+                Id = entityVectorId,
                 Content = content,
                 Vector = embedding,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["id"] = entityName,
+                    ["id"] = entityVectorId,
                     ["entity_name"] = entityName,
                     ["source_id"] = updatedProperties["source_id"].ToString() ?? string.Empty
                 }
@@ -457,6 +462,7 @@ public sealed class DocumentDeletionService
         var keywords = GetString(updatedProperties, "keywords");
         var description = GetString(updatedProperties, "description");
         var content = $"{sourceId}\n{targetId}\n{keywords}\n{description}";
+        var relationVectorId = GetRelationVectorId(sourceId, targetId);
         var embedding = await _embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
         return new RelationReferenceUpdate(
             sourceId,
@@ -466,12 +472,12 @@ public sealed class DocumentDeletionService
             updatedProperties,
             new VectorDocument
             {
-                Id = relationKey,
+                Id = relationVectorId,
                 Content = content,
                 Vector = embedding,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["id"] = relationKey,
+                    ["id"] = relationVectorId,
                     ["src_id"] = sourceId,
                     ["tgt_id"] = targetId,
                     ["source_id"] = updatedProperties["source_id"].ToString() ?? string.Empty,
@@ -631,13 +637,36 @@ public sealed class DocumentDeletionService
         IEnumerable<string> ids,
         CancellationToken cancellationToken)
     {
-        var idsList = ids.ToList();
+        var idsList = ids.Distinct(StringComparer.Ordinal).ToList();
         if (idsList.Count == 0)
         {
             return;
         }
 
         await _vectorStore.DeleteAsync(collection, idsList, cancellationToken);
+    }
+
+    private static IEnumerable<string> GetEntityVectorIds(string entityName)
+    {
+        yield return GetEntityVectorId(entityName);
+        yield return entityName;
+    }
+
+    private static string GetEntityVectorId(string entityName)
+    {
+        return HashUtils.ComputeMd5Hash(entityName, "ent-");
+    }
+
+    private static IEnumerable<string> GetRelationVectorIds(RelationReferenceDelete relation)
+    {
+        yield return GetRelationVectorId(relation.SourceId, relation.TargetId);
+        yield return GetRelationVectorId(relation.TargetId, relation.SourceId);
+        yield return relation.RelationKey;
+    }
+
+    private static string GetRelationVectorId(string sourceId, string targetId)
+    {
+        return HashUtils.ComputeMd5Hash(sourceId + targetId, "rel-");
     }
 
     private static async Task DeleteKvRecordsAsync(

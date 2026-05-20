@@ -19,6 +19,7 @@
 - 插入过程中 Neo4j 曾报 authentication failure，后续定位到控制台项目从仓库根目录启动时使用 `Directory.GetCurrentDirectory()` 作为配置基准，导致没有读取 `src/LightRAGNet.Example/appsettings.json`，`Neo4JOptions.Password` 落回默认 `"password"`。
 - 修复配置基准和 Neo4j password fallback 后，重新清库并插入同一文件，最终写入 `3` 个 chunk vectors、`63` 个 entity vectors、`70` 个 relationship vectors。
 - 控制台查询参数已用真实运行验证：`Local`、`Global`、`Hybrid`、`Naive`、`Mix`、`Bypass` 均可执行；`context-only`、`prompt-only`、`stream`、`references`、`top-k`、`chunk-top-k`、`rerank`、高低级关键词参数按预期生效。
+- 用户继续验证发现：单文档加入 RAG 后删除，Qdrant 的 entity/relation points 仍存在。根因是插入阶段的 entity/relation vector ID 使用 `ent-<md5>` / `rel-<md5>`，但删除阶段用 entity name 和 `source<SEP>target` relation key 删除，真实向量 ID 对不上；原有单元测试用同样的 name/key 种向量，遮住了这个运行态差异。
 
 ## Why It Might Matter
 
@@ -27,6 +28,8 @@
 这类问题未来可能在清空 Qdrant、Docker volume 重建、Neo4j 密码漂移、部分索引失败或手动清理存储后再次出现。
 
 控制台类诊断工具还要特别注意配置基准目录：从仓库根目录 `dotnet run --project ...` 和从项目输出目录启动，`Directory.GetCurrentDirectory()` 不一定相同。对于部署到输出目录的 `appsettings.json`，应优先用 `AppContext.BaseDirectory`。
+
+删除链路要特别注意“业务 key”和“向量 key”不是同一层含义：Graph/KV tracking 使用 entity name 与 sorted relation key，但 Qdrant point 删除必须使用与 upsert 完全一致的 `VectorDocument.Id`。测试替身如果只按业务 key 存储向量，会漏掉这种真实存储适配层问题。
 
 ## What Is Missing
 
@@ -44,6 +47,7 @@
 - 对 `Completed` 文档增加可选 reindex/repair 流程，避免只因 lifecycle status 为 `Processed` 就跳过向量重建。
 - Web Chat 在 no-context 时提示用户检查 `Naive + Context only`、Qdrant points、任务状态和 Neo4j 配置。
 - 后续若再增强控制台诊断，保留 `verify-query-options` 这类无外部依赖的参数自检入口，并把需要外部服务的诊断和参数解析诊断分开。
+- 删除链路回归测试应覆盖真实 hash vector ID，而不是只断言调用了 `DeleteAsync("entities", entityName)` 这类业务 key。
 
 ## Related Assets
 
@@ -55,6 +59,8 @@
 - [Program.cs](../../../../src/LightRAGNet.Example/Program.cs)
 - [ServiceCollectionExtensions.cs](../../../../src/LightRAGNet.Hosting/ServiceCollectionExtensions.cs)
 - [Neo4jGraphStore.cs](../../../../src/LightRAGNet.Storage/Neo4jGraphStore.cs)
+- [DocumentDeletionService.cs](../../../../src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionService.cs)
 - [LightRAGLifecycleIntegrationTests.cs](../../../../tests/LightRAGNet.Tests/DocumentLifecycle/LightRAGLifecycleIntegrationTests.cs)
+- [DocumentDeletionServiceTests.cs](../../../../tests/LightRAGNet.Tests/DocumentDeletion/DocumentDeletionServiceTests.cs)
 - [QueryCommandOptionsTests.cs](../../../../tests/LightRAGNet.Tests/Example/QueryCommandOptionsTests.cs)
 - [Neo4JOptionsTests.cs](../../../../tests/LightRAGNet.Tests/Storage/Neo4JOptionsTests.cs)

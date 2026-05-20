@@ -5,6 +5,7 @@ using LightRAGNet.Hosting;
 using Scalar.AspNetCore;
 using Microsoft.Extensions.FileProviders;
 using System.Reflection;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         // Serialize enums as strings instead of numbers
+        options.JsonSerializerOptions.Encoder = LightRAGJsonOptions.HumanReadable.Encoder;
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
@@ -55,7 +57,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<MarkdownDocumentDeletionService>();
 
 // Register SignalR (for real-time task status updates)
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.Encoder = LightRAGJsonOptions.HumanReadable.Encoder;
+    });
 
 // Register LightRAG services (including task queue services)
 builder.Services.AddLightRAG(builder.Configuration);
