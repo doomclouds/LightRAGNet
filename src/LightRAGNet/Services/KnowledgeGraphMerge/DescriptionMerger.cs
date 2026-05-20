@@ -1,7 +1,9 @@
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Services.QueryCache;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.RegularExpressions;
 
 namespace LightRAGNet.Services.KnowledgeGraphMerge;
 
@@ -9,10 +11,11 @@ namespace LightRAGNet.Services.KnowledgeGraphMerge;
 /// Description merge strategy implementation (Map-Reduce strategy)
 /// Reference: operate.py _handle_entity_relation_summary function
 /// </summary>
-internal class DescriptionMerger(
+internal partial class DescriptionMerger(
     ILLMService llmService,
     ITokenizer tokenizer,
     IOptions<LightRAGOptions> options,
+    LightRagLlmCacheService llmCacheService,
     ILogger<DescriptionMerger> logger)
 {
     private readonly LightRAGOptions _options = options.Value;
@@ -61,12 +64,11 @@ internal class DescriptionMerger(
                         descriptionName);
                 }
                 // Final summarization of remaining descriptions - LLM will be used
-                var finalSummary = await llmService.SummarizeAsync(
+                var finalSummary = await SummarizeWithCacheAsync(
                     descriptionType,
                     descriptionName,
                     currentList,
-                    _options.SummaryLengthRecommended,
-                    cancellationToken: cancellationToken);
+                    cancellationToken);
                 return (finalSummary, true); // LLM was used for final summarization
             }
             
@@ -92,12 +94,11 @@ internal class DescriptionMerger(
                 else
                 {
                     // Multiple descriptions need LLM summarization
-                    var summary = await llmService.SummarizeAsync(
+                    var summary = await SummarizeWithCacheAsync(
                         descriptionType,
                         descriptionName,
                         chunk,
-                        _options.SummaryLengthRecommended,
-                        cancellationToken: cancellationToken);
+                        cancellationToken);
                     newSummaries.Add(summary);
                     llmWasUsed = true; // Mark that LLM was used in reduce phase
                 }
@@ -158,5 +159,42 @@ internal class DescriptionMerger(
         
         return chunks;
     }
-}
 
+    private async Task<string> SummarizeWithCacheAsync(
+        string descriptionType,
+        string descriptionName,
+        List<string> descriptions,
+        CancellationToken cancellationToken)
+    {
+        var prompt = SummaryPromptBuilder.Build(
+            descriptionType,
+            descriptionName,
+            descriptions,
+            _options.SummaryLengthRecommended);
+        var cached = await llmCacheService.TryGetSummaryAsync(prompt, cancellationToken);
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var summary = await llmService.GenerateAsync(
+            prompt,
+            temperature: 0.3f,
+            cancellationToken: cancellationToken);
+        summary = CleanThinkTags(summary);
+        await llmCacheService.SaveSummaryAsync(prompt, summary, cancellationToken);
+        return summary;
+    }
+
+    private static string CleanThinkTags(string response)
+    {
+        var withoutCompleteBlocks = ThinkBlockRegex().Replace(response, string.Empty);
+        return OrphanThinkClosePrefixRegex().Replace(withoutCompleteBlocks, string.Empty).Trim();
+    }
+
+    [GeneratedRegex("<think>.*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex ThinkBlockRegex();
+
+    [GeneratedRegex("^((?!<think>).)*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex OrphanThinkClosePrefixRegex();
+}

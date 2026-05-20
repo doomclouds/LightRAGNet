@@ -307,6 +307,7 @@ public sealed class LightRAGQueryRevisionTests
             entityChunksStore,
             relationChunksStore,
             options,
+            cacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 

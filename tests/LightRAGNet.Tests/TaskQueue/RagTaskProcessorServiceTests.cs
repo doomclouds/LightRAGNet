@@ -271,6 +271,7 @@ public sealed class RagTaskProcessorServiceTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
         var retrievalContextService = new RetrievalContextService(

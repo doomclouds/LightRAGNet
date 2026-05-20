@@ -146,6 +146,7 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 

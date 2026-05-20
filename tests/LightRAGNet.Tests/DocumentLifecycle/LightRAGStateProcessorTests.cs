@@ -192,6 +192,7 @@ public sealed class LightRAGStateProcessorTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
