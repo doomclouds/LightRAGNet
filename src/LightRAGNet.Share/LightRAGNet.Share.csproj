@@ -6,4 +6,8 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\LightRAGNet.Core\LightRAGNet.Core.csproj" />
+    </ItemGroup>
+
 </Project>
