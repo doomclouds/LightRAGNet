@@ -4,6 +4,7 @@ using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Storage;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -148,6 +149,48 @@ public sealed class DocumentDeletionServiceTests
         await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: true));
 
         fixture.LlmCache.DeleteCalls.SelectMany(call => call).Should().BeEquivalentTo("cache-a", "cache-b");
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenDeleteLlmCacheTrue_DeletesPythonStyleExtractCacheKey()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        const string cacheKey = "default:extract:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        fixture.TextChunks.Seed("chunk-a", new() { ["llm_cache_list"] = new List<object> { cacheKey } });
+        fixture.LlmCache.Seed(
+            cacheKey,
+            new LightRagCacheEntry(
+                "entity<|#|>Alpha<|#|>Concept<|#|>Description\n<|COMPLETE|>",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                "prompt",
+                null,
+                123,
+                "chunk-a").ToDictionary());
+
+        await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: true));
+
+        fixture.LlmCache.DeleteCalls.SelectMany(call => call).Should().Contain(cacheKey);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenSummaryCacheExistsButNotLinked_DoesNotDeleteSummaryCache()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        const string summaryKey = "default:summary:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        fixture.TextChunks.Seed("chunk-a", new() { ["llm_cache_list"] = new List<object>() });
+        fixture.LlmCache.Seed(
+            summaryKey,
+            new LightRagCacheEntry(
+                "summary",
+                LightRagCacheKeyBuilder.SummaryCacheType,
+                "summary prompt",
+                null,
+                123).ToDictionary());
+
+        await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: true));
+
+        fixture.LlmCache.DeleteCalls.SelectMany(call => call).Should().NotContain(summaryKey);
+        fixture.LlmCache.Items.Should().ContainKey(summaryKey);
     }
 
     [Fact]

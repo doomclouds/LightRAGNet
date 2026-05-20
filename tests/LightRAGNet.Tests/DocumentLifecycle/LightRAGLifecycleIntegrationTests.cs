@@ -123,11 +123,15 @@ public sealed class LightRAGLifecycleIntegrationTests
         SeedExtractCache(llmCacheStore, cacheKeyBuilder, "t1 t2 t3 t5", secondChunkId);
         var vectorStore = new InMemoryVectorStore();
         var llmService = Substitute.For<ILLMService>();
+        var embeddingService = Substitute.For<IEmbeddingService>();
+        embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([1.0f, 0.5f]);
         var rag = CreateLightRag(
             lifecycleService,
             vectorStore: vectorStore,
             llmCacheStore: llmCacheStore,
-            llmService: llmService);
+            llmService: llmService,
+            embeddingService: embeddingService);
 
         var result = await rag.InsertAsync(content, docId: docId, filePath: "replacement.md");
 
@@ -146,6 +150,9 @@ public sealed class LightRAGLifecycleIntegrationTests
             default,
             default,
             default);
+        await embeddingService.Received().GenerateEmbeddingAsync(
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
