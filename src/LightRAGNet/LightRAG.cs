@@ -273,15 +273,26 @@ public class LightRAG(
                 DocId = docId
             });
 
+            var chunkResultsById = chunkResults.ToDictionary(
+                result => result.ChunkId,
+                StringComparer.Ordinal);
             var chunkData = chunks.ToDictionary(
                 c => c.Id,
-                c => new Dictionary<string, object>
+                c =>
                 {
-                    ["content"] = c.Content,
-                    ["tokens"] = c.Tokens,
-                    ["chunk_order_index"] = c.ChunkOrderIndex,
-                    ["full_doc_id"] = c.FullDocId,
-                    ["file_path"] = c.FilePath
+                    var llmCacheKeys = chunkResultsById.TryGetValue(c.Id, out var result)
+                        ? result.LlmCacheKeys.Distinct(StringComparer.Ordinal).Cast<object>().ToList()
+                        : [];
+
+                    return new Dictionary<string, object>
+                    {
+                        ["content"] = c.Content,
+                        ["tokens"] = c.Tokens,
+                        ["chunk_order_index"] = c.ChunkOrderIndex,
+                        ["full_doc_id"] = c.FullDocId,
+                        ["file_path"] = c.FilePath,
+                        ["llm_cache_list"] = llmCacheKeys
+                    };
                 });
 
             await textChunksStore.UpsertAsync(chunkData, cancellationToken);

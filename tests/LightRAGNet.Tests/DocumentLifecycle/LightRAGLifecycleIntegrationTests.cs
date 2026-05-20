@@ -228,6 +228,61 @@ public sealed class LightRAGLifecycleIntegrationTests
     }
 
     [Fact]
+    public async Task InsertAsync_WritesExtractCacheKeysToTextChunks()
+    {
+        var textChunksStore = new InMemoryKvStore();
+        var llmCacheStore = new InMemoryKvStore();
+        var llmService = Substitute.For<ILLMService>();
+        llmService.GenerateAsync(
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<List<Microsoft.Extensions.AI.ChatMessage>?>(),
+                Arg.Any<float>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns("entity<|#|>Alpha<|#|>Concept<|#|>Alpha description\n<|COMPLETE|>");
+        var rag = CreateLightRag(
+            CreateLifecycleService(new InMemoryDocumentStatusStore()),
+            textChunksStore: textChunksStore,
+            llmCacheStore: llmCacheStore,
+            llmService: llmService);
+
+        await rag.InsertAsync("alpha beta gamma", docId: "doc-cache-list", filePath: "alpha.md");
+
+        textChunksStore.Items.Should().NotBeEmpty();
+        var chunk = textChunksStore.Items.Values.Single();
+        chunk.Should().ContainKey("llm_cache_list");
+        var cacheKeys = chunk["llm_cache_list"].Should().BeAssignableTo<List<object>>().Subject;
+        cacheKeys.Should().ContainSingle(key =>
+            key.ToString()!.StartsWith("default:extract:", StringComparison.Ordinal));
+        llmCacheStore.Items.Should().ContainKey(cacheKeys.Single().ToString()!);
+    }
+
+    [Fact]
+    public async Task InsertAsync_WhenExtractCacheDisabled_WritesEmptyLlmCacheListToTextChunks()
+    {
+        var textChunksStore = new InMemoryKvStore();
+        var options = Options.Create(new LightRAGOptions
+        {
+            Workspace = "workspace-a",
+            ChunkTokenSize = 5,
+            ChunkOverlapTokenSize = 1,
+            EnableLlmCacheForEntityExtract = false
+        });
+        var rag = CreateLightRag(
+            CreateLifecycleService(new InMemoryDocumentStatusStore()),
+            textChunksStore: textChunksStore,
+            options: options);
+
+        await rag.InsertAsync("alpha beta gamma", docId: "doc-cache-disabled", filePath: "alpha.md");
+
+        textChunksStore.Items.Should().NotBeEmpty();
+        var chunk = textChunksStore.Items.Values.Single();
+        chunk.Should().ContainKey("llm_cache_list");
+        chunk["llm_cache_list"].Should().BeAssignableTo<List<object>>().Subject.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task InsertAsync_ProcessChunksFailure_MarksFailedAndPreservesChunkSnapshots()
     {
         var statusStore = new InMemoryDocumentStatusStore();
@@ -408,9 +463,10 @@ public sealed class LightRAGLifecycleIntegrationTests
         ITokenizer? tokenizer = null,
         IEmbeddingService? embeddingService = null,
         IKVStore? llmCacheStore = null,
-        ILLMService? llmService = null)
+        ILLMService? llmService = null,
+        IOptions<LightRAGOptions>? options = null)
     {
-        var options = Options.Create(new LightRAGOptions
+        options ??= Options.Create(new LightRAGOptions
         {
             Workspace = "workspace-a",
             ChunkTokenSize = 3,
