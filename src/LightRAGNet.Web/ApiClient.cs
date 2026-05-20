@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components.Forms;
 using LightRAGNet.Share.Models;
+using LightRAGNet.Web.Models;
 
 namespace LightRAGNet.Web;
 
@@ -236,52 +237,54 @@ public class ApiClient(HttpClient httpClient)
     /// <param name="onChunkReceived">Callback when a chunk is received</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Whether the query was successful</returns>
-    public async Task QueryRagAsync(string query,
+    public Task QueryRagAsync(string query,
         Func<string, Task> onChunkReceived,
         CancellationToken cancellationToken = default)
     {
-        try
+        return QueryRagAsync(new RagQueryRequest { Query = query }, new RagQueryStreamHandlers { OnChunkReceived = onChunkReceived }, cancellationToken);
+    }
+
+    public async Task QueryRagAsync(RagQueryRequest request, RagQueryStreamHandlers handlers, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(handlers);
+
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "api/RagQuery/query");
+        requestMessage.Content = JsonContent.Create(request);
+
+        using var response = await httpClient.SendAsync(
+            requestMessage,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+
+        response.EnsureSuccessStatusCode();
+
+        var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var items = SseParser.Create(responseStream, ItemParser).EnumerateAsync(cancellationToken);
+
+        await foreach (var sseItem in items.ConfigureAwait(false))
         {
-            var request = new { query };
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "api/RagQuery/query");
-            requestMessage.Content = JsonContent.Create(request);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            using var response = await httpClient.SendAsync(
-                requestMessage,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
-
-            response.EnsureSuccessStatusCode();
-
-            var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            var items = SseParser.Create(responseStream, ItemParser).EnumerateAsync(cancellationToken);
-            
-            await foreach (var sseItem in items.ConfigureAwait(false))
+            if (sseItem.Data is TextChunkEvent textEvent)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                if (sseItem.Data is TextChunkEvent textEvent)
+                if (!string.IsNullOrEmpty(textEvent.Chunk))
                 {
-                    if (!string.IsNullOrEmpty(textEvent.Chunk))
-                    {
-                        await onChunkReceived(textEvent.Chunk);
-                    }
-                }
-                else if (sseItem.Data is DoneEvent)
-                {
-                    break;
-                }
-                else if (sseItem.Data is ErrorEvent)
-                {
-                    // Handle error - could throw or call error callback
-                    break;
+                    await handlers.OnChunkReceived(textEvent.Chunk);
                 }
             }
-        }
-        catch (Exception)
-        {
-            // Ignore exceptions
+            else if (sseItem.Data is QueryMetadataEvent metadataEvent)
+            {
+                await handlers.OnMetadataReceived(metadataEvent);
+            }
+            else if (sseItem.Data is ErrorEvent errorEvent)
+            {
+                throw new RagQueryException(errorEvent.Error, errorEvent.Message);
+            }
+            else if (sseItem.Data is DoneEvent)
+            {
+                return;
+            }
         }
     }
 

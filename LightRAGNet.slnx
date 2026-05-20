@@ -15,5 +15,6 @@
   <Folder Name="/tests/">
     <Project Path="tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj" />
     <Project Path="tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj" />
+    <Project Path="tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj" />
   </Folder>
 </Solution>

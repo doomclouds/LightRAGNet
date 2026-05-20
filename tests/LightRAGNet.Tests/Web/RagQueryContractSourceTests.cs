@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Text;
 
 namespace LightRAGNet.Tests.Web;
 
@@ -52,7 +53,7 @@ public sealed class RagQueryContractSourceTests
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();
-        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]));
+        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]), Encoding.UTF8);
     }
 
     private static string FindRepositoryRoot()
