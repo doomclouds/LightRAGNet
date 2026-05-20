@@ -108,6 +108,97 @@ public sealed class RetrievalContextVectorChunkParityTests
         GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
     }
 
+    [Fact]
+    public async Task BuildQueryContextAsync_WhenVectorChunkPickEnabled_SelectsRelationChunksByCosineSimilarity()
+    {
+        var harness = CreateHarness();
+        SeedGlobalRelation(harness, relationSourceId: $"chunk-far{Sep}chunk-near{Sep}chunk-mid");
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far relation content", "docs/far.md"),
+            ("chunk-near", "near relation content", "docs/near.md"),
+            ("chunk-mid", "mid relation content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-far", new[] { 0.0f, 1.0f }),
+            ("chunk-near", new[] { 1.0f, 0.0f }),
+            ("chunk-mid", new[] { 0.8f, 0.6f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "relation question",
+            new KeywordsResult { HighLevelKeywords = ["relation"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Global,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-near", "chunk-mid");
+    }
+
+    [Fact]
+    public async Task BuildQueryContextAsync_WhenRelationVectorChunksOverlapEntityChunks_ExcludesEntityChunks()
+    {
+        var harness = CreateHarness();
+        harness.VectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = "rel-alpha-beta",
+            Metadata = new Dictionary<string, object>
+            {
+                ["src_id"] = "Alpha",
+                ["tgt_id"] = "Beta"
+            },
+            Content = "Alpha Beta relation"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["source_id"] = "chunk-entity"
+        });
+        harness.GraphStore.SeedNode("Beta", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Beta description"
+        });
+        harness.GraphStore.SeedEdge("Alpha", "Beta", new Dictionary<string, object>
+        {
+            ["keywords"] = "relation",
+            ["description"] = "Alpha relates to Beta",
+            ["weight"] = 1.0d,
+            ["source_id"] = $"chunk-entity{Sep}chunk-relation-far{Sep}chunk-relation-near"
+        });
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-entity", "entity content", "docs/entity.md"),
+            ("chunk-relation-far", "far relation content", "docs/far.md"),
+            ("chunk-relation-near", "near relation content", "docs/near.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-entity", new[] { 1.0f, 0.0f }),
+            ("chunk-relation-far", new[] { 0.0f, 1.0f }),
+            ("chunk-relation-near", new[] { 0.9f, 0.1f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "relation question",
+            new KeywordsResult { HighLevelKeywords = ["relation"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Global,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        var chunkIds = GetChunkIds(result!);
+        chunkIds.Should().Equal("chunk-entity", "chunk-relation-near", "chunk-relation-far");
+        chunkIds.Should().OnlyHaveUniqueItems();
+    }
+
     private static TestHarness CreateHarness(LightRAGOptions? options = null)
     {
         var embeddingService = Substitute.For<IEmbeddingService>();
@@ -165,6 +256,37 @@ public sealed class RetrievalContextVectorChunkParityTests
                 }
             });
         }
+    }
+
+    private static void SeedGlobalRelation(TestHarness harness, string relationSourceId)
+    {
+        harness.VectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = "rel-alpha-beta",
+            Metadata = new Dictionary<string, object>
+            {
+                ["src_id"] = "Alpha",
+                ["tgt_id"] = "Beta"
+            },
+            Content = "Alpha Beta relation"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description"
+        });
+        harness.GraphStore.SeedNode("Beta", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Beta description"
+        });
+        harness.GraphStore.SeedEdge("Alpha", "Beta", new Dictionary<string, object>
+        {
+            ["keywords"] = "relation",
+            ["description"] = "Alpha relates to Beta",
+            ["weight"] = 1.0d,
+            ["source_id"] = relationSourceId
+        });
     }
 
     private static List<string> GetChunkIds(QueryContextResult result)

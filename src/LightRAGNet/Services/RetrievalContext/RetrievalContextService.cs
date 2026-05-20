@@ -597,9 +597,25 @@ public class RetrievalContextService(
         
         if (kgChunkPickMethod == "VECTOR" && !string.IsNullOrEmpty(query) && queryEmbedding != null)
         {
-            // VECTOR mode: use vector similarity selection (simplified implementation, use WEIGHT as fallback)
-            _logger.LogWarning("VECTOR chunk pick method not fully implemented, falling back to WEIGHT");
-            kgChunkPickMethod = "WEIGHT";
+            var numOfChunks = (int)(maxRelatedChunks * sortedRelations.Count / 2.0);
+            selectedChunkIds = await PickByVectorSimilarityAsync(
+                sortedRelations.Select(relation => relation.SortedChunks).ToList(),
+                numOfChunks,
+                queryEmbedding,
+                cancellationToken);
+
+            if (selectedChunkIds.Count == 0)
+            {
+                _logger.LogWarning("No relation-related chunks selected by vector similarity, falling back to WEIGHT method");
+                kgChunkPickMethod = "WEIGHT";
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Selecting {SelectedCount} from {TotalCount} relation-related chunks by vector similarity",
+                    selectedChunkIds.Count,
+                    totalRelationChunks);
+            }
         }
         
         if (kgChunkPickMethod == "WEIGHT")
