@@ -162,6 +162,55 @@ public sealed class LightRagLlmCacheService(
         }
     }
 
+    public Task<string?> TryGetExtractAsync(
+        string canonicalPrompt,
+        CancellationToken cancellationToken = default)
+    {
+        return TryGetIndexingResponseAsync(
+            keyBuilder.BuildExtractKey(canonicalPrompt),
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            cancellationToken);
+    }
+
+    public Task<string?> SaveExtractAsync(
+        string canonicalPrompt,
+        string response,
+        string chunkId,
+        CancellationToken cancellationToken = default)
+    {
+        return SaveIndexingResponseAsync(
+            keyBuilder.BuildExtractKey(canonicalPrompt),
+            canonicalPrompt,
+            response,
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            chunkId,
+            cancellationToken);
+    }
+
+    public Task<string?> TryGetSummaryAsync(
+        string canonicalPrompt,
+        CancellationToken cancellationToken = default)
+    {
+        return TryGetIndexingResponseAsync(
+            keyBuilder.BuildSummaryKey(canonicalPrompt),
+            LightRagCacheKeyBuilder.SummaryCacheType,
+            cancellationToken);
+    }
+
+    public Task<string?> SaveSummaryAsync(
+        string canonicalPrompt,
+        string response,
+        CancellationToken cancellationToken = default)
+    {
+        return SaveIndexingResponseAsync(
+            keyBuilder.BuildSummaryKey(canonicalPrompt),
+            canonicalPrompt,
+            response,
+            LightRagCacheKeyBuilder.SummaryCacheType,
+            null,
+            cancellationToken);
+    }
+
     public async Task<long> GetWorkspaceQueryRevisionAsync(
         string workspace,
         CancellationToken cancellationToken = default)
@@ -234,6 +283,73 @@ public sealed class LightRagLlmCacheService(
     private bool IsQueryCacheEnabled()
     {
         return options.Value.EnableLlmCache && options.Value.EnableQueryCache;
+    }
+
+    private bool IsIndexingCacheEnabled()
+    {
+        return options.Value.EnableLlmCache && options.Value.EnableLlmCacheForEntityExtract;
+    }
+
+    private async Task<string?> TryGetIndexingResponseAsync(
+        string key,
+        string expectedCacheType,
+        CancellationToken cancellationToken)
+    {
+        if (!IsIndexingCacheEnabled())
+        {
+            return null;
+        }
+
+        try
+        {
+            var data = await llmCacheStore.GetByIdAsync(key, cancellationToken);
+            return LightRagCacheEntry.TryFromDictionary(data, out var entry)
+                && string.Equals(entry.CacheType, expectedCacheType, StringComparison.Ordinal)
+                    ? entry.ReturnValue
+                    : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to read indexing cache entry {CacheKey}.", key);
+            return null;
+        }
+    }
+
+    private async Task<string?> SaveIndexingResponseAsync(
+        string key,
+        string canonicalPrompt,
+        string response,
+        string cacheType,
+        string? chunkId,
+        CancellationToken cancellationToken)
+    {
+        if (!IsIndexingCacheEnabled() || string.IsNullOrWhiteSpace(response))
+        {
+            return null;
+        }
+
+        try
+        {
+            var entry = new LightRagCacheEntry(
+                response,
+                cacheType,
+                canonicalPrompt,
+                null,
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                chunkId);
+
+            await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [key] = entry.ToDictionary()
+            }, cancellationToken);
+            await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
+            return key;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to save indexing cache entry {CacheKey}.", key);
+            return null;
+        }
     }
 
     private string BuildQueryKey(
