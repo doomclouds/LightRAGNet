@@ -6,6 +6,36 @@ namespace LightRAGNet.Tests.TestDoubles;
 public sealed class InMemoryVectorStoreTests
 {
     [Fact]
+    public async Task InMemoryVectorStore_GetByIdsAsync_RecordsCallsAndReturnsDeepClones()
+    {
+        var store = new InMemoryVectorStore();
+        store.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Vector = [1.0f, 0.0f],
+            Metadata = new Dictionary<string, object>
+            {
+                ["file_path"] = "docs/a.md"
+            },
+            Content = "chunk content"
+        });
+
+        var firstRead = await store.GetByIdsAsync("chunks", ["chunk-a", "missing"]);
+        firstRead[0].Vector[0] = 99.0f;
+        firstRead[0].Metadata["file_path"] = "changed.md";
+
+        var secondRead = await store.GetByIdsAsync("chunks", ["chunk-a"]);
+
+        store.GetByIdsCalls.Should().BeEquivalentTo([
+            ("chunks", new[] { "chunk-a", "missing" }),
+            ("chunks", new[] { "chunk-a" })
+        ]);
+        secondRead.Should().ContainSingle();
+        secondRead[0].Vector.Should().Equal(1.0f, 0.0f);
+        secondRead[0].Metadata["file_path"].Should().Be("docs/a.md");
+    }
+
+    [Fact]
     public async Task InMemoryVectorStore_GetByIdAsync_ReturnsDeepClone()
     {
         var store = new InMemoryVectorStore();
