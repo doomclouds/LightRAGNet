@@ -19,20 +19,32 @@ public sealed class InMemoryVectorStoreTests
             },
             Content = "chunk content"
         });
+        store.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-b",
+            Vector = [0.0f, 1.0f],
+            Metadata = new Dictionary<string, object>
+            {
+                ["file_path"] = "docs/b.md"
+            },
+            Content = "another chunk content"
+        });
 
         var firstRead = await store.GetByIdsAsync("chunks", ["chunk-a", "missing"]);
+        firstRead.Should().ContainSingle();
+        firstRead[0].Id.Should().Be("chunk-a");
         firstRead[0].Vector[0] = 99.0f;
         firstRead[0].Metadata["file_path"] = "changed.md";
 
-        var secondRead = await store.GetByIdsAsync("chunks", ["chunk-a"]);
+        var secondRead = await store.GetByIdsAsync("chunks", ["chunk-b", "chunk-a"]);
 
         store.GetByIdsCalls.Should().BeEquivalentTo([
             ("chunks", new[] { "chunk-a", "missing" }),
-            ("chunks", new[] { "chunk-a" })
+            ("chunks", new[] { "chunk-b", "chunk-a" })
         ]);
-        secondRead.Should().ContainSingle();
-        secondRead[0].Vector.Should().Equal(1.0f, 0.0f);
-        secondRead[0].Metadata["file_path"].Should().Be("docs/a.md");
+        secondRead.Select(document => document.Id).Should().Equal("chunk-b", "chunk-a");
+        secondRead[1].Vector.Should().Equal(1.0f, 0.0f);
+        secondRead[1].Metadata["file_path"].Should().Be("docs/a.md");
     }
 
     [Fact]
