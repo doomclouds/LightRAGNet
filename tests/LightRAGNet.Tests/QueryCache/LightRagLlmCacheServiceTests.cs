@@ -10,6 +10,47 @@ namespace LightRAGNet.Tests.QueryCache;
 public sealed class LightRagLlmCacheServiceTests
 {
     [Fact]
+    public void LightRagCacheEntry_ToDictionary_IncludesChunkIdWhenPresent()
+    {
+        var entry = new LightRagCacheEntry(
+            "raw extract response",
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            "canonical prompt",
+            null,
+            123,
+            "chunk-a");
+
+        var data = entry.ToDictionary();
+
+        data["return"].Should().Be("raw extract response");
+        data["cache_type"].Should().Be("extract");
+        data["chunk_id"].Should().Be("chunk-a");
+        data["original_prompt"].Should().Be("canonical prompt");
+        data["queryparam"].Should().BeNull();
+        data["create_time"].Should().Be(123);
+    }
+
+    [Fact]
+    public void LightRagCacheEntry_TryFromDictionary_ReadsNullChunkId()
+    {
+        var data = new Dictionary<string, object>
+        {
+            ["return"] = "summary",
+            ["cache_type"] = LightRagCacheKeyBuilder.SummaryCacheType,
+            ["chunk_id"] = null!,
+            ["original_prompt"] = "summary prompt",
+            ["queryparam"] = null!,
+            ["create_time"] = 456
+        };
+
+        var ok = LightRagCacheEntry.TryFromDictionary(data, out var entry);
+
+        ok.Should().BeTrue();
+        entry.ChunkId.Should().BeNull();
+        entry.CacheType.Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+    }
+
+    [Fact]
     public async Task TryGetKeywordsAsync_WhenCacheHit_ReturnsKeywords()
     {
         var store = new InMemoryKvStore();

@@ -7,6 +7,41 @@ namespace LightRAGNet.Tests.QueryCache;
 public sealed class LightRagCacheKeyBuilderTests
 {
     [Fact]
+    public void BuildExtractKey_UsesDefaultExtractPrefix()
+    {
+        var builder = new LightRagCacheKeyBuilder();
+
+        var key = builder.BuildExtractKey("user prompt\nsystem prompt");
+
+        key.Should().StartWith("default:extract:");
+        key.Split(':').Should().HaveCount(3);
+        key.Split(':')[2].Should().HaveLength(64);
+    }
+
+    [Fact]
+    public void BuildSummaryKey_UsesDefaultSummaryPrefix()
+    {
+        var builder = new LightRagCacheKeyBuilder();
+
+        var key = builder.BuildSummaryKey("summary prompt");
+
+        key.Should().StartWith("default:summary:");
+        key.Split(':').Should().HaveCount(3);
+        key.Split(':')[2].Should().HaveLength(64);
+    }
+
+    [Fact]
+    public void BuildExtractKey_WhenPromptChanges_ChangesHash()
+    {
+        var builder = new LightRagCacheKeyBuilder();
+
+        var first = builder.BuildExtractKey("prompt-a");
+        var second = builder.BuildExtractKey("prompt-b");
+
+        first.Should().NotBe(second);
+    }
+
+    [Fact]
     public void BuildRagQueryKey_SameInputs_ReturnsSameFlattenedKey()
     {
         var builder = new LightRagCacheKeyBuilder();

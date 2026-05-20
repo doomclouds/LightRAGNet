@@ -9,9 +9,28 @@ public sealed class LightRagCacheKeyBuilder
 {
     public const string QueryCacheType = "query";
     public const string KeywordsCacheType = "keywords";
+    public const string ExtractCacheType = "extract";
+    public const string SummaryCacheType = "summary";
     public const string MetadataCacheType = "metadata";
+    public const string DefaultCacheMode = "default";
     public const string DefaultLanguageMarker = "default";
     private const string DefaultResponseType = "Multiple Paragraphs";
+
+    public string BuildExtractKey(string canonicalPrompt)
+    {
+        return BuildFlattenedKey(
+            DefaultCacheMode,
+            ExtractCacheType,
+            [Pair("prompt", canonicalPrompt)]);
+    }
+
+    public string BuildSummaryKey(string canonicalPrompt)
+    {
+        return BuildFlattenedKey(
+            DefaultCacheMode,
+            SummaryCacheType,
+            [Pair("prompt", canonicalPrompt)]);
+    }
 
     public string BuildKeywordKey(
         string workspace,
@@ -100,6 +119,14 @@ public sealed class LightRagCacheKeyBuilder
 
     private static string BuildFlattenedKey(
         QueryMode mode,
+        string cacheType,
+        IReadOnlyList<KeyValuePair<string, string>> parts)
+    {
+        return BuildFlattenedKey(mode.ToString(), cacheType, parts);
+    }
+
+    private static string BuildFlattenedKey(
+        string mode,
         string cacheType,
         IReadOnlyList<KeyValuePair<string, string>> parts)
     {
