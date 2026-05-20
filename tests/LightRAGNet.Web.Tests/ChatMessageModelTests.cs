@@ -15,6 +15,7 @@ public sealed class ChatMessageModelTests
         message.Mode.Should().BeNull();
         message.IsStreaming.Should().BeFalse();
         message.IsCacheable.Should().BeFalse();
+        message.IsComplete.Should().BeFalse();
         message.References.Should().BeEmpty();
         message.HighLevelKeywords.Should().BeEmpty();
         message.LowLevelKeywords.Should().BeEmpty();
@@ -30,6 +31,7 @@ public sealed class ChatMessageModelTests
             Mode = QueryMode.Mix,
             IsStreaming = true,
             IsCacheable = true,
+            IsComplete = true,
             ErrorMessage = "failed",
             References = [new RagQueryReferenceDto { ReferenceId = "r1", FilePath = "doc.md" }],
             HighLevelKeywords = ["architecture"],
@@ -40,6 +42,7 @@ public sealed class ChatMessageModelTests
         message.Mode.Should().Be(QueryMode.Mix);
         message.IsStreaming.Should().BeTrue();
         message.IsCacheable.Should().BeTrue();
+        message.IsComplete.Should().BeTrue();
         message.ErrorMessage.Should().Be("failed");
         var reference = message.References.Should().ContainSingle().Subject;
         reference.ReferenceId.Should().Be("r1");

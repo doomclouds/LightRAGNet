@@ -23,7 +23,7 @@ public sealed class RagQueryRequestMapperTests
             HighLevelKeywords = ["system"],
             LowLevelKeywords = ["queue"],
             OnlyNeedContext = true,
-            OnlyNeedPrompt = true
+            OnlyNeedPrompt = false
         };
 
         var queryParam = RagQueryRequestMapper.ToQueryParam(request);
@@ -38,7 +38,7 @@ public sealed class RagQueryRequestMapperTests
         queryParam.HighLevelKeywords.Should().Equal("system");
         queryParam.LowLevelKeywords.Should().Equal("queue");
         queryParam.OnlyNeedContext.Should().BeTrue();
-        queryParam.OnlyNeedPrompt.Should().BeTrue();
+        queryParam.OnlyNeedPrompt.Should().BeFalse();
         queryParam.ConversationHistory.Should().NotBeNull();
     }
 

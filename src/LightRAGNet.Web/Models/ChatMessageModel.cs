@@ -34,6 +34,11 @@ public class ChatMessageModel
     public bool IsCacheable { get; set; }
 
     /// <summary>
+    /// Indicates whether the assistant response has completed
+    /// </summary>
+    public bool IsComplete { get; set; }
+
+    /// <summary>
     /// Source references returned by the query
     /// </summary>
     public List<RagQueryReferenceDto> References { get; set; } = [];

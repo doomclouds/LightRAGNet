@@ -29,7 +29,7 @@ public sealed class ApiClientQueryRagTests
             HighLevelKeywords = ["graph"],
             LowLevelKeywords = ["edge"],
             OnlyNeedContext = true,
-            OnlyNeedPrompt = true
+            OnlyNeedPrompt = false
         };
 
         await client.QueryRagAsync(request, new RagQueryStreamHandlers());
@@ -52,7 +52,7 @@ public sealed class ApiClientQueryRagTests
         root.GetProperty("highLevelKeywords").EnumerateArray().Select(item => item.GetString()).Should().ContainSingle("graph");
         root.GetProperty("lowLevelKeywords").EnumerateArray().Select(item => item.GetString()).Should().ContainSingle("edge");
         root.GetProperty("onlyNeedContext").GetBoolean().Should().BeTrue();
-        root.GetProperty("onlyNeedPrompt").GetBoolean().Should().BeTrue();
+        root.GetProperty("onlyNeedPrompt").GetBoolean().Should().BeFalse();
     }
 
     [Fact]
