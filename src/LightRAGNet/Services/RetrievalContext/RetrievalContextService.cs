@@ -733,9 +733,16 @@ public class RetrievalContextService(
         double rightNorm = 0;
         for (var i = 0; i < left.Length; i++)
         {
-            dot += left[i] * right[i];
-            leftNorm += left[i] * left[i];
-            rightNorm += right[i] * right[i];
+            var leftValue = (double)left[i];
+            var rightValue = (double)right[i];
+            if (!double.IsFinite(leftValue) || !double.IsFinite(rightValue))
+            {
+                return false;
+            }
+
+            dot += leftValue * rightValue;
+            leftNorm += leftValue * leftValue;
+            rightNorm += rightValue * rightValue;
         }
 
         if (leftNorm <= 0 || rightNorm <= 0)
@@ -744,7 +751,7 @@ public class RetrievalContextService(
         }
 
         similarity = dot / (Math.Sqrt(leftNorm) * Math.Sqrt(rightNorm));
-        return true;
+        return double.IsFinite(similarity);
     }
 
     private List<string> PickByWeightedPolling(

@@ -62,6 +62,52 @@ public sealed class RetrievalContextVectorChunkParityTests
             call.Ids.Order().SequenceEqual(new[] { "chunk-far", "chunk-mid", "chunk-near" }.Order()));
     }
 
+    [Fact]
+    public async Task BuildQueryContextAsync_WhenChunkVectorContainsNonFiniteValue_FallsBackToWeightedPolling()
+    {
+        var harness = CreateHarness();
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            },
+            Content = "Alpha entity"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["source_id"] = $"chunk-far{Sep}chunk-near{Sep}chunk-mid",
+            ["file_path"] = "docs/alpha.md"
+        });
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far content", "docs/far.md"),
+            ("chunk-near", "near content", "docs/near.md"),
+            ("chunk-mid", "mid content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-far", new[] { 0.0f, 1.0f }),
+            ("chunk-near", new[] { float.NaN, 0.0f }),
+            ("chunk-mid", new[] { 0.8f, 0.6f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "alpha question",
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Local,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
+    }
+
     private static TestHarness CreateHarness(LightRAGOptions? options = null)
     {
         var embeddingService = Substitute.For<IEmbeddingService>();
