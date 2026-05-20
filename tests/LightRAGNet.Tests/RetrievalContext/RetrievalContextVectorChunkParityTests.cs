@@ -153,6 +153,52 @@ public sealed class RetrievalContextVectorChunkParityTests
     }
 
     [Fact]
+    public async Task BuildQueryContextAsync_WhenQueryEmbeddingFails_FallsBackToWeightedPolling()
+    {
+        var harness = CreateHarness(failingQuery: "alpha question");
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            },
+            Content = "Alpha entity"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["source_id"] = $"chunk-far{Sep}chunk-near{Sep}chunk-mid"
+        });
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far content", "docs/far.md"),
+            ("chunk-near", "near content", "docs/near.md"),
+            ("chunk-mid", "mid content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-far", new[] { 0.0f, 1.0f }),
+            ("chunk-near", new[] { 1.0f, 0.0f }),
+            ("chunk-mid", new[] { 0.8f, 0.6f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "alpha question",
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Local,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
+        harness.VectorStore.GetByIdsCalls.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BuildQueryContextAsync_WhenKgChunkPickMethodWeight_DoesNotReadChunkVectors()
     {
         var harness = CreateHarness(new LightRAGOptions
@@ -234,6 +280,38 @@ public sealed class RetrievalContextVectorChunkParityTests
     }
 
     [Fact]
+    public async Task BuildQueryContextAsync_WhenRelationQueryEmbeddingFails_FallsBackToWeightedPolling()
+    {
+        var harness = CreateHarness(failingQuery: "relation question");
+        SeedGlobalRelation(harness, relationSourceId: $"chunk-far{Sep}chunk-near{Sep}chunk-mid");
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far relation content", "docs/far.md"),
+            ("chunk-near", "near relation content", "docs/near.md"),
+            ("chunk-mid", "mid relation content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-far", new[] { 0.0f, 1.0f }),
+            ("chunk-near", new[] { 1.0f, 0.0f }),
+            ("chunk-mid", new[] { 0.8f, 0.6f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "relation question",
+            new KeywordsResult { HighLevelKeywords = ["relation"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Global,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
+        harness.VectorStore.GetByIdsCalls.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BuildQueryContextAsync_WhenRelationVectorChunksOverlapEntityChunks_ExcludesEntityChunks()
     {
         var harness = CreateHarness();
@@ -293,11 +371,19 @@ public sealed class RetrievalContextVectorChunkParityTests
         chunkIds.Should().OnlyHaveUniqueItems();
     }
 
-    private static TestHarness CreateHarness(LightRAGOptions? options = null)
+    private static TestHarness CreateHarness(LightRAGOptions? options = null, string? failingQuery = null)
     {
         var embeddingService = Substitute.For<IEmbeddingService>();
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns([1.0f, 0.0f]);
+            .Returns(call =>
+            {
+                if (call.ArgAt<string>(0) == failingQuery)
+                {
+                    throw new InvalidOperationException("Query embedding failed.");
+                }
+
+                return [1.0f, 0.0f];
+            });
 
         var vectorStore = new InMemoryVectorStore();
         var graphStore = new InMemoryGraphStore();

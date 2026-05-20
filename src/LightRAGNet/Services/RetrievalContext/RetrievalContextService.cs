@@ -435,6 +435,11 @@ public class RetrievalContextService(
                     totalEntityChunks);
             }
         }
+        else if (kgChunkPickMethod == "VECTOR")
+        {
+            _logger.LogWarning("Entity-related vector chunk selection is unavailable, falling back to WEIGHT method");
+            kgChunkPickMethod = "WEIGHT";
+        }
         
         if (kgChunkPickMethod == "WEIGHT")
         {
@@ -616,6 +621,11 @@ public class RetrievalContextService(
                     selectedChunkIds.Count,
                     totalRelationChunks);
             }
+        }
+        else if (kgChunkPickMethod == "VECTOR")
+        {
+            _logger.LogWarning("Relation-related vector chunk selection is unavailable, falling back to WEIGHT method");
+            kgChunkPickMethod = "WEIGHT";
         }
         
         if (kgChunkPickMethod == "WEIGHT")
