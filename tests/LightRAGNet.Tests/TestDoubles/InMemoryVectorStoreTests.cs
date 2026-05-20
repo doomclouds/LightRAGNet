@@ -38,10 +38,11 @@ public sealed class InMemoryVectorStoreTests
 
         var secondRead = await store.GetByIdsAsync("chunks", ["chunk-b", "chunk-a"]);
 
-        store.GetByIdsCalls.Should().BeEquivalentTo([
-            ("chunks", new[] { "chunk-a", "missing" }),
-            ("chunks", new[] { "chunk-b", "chunk-a" })
-        ]);
+        store.GetByIdsCalls.Should().HaveCount(2);
+        store.GetByIdsCalls[0].Collection.Should().Be("chunks");
+        store.GetByIdsCalls[0].Ids.Should().Equal("chunk-a", "missing");
+        store.GetByIdsCalls[1].Collection.Should().Be("chunks");
+        store.GetByIdsCalls[1].Ids.Should().Equal("chunk-b", "chunk-a");
         secondRead.Select(document => document.Id).Should().Equal("chunk-b", "chunk-a");
         secondRead[1].Vector.Should().Equal(1.0f, 0.0f);
         secondRead[1].Metadata["file_path"].Should().Be("docs/a.md");
