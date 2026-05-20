@@ -415,9 +415,25 @@ public class RetrievalContextService(
         
         if (kgChunkPickMethod == "VECTOR" && !string.IsNullOrEmpty(query) && queryEmbedding != null)
         {
-            // VECTOR mode: use vector similarity selection (simplified implementation, use WEIGHT as fallback)
-            _logger.LogWarning("VECTOR chunk pick method not fully implemented, falling back to WEIGHT");
-            kgChunkPickMethod = "WEIGHT";
+            var numOfChunks = (int)(maxRelatedChunks * sortedEntities.Count / 2.0);
+            selectedChunkIds = await PickByVectorSimilarityAsync(
+                sortedEntities.Select(entity => entity.SortedChunks).ToList(),
+                numOfChunks,
+                queryEmbedding,
+                cancellationToken);
+
+            if (selectedChunkIds.Count == 0)
+            {
+                _logger.LogWarning("No entity-related chunks selected by vector similarity, falling back to WEIGHT method");
+                kgChunkPickMethod = "WEIGHT";
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Selecting {SelectedCount} from {TotalCount} entity-related chunks by vector similarity",
+                    selectedChunkIds.Count,
+                    totalEntityChunks);
+            }
         }
         
         if (kgChunkPickMethod == "WEIGHT")
@@ -641,6 +657,96 @@ public class RetrievalContextService(
     /// Reference: Python version pick_by_weighted_polling function
     /// Linear gradient weighted polling algorithm, ensuring entities/relationships with higher importance get more text chunks
     /// </summary>
+    private async Task<List<string>> PickByVectorSimilarityAsync(
+        IReadOnlyCollection<List<string>> sortedChunkGroups,
+        int numOfChunks,
+        float[] queryEmbedding,
+        CancellationToken cancellationToken)
+    {
+        if (sortedChunkGroups.Count == 0 || numOfChunks <= 0 || queryEmbedding.Length == 0)
+        {
+            return [];
+        }
+
+        var uniqueChunkIds = sortedChunkGroups
+            .SelectMany(group => group)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (uniqueChunkIds.Count == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            var documents = await vectorStore.GetByIdsAsync("chunks", uniqueChunkIds, cancellationToken);
+            if (documents.Count != uniqueChunkIds.Count)
+            {
+                _logger.LogWarning(
+                    "Vector chunk selection expected {ExpectedCount} vectors but found {ActualCount}. Falling back to WEIGHT.",
+                    uniqueChunkIds.Count,
+                    documents.Count);
+                return [];
+            }
+
+            var vectorsById = documents.ToDictionary(document => document.Id, StringComparer.Ordinal);
+            var similarities = new List<(string ChunkId, double Similarity)>();
+            foreach (var chunkId in uniqueChunkIds)
+            {
+                if (!vectorsById.TryGetValue(chunkId, out var document) ||
+                    !TryCosineSimilarity(queryEmbedding, document.Vector, out var similarity))
+                {
+                    _logger.LogWarning(
+                        "Vector chunk selection could not compute similarity for chunk {ChunkId}. Falling back to WEIGHT.",
+                        chunkId);
+                    return [];
+                }
+
+                similarities.Add((chunkId, similarity));
+            }
+
+            return similarities
+                .OrderByDescending(item => item.Similarity)
+                .Take(numOfChunks)
+                .Select(item => item.ChunkId)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Vector chunk selection failed. Falling back to WEIGHT.");
+            return [];
+        }
+    }
+
+    private static bool TryCosineSimilarity(float[] left, float[] right, out double similarity)
+    {
+        similarity = 0;
+        if (left.Length == 0 || right.Length == 0 || left.Length != right.Length)
+        {
+            return false;
+        }
+
+        double dot = 0;
+        double leftNorm = 0;
+        double rightNorm = 0;
+        for (var i = 0; i < left.Length; i++)
+        {
+            dot += left[i] * right[i];
+            leftNorm += left[i] * left[i];
+            rightNorm += right[i] * right[i];
+        }
+
+        if (leftNorm <= 0 || rightNorm <= 0)
+        {
+            return false;
+        }
+
+        similarity = dot / (Math.Sqrt(leftNorm) * Math.Sqrt(rightNorm));
+        return true;
+    }
+
     private List<string> PickByWeightedPolling(
         List<(string Key, List<string> SortedChunks)> itemsWithChunks,
         int maxRelatedChunks,
