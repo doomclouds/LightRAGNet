@@ -23,6 +23,11 @@ public class LightRAGOptions
     /// Enables keyword extraction cache entries.
     /// </summary>
     public bool EnableKeywordCache { get; set; } = true;
+
+    /// <summary>
+    /// Enables indexing-stage LLM cache for entity extraction and graph summaries.
+    /// </summary>
+    public bool EnableLlmCacheForEntityExtract { get; set; } = true;
     
     /// <summary>
     /// Chunk token size

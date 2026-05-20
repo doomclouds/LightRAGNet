@@ -86,7 +86,7 @@ public sealed class LightRAGLifecycleIntegrationTests
     }
 
     [Fact]
-    public async Task InsertAsync_ProcessedLifecycleStatusWithMissingChunkVectors_RebuildsVectorsFromChunkCache()
+    public async Task InsertAsync_ProcessedLifecycleStatusWithMissingChunkVectors_RebuildsVectorsWithExtractCache()
     {
         var content = "alpha beta gamma delta epsilon";
         var docId = "doc-repair";
@@ -118,15 +118,20 @@ public sealed class LightRAGLifecycleIntegrationTests
         ]);
         await lifecycleService.MarkProcessedAsync("workspace-a", docId);
         var llmCacheStore = new InMemoryKvStore();
-        llmCacheStore.Seed(firstChunkId, CreateCachedChunkResult(firstChunkId, [1.0f, 0.5f]));
-        llmCacheStore.Seed(secondChunkId, CreateCachedChunkResult(secondChunkId, [0.5f, 1.0f]));
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        SeedExtractCache(llmCacheStore, cacheKeyBuilder, "t1 t2 t3", firstChunkId);
+        SeedExtractCache(llmCacheStore, cacheKeyBuilder, "t1 t2 t3 t5", secondChunkId);
         var vectorStore = new InMemoryVectorStore();
         var llmService = Substitute.For<ILLMService>();
+        var embeddingService = Substitute.For<IEmbeddingService>();
+        embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([1.0f, 0.5f]);
         var rag = CreateLightRag(
             lifecycleService,
             vectorStore: vectorStore,
             llmCacheStore: llmCacheStore,
-            llmService: llmService);
+            llmService: llmService,
+            embeddingService: embeddingService);
 
         var result = await rag.InsertAsync(content, docId: docId, filePath: "replacement.md");
 
@@ -138,13 +143,16 @@ public sealed class LightRAGLifecycleIntegrationTests
             call.Collection == "chunks" &&
             call.Documents.Select(document => document.Id).ToHashSet(StringComparer.Ordinal)
                 .SetEquals(expectedChunkIds));
-        await llmService.DidNotReceiveWithAnyArgs().ExtractEntitiesAsync(
+        await llmService.DidNotReceiveWithAnyArgs().GenerateAsync(
             default!,
             default!,
             default,
             default,
             default,
             default);
+        await embeddingService.Received().GenerateEmbeddingAsync(
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -224,6 +232,61 @@ public sealed class LightRAGLifecycleIntegrationTests
         status.ChunksCount.Should().Be(2);
         status.ChunksList.Should().HaveCount(2);
         status.ChunkSnapshots.Should().OnlyContain(snapshot => snapshot.FilePath == "new.md");
+    }
+
+    [Fact]
+    public async Task InsertAsync_WritesExtractCacheKeysToTextChunks()
+    {
+        var textChunksStore = new InMemoryKvStore();
+        var llmCacheStore = new InMemoryKvStore();
+        var llmService = Substitute.For<ILLMService>();
+        llmService.GenerateAsync(
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<List<Microsoft.Extensions.AI.ChatMessage>?>(),
+                Arg.Any<float>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns("entity<|#|>Alpha<|#|>Concept<|#|>Alpha description\n<|COMPLETE|>");
+        var rag = CreateLightRag(
+            CreateLifecycleService(new InMemoryDocumentStatusStore()),
+            textChunksStore: textChunksStore,
+            llmCacheStore: llmCacheStore,
+            llmService: llmService);
+
+        await rag.InsertAsync("alpha beta gamma", docId: "doc-cache-list", filePath: "alpha.md");
+
+        textChunksStore.Items.Should().NotBeEmpty();
+        var chunk = textChunksStore.Items.Values.Single();
+        chunk.Should().ContainKey("llm_cache_list");
+        var cacheKeys = chunk["llm_cache_list"].Should().BeAssignableTo<List<object>>().Subject;
+        cacheKeys.Should().ContainSingle(key =>
+            key.ToString()!.StartsWith("default:extract:", StringComparison.Ordinal));
+        llmCacheStore.Items.Should().ContainKey(cacheKeys.Single().ToString()!);
+    }
+
+    [Fact]
+    public async Task InsertAsync_WhenExtractCacheDisabled_WritesEmptyLlmCacheListToTextChunks()
+    {
+        var textChunksStore = new InMemoryKvStore();
+        var options = Options.Create(new LightRAGOptions
+        {
+            Workspace = "workspace-a",
+            ChunkTokenSize = 5,
+            ChunkOverlapTokenSize = 1,
+            EnableLlmCacheForEntityExtract = false
+        });
+        var rag = CreateLightRag(
+            CreateLifecycleService(new InMemoryDocumentStatusStore()),
+            textChunksStore: textChunksStore,
+            options: options);
+
+        await rag.InsertAsync("alpha beta gamma", docId: "doc-cache-disabled", filePath: "alpha.md");
+
+        textChunksStore.Items.Should().NotBeEmpty();
+        var chunk = textChunksStore.Items.Values.Single();
+        chunk.Should().ContainKey("llm_cache_list");
+        chunk["llm_cache_list"].Should().BeAssignableTo<List<object>>().Subject.Should().BeEmpty();
     }
 
     [Fact]
@@ -407,9 +470,10 @@ public sealed class LightRAGLifecycleIntegrationTests
         ITokenizer? tokenizer = null,
         IEmbeddingService? embeddingService = null,
         IKVStore? llmCacheStore = null,
-        ILLMService? llmService = null)
+        ILLMService? llmService = null,
+        IOptions<LightRAGOptions>? options = null)
     {
-        var options = Options.Create(new LightRAGOptions
+        options ??= Options.Create(new LightRAGOptions
         {
             Workspace = "workspace-a",
             ChunkTokenSize = 3,
@@ -418,14 +482,14 @@ public sealed class LightRAGLifecycleIntegrationTests
         tokenizer ??= new FakeTokenizer();
 
         llmService ??= Substitute.For<ILLMService>();
-        llmService.ExtractEntitiesAsync(
+        llmService.GenerateAsync(
                 Arg.Any<string>(),
-                Arg.Any<List<string>>(),
+                Arg.Any<string?>(),
+                Arg.Any<List<Microsoft.Extensions.AI.ChatMessage>?>(),
                 Arg.Any<float>(),
-                Arg.Any<int?>(),
-                Arg.Any<int?>(),
+                Arg.Any<bool>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new EntityExtractionResult());
+            .Returns("<|COMPLETE|>");
 
         if (embeddingService is null)
         {
@@ -444,12 +508,19 @@ public sealed class LightRAGLifecycleIntegrationTests
         var entityChunksStore = Substitute.For<IKVStore>();
         var relationChunksStore = Substitute.For<IKVStore>();
         llmCacheStore ??= Substitute.For<IKVStore>();
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            llmCacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -465,6 +536,7 @@ public sealed class LightRAGLifecycleIntegrationTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
@@ -491,12 +563,6 @@ public sealed class LightRAGLifecycleIntegrationTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var llmCacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         return new LightRAG(
             llmService,
             vectorStore,
@@ -528,15 +594,37 @@ public sealed class LightRAGLifecycleIntegrationTests
             NullLogger<DocumentLifecycleService>.Instance);
     }
 
-    private static Dictionary<string, object> CreateCachedChunkResult(string chunkId, IReadOnlyList<float> embedding)
+    private static void SeedExtractCache(
+        InMemoryKvStore store,
+        LightRagCacheKeyBuilder keyBuilder,
+        string content,
+        string chunkId)
     {
-        return new Dictionary<string, object>
-        {
-            ["chunk_id"] = chunkId,
-            ["embedding"] = embedding.Select(value => (object)value).ToList(),
-            ["entities"] = new List<object>(),
-            ["relationships"] = new List<object>()
-        };
+        var prompt = EntityExtractionPromptBuilder.Build(
+            content,
+            DefaultEntityTypes(),
+            maxEntities: 45,
+            maxRelationships: 60);
+
+        store.Seed(
+            keyBuilder.BuildExtractKey(prompt.CanonicalPrompt),
+            new LightRagCacheEntry(
+                "<|COMPLETE|>",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                prompt.CanonicalPrompt,
+                null,
+                123,
+                chunkId)
+            .ToDictionary());
+    }
+
+    private static List<string> DefaultEntityTypes()
+    {
+        return
+        [
+            "Person", "Creature", "Organization", "Location", "Event",
+            "Concept", "Method", "Content", "Data", "Artifact", "NaturalObject"
+        ];
     }
 
     private sealed class ThrowingTokenizer : ITokenizer

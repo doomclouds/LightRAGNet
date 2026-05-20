@@ -20,6 +20,11 @@ public static class LightRAGJsonOptions
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    public static readonly JsonSerializerOptions Compact = new(HumanReadable)
+    {
+        WriteIndented = false
+    };
+
     public static readonly JsonSerializerOptions HumanReadableCamelCaseIndented = new(HumanReadableCamelCase)
     {
         WriteIndented = true

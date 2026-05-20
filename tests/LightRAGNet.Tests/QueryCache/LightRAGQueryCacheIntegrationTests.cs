@@ -340,10 +340,11 @@ public sealed class LightRAGQueryCacheIntegrationTests
         var relationChunksStore = new InMemoryKvStore();
         var llmCacheStore = new InMemoryKvStore();
         llmService ??= Substitute.For<ILLMService>();
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
         var cacheService = new LightRagLlmCacheService(
             llmCacheStore,
             optionsMonitor,
-            new LightRagCacheKeyBuilder(),
+            cacheKeyBuilder,
             NullLogger<LightRagLlmCacheService>.Instance);
         var statusStore = Substitute.For<IDocumentStatusStore>();
         var lifecycleService = new DocumentLifecycleService(
@@ -355,7 +356,8 @@ public sealed class LightRAGQueryCacheIntegrationTests
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            cacheService,
+            cacheKeyBuilder,
             optionsMonitor,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -371,6 +373,7 @@ public sealed class LightRAGQueryCacheIntegrationTests
             entityChunksStore,
             relationChunksStore,
             optionsMonitor,
+            cacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 

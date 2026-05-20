@@ -10,6 +10,47 @@ namespace LightRAGNet.Tests.QueryCache;
 public sealed class LightRagLlmCacheServiceTests
 {
     [Fact]
+    public void LightRagCacheEntry_ToDictionary_IncludesChunkIdWhenPresent()
+    {
+        var entry = new LightRagCacheEntry(
+            "raw extract response",
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            "canonical prompt",
+            null,
+            123,
+            "chunk-a");
+
+        var data = entry.ToDictionary();
+
+        data["return"].Should().Be("raw extract response");
+        data["cache_type"].Should().Be("extract");
+        data["chunk_id"].Should().Be("chunk-a");
+        data["original_prompt"].Should().Be("canonical prompt");
+        data["queryparam"].Should().BeNull();
+        data["create_time"].Should().Be(123);
+    }
+
+    [Fact]
+    public void LightRagCacheEntry_TryFromDictionary_ReadsNullChunkId()
+    {
+        var data = new Dictionary<string, object>
+        {
+            ["return"] = "summary",
+            ["cache_type"] = LightRagCacheKeyBuilder.SummaryCacheType,
+            ["chunk_id"] = null!,
+            ["original_prompt"] = "summary prompt",
+            ["queryparam"] = null!,
+            ["create_time"] = 456
+        };
+
+        var ok = LightRagCacheEntry.TryFromDictionary(data, out var entry);
+
+        ok.Should().BeTrue();
+        entry.ChunkId.Should().BeNull();
+        entry.CacheType.Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+    }
+
+    [Fact]
     public async Task TryGetKeywordsAsync_WhenCacheHit_ReturnsKeywords()
     {
         var store = new InMemoryKvStore();
@@ -125,6 +166,140 @@ public sealed class LightRagLlmCacheServiceTests
             "enable_rerank",
             "workspace_query_revision");
         queryParamSnapshot["workspace_query_revision"].Should().Be(2L);
+    }
+
+    [Fact]
+    public async Task TryGetExtractAsync_WhenCacheHit_ReturnsRawResponse()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        const string canonicalPrompt = "canonical extract prompt";
+        var key = keyBuilder.BuildExtractKey(canonicalPrompt);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                "raw extract response",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                canonicalPrompt,
+                null,
+                123,
+                "chunk-a")
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder);
+
+        var result = await service.TryGetExtractAsync(canonicalPrompt);
+
+        result.Should().Be("raw extract response");
+    }
+
+    [Fact]
+    public async Task SaveExtractAsync_PersistsPythonStyleEntry()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var service = CreateService(store, keyBuilder: keyBuilder);
+        const string canonicalPrompt = "canonical extract prompt";
+
+        var key = await service.SaveExtractAsync(canonicalPrompt, "raw extract response", "chunk-a");
+
+        key.Should().Be(keyBuilder.BuildExtractKey(canonicalPrompt));
+        store.Items.Should().ContainKey(key!);
+        var entry = store.Items[key!];
+        entry["cache_type"].Should().Be(LightRagCacheKeyBuilder.ExtractCacheType);
+        entry["chunk_id"].Should().Be("chunk-a");
+        entry["original_prompt"].Should().Be(canonicalPrompt);
+        entry["return"].Should().Be("raw extract response");
+    }
+
+    [Fact]
+    public async Task TryGetExtractAsync_WhenIndexingCacheDisabled_DoesNotReadStore()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        const string canonicalPrompt = "canonical extract prompt";
+        store.Seed(
+            keyBuilder.BuildExtractKey(canonicalPrompt),
+            new LightRagCacheEntry(
+                "raw extract response",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                canonicalPrompt,
+                null,
+                123,
+                "chunk-a")
+            .ToDictionary());
+        var service = CreateService(
+            store,
+            new LightRAGOptions
+            {
+                EnableLlmCache = true,
+                EnableLlmCacheForEntityExtract = false
+            },
+            keyBuilder);
+
+        var result = await service.TryGetExtractAsync(canonicalPrompt);
+
+        result.Should().BeNull();
+        store.GetByIdCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveExtractAsync_WhenGlobalCacheDisabled_DoesNotWriteStore()
+    {
+        var store = new InMemoryKvStore();
+        var service = CreateService(
+            store,
+            new LightRAGOptions
+            {
+                EnableLlmCache = false,
+                EnableLlmCacheForEntityExtract = true
+            });
+
+        var key = await service.SaveExtractAsync("canonical extract prompt", "raw extract response", "chunk-a");
+
+        key.Should().BeNull();
+        store.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveSummaryAsync_PersistsChunkIdAsNull()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var service = CreateService(store, keyBuilder: keyBuilder);
+        const string canonicalPrompt = "canonical summary prompt";
+
+        var key = await service.SaveSummaryAsync(canonicalPrompt, "summary result");
+
+        key.Should().Be(keyBuilder.BuildSummaryKey(canonicalPrompt));
+        store.Items.Should().ContainKey(key!);
+        var entry = store.Items[key!];
+        entry["cache_type"].Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+        entry["chunk_id"].Should().BeNull();
+        entry["original_prompt"].Should().Be(canonicalPrompt);
+        entry["return"].Should().Be("summary result");
+    }
+
+    [Fact]
+    public async Task TryGetSummaryAsync_WhenCacheTypeMismatch_ReturnsNull()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        const string canonicalPrompt = "canonical summary prompt";
+        store.Seed(
+            keyBuilder.BuildSummaryKey(canonicalPrompt),
+            new LightRagCacheEntry(
+                "raw extract response",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                canonicalPrompt,
+                null,
+                123,
+                "chunk-a")
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder);
+
+        var result = await service.TryGetSummaryAsync(canonicalPrompt);
+
+        result.Should().BeNull();
     }
 
     [Fact]

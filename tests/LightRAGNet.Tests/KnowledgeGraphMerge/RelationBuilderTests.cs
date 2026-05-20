@@ -5,6 +5,7 @@ using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.KnowledgeGraphMerge;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -67,6 +68,11 @@ public sealed class RelationBuilderTests
                 llmService,
                 tokenizer,
                 options,
+                new LightRagLlmCacheService(
+                    new InMemoryKvStore(),
+                    options,
+                    new LightRagCacheKeyBuilder(),
+                    NullLogger<LightRagLlmCacheService>.Instance),
                 NullLogger<DescriptionMerger>.Instance),
             new SourceIdsLimiter(options, NullLogger<SourceIdsLimiter>.Instance),
             options,

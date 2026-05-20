@@ -279,12 +279,19 @@ public sealed class LightRAGQueryRevisionTests
         var entityChunksStore = new InMemoryKvStore();
         var relationChunksStore = new InMemoryKvStore();
         var llmCacheStore = new InMemoryKvStore();
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var cacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            cacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -300,6 +307,7 @@ public sealed class LightRAGQueryRevisionTests
             entityChunksStore,
             relationChunksStore,
             options,
+            cacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
@@ -326,12 +334,6 @@ public sealed class LightRAGQueryRevisionTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var cacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         var rag = new LightRAG(
             llmService,
             vectorStore,

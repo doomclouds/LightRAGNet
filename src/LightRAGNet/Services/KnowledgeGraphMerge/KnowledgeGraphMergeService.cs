@@ -3,6 +3,7 @@ using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Models;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,7 @@ public class KnowledgeGraphMergeService
         [FromKeyedServices(KVContracts.RelationChunks)]
         IKVStore relationChunksStore,
         IOptions<LightRAGOptions> options,
+        LightRagLlmCacheService llmCacheService,
         ILogger<KnowledgeGraphMergeService> logger,
         ILoggerFactory loggerFactory)
     {
@@ -66,6 +68,7 @@ public class KnowledgeGraphMergeService
             llmService,
             tokenizer,
             options,
+            llmCacheService,
             _loggerFactory.CreateLogger<DescriptionMerger>());
 
         var sourceIdsLimiter = new SourceIdsLimiter(

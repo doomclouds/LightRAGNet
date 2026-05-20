@@ -164,12 +164,19 @@ public sealed class LightRAGStateProcessorTests
             new InMemoryDocumentStatusStore(),
             options,
             NullLogger<DocumentLifecycleService>.Instance);
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            llmCacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -185,6 +192,7 @@ public sealed class LightRAGStateProcessorTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
@@ -211,12 +219,6 @@ public sealed class LightRAGStateProcessorTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var llmCacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         return new LightRAG(
             llmService,
             vectorStore,

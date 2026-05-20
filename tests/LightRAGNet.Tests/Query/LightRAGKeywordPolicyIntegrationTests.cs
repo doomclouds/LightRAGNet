@@ -118,12 +118,19 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([1.0f, 0.5f]);
         vectorStore ??= Substitute.For<IVectorStore>();
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            llmCacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -139,6 +146,7 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             entityChunksStore,
             relationChunksStore,
             options,
+            llmCacheService,
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
@@ -165,12 +173,6 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var llmCacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         return new LightRAG(
             llmService,
             vectorStore,
