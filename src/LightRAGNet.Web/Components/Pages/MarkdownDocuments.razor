@@ -6,6 +6,7 @@
 @inject RagTaskNotificationService NotificationService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject ILogger<MarkdownDocuments> Logger
 @implements IAsyncDisposable
 
 <PageTitle>Markdown Document List</PageTitle>
@@ -142,6 +143,14 @@
     private readonly AsyncDebouncer _reloadDebouncer = new();
     private readonly TimeSpan _debounceDelay = TimeSpan.FromMilliseconds(240); // Debounce delay time: 240ms
 
+    private enum DocumentRefreshReason
+    {
+        DataCleared,
+        DeleteCompleted,
+        CurrentPageDepleted,
+        TaskStatusFinalized
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Ensure SignalR connection is initialized (managed by MainLayout, here only ensure connection)
@@ -191,7 +200,7 @@
         {
             _documents = [];
             _totalCount = 0;
-            await DebouncedReloadServerDataAsync();
+            await RefreshDocumentsAsync(DocumentRefreshReason.DataCleared);
         });
     }
 
@@ -199,73 +208,51 @@
     {
         if (update.OperationType == "DeleteDocument")
         {
-            await InvokeAsync(async () =>
-            {
-                var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
-
-                if (update.Status == "Completed")
-                {
-                    RemoveDocumentFromCurrentPage(update.DocumentId);
-                    await DebouncedReloadServerDataAsync();
-                    return;
-                }
-
-                if (document == null)
-                    return;
-
-                if (update.Status == "Failed")
-                {
-                    document.RagStatus = "DeletionFailed";
-                    document.RagErrorMessage = update.ErrorMessage;
-                    Snackbar.Add($"Document deletion failed: {GetShortErrorMessage(update.ErrorMessage)}", Severity.Error);
-                    StateHasChanged();
-                    return;
-                }
-
-                document.RagStatus = "Deleting";
-                document.RagCurrentStage = update.CurrentStage;
-                StateHasChanged();
-            });
+            await InvokeAsync(async () => await HandleDeleteTaskStatusUpdateAsync(update));
             return;
         }
 
-        // Update corresponding document status in document list
-        var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
-        if (document != null)
+        await InvokeAsync(async () => await HandleIndexTaskStatusUpdateAsync(update));
+    }
+
+    private async Task HandleDeleteTaskStatusUpdateAsync(TaskStatusUpdate update)
+    {
+        if (update.Status == "Completed")
         {
-            var oldStatus = document.RagStatus;
-            document.RagStatus = update.Status;
-            document.RagCurrentStage = update.CurrentStage;
-                
-            // Update progress in ProcessingChunks, MergingEntities, MergingRelations stages
-            // Other stages don't update progress, keep previous value
-            if (update.CurrentStage is "ProcessingChunks" or "MergingEntities" or "MergingRelations")
-            {
-                document.RagProgress = update.Progress;
-            }
-                
-            // If task is completed, update related status
-            if (update.Status == "Completed")
-            {
-                document.IsInRagSystem = true;
-                document.RagAddedTime = update.CompletedAt ?? DateTime.UtcNow;
-            }
-                
-            // If task status changes to final status (Completed or Failed), need to reload list to re-sort
-            if (update.Status is "Completed" or "Failed" && 
-                oldStatus is "Processing" or "Pending")
-            {
-                // Use debounce mechanism to trigger MudTable to reload data
-                await InvokeAsync(async () =>
-                {
-                    await DebouncedReloadServerDataAsync();
-                });
-            }
-            else
-            {
-                await InvokeAsync(StateHasChanged);
-            }
+            RemoveDocumentFromCurrentPage(update.DocumentId);
+            await RefreshDocumentsAsync(DocumentRefreshReason.DeleteCompleted);
+            return;
         }
+
+        var oldStatus = ApplyTaskStatusUpdate(update);
+        if (oldStatus is null)
+        {
+            return;
+        }
+
+        if (update.Status == "Failed")
+        {
+            Snackbar.Add($"Document deletion failed: {GetShortErrorMessage(update.ErrorMessage)}", Severity.Error);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleIndexTaskStatusUpdateAsync(TaskStatusUpdate update)
+    {
+        var oldStatus = ApplyTaskStatusUpdate(update);
+        if (oldStatus is null)
+        {
+            return;
+        }
+
+        if (ShouldRefreshForTaskStatus(update, oldStatus))
+        {
+            await RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized);
+            return;
+        }
+
+        StateHasChanged();
     }
 
     private async Task<TableData<MarkdownDocumentDto>> ServerReload(TableState state, CancellationToken cancellationToken = default)
@@ -287,6 +274,10 @@
                 _totalCount = 0;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Logger.LogDebug("Document list reload was cancelled");
+        }
         catch (HttpRequestException ex) when 
             (ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.ConnectionRefused })
         {
@@ -296,6 +287,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogWarning(ex, "Failed to load markdown document list");
             Snackbar.Add($"Failed to load document list: {ex.Message}", Severity.Error);
             _documents = [];
             _totalCount = 0;
@@ -337,6 +329,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogWarning(ex, "Failed to load markdown document: DocumentId={DocumentId}", id);
             Snackbar.Add($"Failed to load document: {ex.Message}", Severity.Error);
         }
     }
@@ -419,7 +412,7 @@
                     if (_documents.Count == 0 && remainingCount > 0)
                     {
                         // Use debounce mechanism to trigger MudTable to reload data (will automatically jump to appropriate page)
-                        await DebouncedReloadServerDataAsync();
+                        await RefreshDocumentsAsync(DocumentRefreshReason.CurrentPageDepleted);
                     }
                     else
                     {
@@ -496,20 +489,9 @@
 
                 if (document != null)
                 {
-                    // Update document status in local list
-                    var localDocument = _documents?.FirstOrDefault(d => d.Id == id);
-                    if (localDocument != null)
-                    {
-                        localDocument.RagStatus = document.RagStatus;
-                        localDocument.RagProgress = document.RagProgress;
-                        localDocument.IsInRagSystem = document.IsInRagSystem;
-                        localDocument.RagAddedTime = document.RagAddedTime;
-                    }
-
+                    ApplyAddToRagResult(id, document);
                     Snackbar.Add("Document added to RAG system, processing...", Severity.Success);
-                    
-                    // Use debounce mechanism to trigger refresh and re-sort
-                    await DebouncedReloadServerDataAsync();
+                    StateHasChanged();
                 }
                 else
                 {
@@ -535,11 +517,70 @@
         return $"{baseUrl.TrimEnd('/')}{fileUrl}";
     }
 
+    private string? ApplyTaskStatusUpdate(TaskStatusUpdate update)
+    {
+        var document = _documents?.FirstOrDefault(d => d.Id == update.DocumentId);
+        if (document == null)
+        {
+            return null;
+        }
+
+        var oldStatus = document.RagStatus;
+        if (update.OperationType == "DeleteDocument")
+        {
+            document.RagStatus = update.Status == "Failed" ? "DeletionFailed" : "Deleting";
+            document.RagErrorMessage = update.ErrorMessage;
+            document.RagCurrentStage = update.CurrentStage;
+            return oldStatus;
+        }
+
+        document.RagStatus = update.Status;
+        document.RagCurrentStage = update.CurrentStage;
+
+        // Update progress in ProcessingChunks, MergingEntities, MergingRelations stages.
+        // Other stages don't update progress, keep previous value.
+        if (update.CurrentStage is "ProcessingChunks" or "MergingEntities" or "MergingRelations")
+        {
+            document.RagProgress = update.Progress;
+        }
+
+        if (update.Status == "Completed")
+        {
+            document.IsInRagSystem = true;
+            document.RagAddedTime = update.CompletedAt ?? DateTime.UtcNow;
+        }
+
+        return oldStatus;
+    }
+
+    private static bool ShouldRefreshForTaskStatus(TaskStatusUpdate update, string? oldStatus)
+    {
+        return update.Status is "Completed" or "Failed" &&
+               oldStatus is "Processing" or "Pending";
+    }
+
+    private void ApplyAddToRagResult(int id, MarkdownDocumentDto document)
+    {
+        var localDocument = _documents?.FirstOrDefault(d => d.Id == id);
+        if (localDocument == null)
+        {
+            return;
+        }
+
+        localDocument.RagStatus = document.RagStatus;
+        localDocument.RagProgress = document.RagProgress;
+        localDocument.IsInRagSystem = document.IsInRagSystem;
+        localDocument.RagAddedTime = document.RagAddedTime;
+        localDocument.RagErrorMessage = document.RagErrorMessage;
+        localDocument.RagCurrentStage = document.RagCurrentStage;
+    }
+
     /// <summary>
     /// Debounce executor: when multiple update requests are received within specified time, only execute the last update
     /// </summary>
-    private async Task DebouncedReloadServerDataAsync()
+    private async Task RefreshDocumentsAsync(DocumentRefreshReason reason)
     {
+        Logger.LogDebug("Scheduling markdown document list refresh: Reason={Reason}", reason);
         await _reloadDebouncer.DebounceAsync(
             _debounceDelay,
             async cancellationToken =>
