@@ -157,7 +157,9 @@ public class LightRAG(
         docId = ingestion.DocId;
         filePath = ingestion.StatusRecord.FilePath;
 
-        if (ingestion.IsDuplicate && ingestion.StatusRecord.Status == DocumentLifecycleStatus.Processed)
+        if (ingestion.IsDuplicate &&
+            ingestion.StatusRecord.Status == DocumentLifecycleStatus.Processed &&
+            await HasCompleteChunkVectorsAsync(ingestion.StatusRecord, cancellationToken))
         {
             logger.LogWarning("Document {DocId} already exists", docId);
             PostTaskState(new TaskState
@@ -169,6 +171,13 @@ public class LightRAG(
                 DocId = docId
             });
             return docId;
+        }
+
+        if (ingestion.IsDuplicate && ingestion.StatusRecord.Status == DocumentLifecycleStatus.Processed)
+        {
+            logger.LogWarning(
+                "Document {DocId} is marked as processed but chunk vectors are incomplete; rebuilding indexes.",
+                docId);
         }
 
         var failureStage = "chunking";
@@ -516,6 +525,30 @@ public class LightRAG(
         }
 
         return result;
+    }
+
+    private async Task<bool> HasCompleteChunkVectorsAsync(
+        DocumentStatusRecord statusRecord,
+        CancellationToken cancellationToken)
+    {
+        var chunkIds = statusRecord.ChunksList.Count > 0
+            ? statusRecord.ChunksList
+            : statusRecord.ChunkSnapshots.Select(snapshot => snapshot.ChunkId).ToList();
+
+        if (chunkIds.Count == 0)
+        {
+            return true;
+        }
+
+        var existingVectors = await vectorStore.GetByIdsAsync(
+            "chunks",
+            chunkIds,
+            cancellationToken);
+        var existingIds = existingVectors
+            .Select(document => document.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return chunkIds.All(existingIds.Contains);
     }
 
     private static List<string> ReadStringList(Dictionary<string, object> data, string key)

@@ -17,62 +17,6 @@
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <None Remove="SKILL.md" />
-    <Content Include="SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\algorithmic-art\SKILL.md" />
-    <Content Include="skills\algorithmic-art\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\brand-guidelines\SKILL.md" />
-    <Content Include="skills\brand-guidelines\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\canvas-design\SKILL.md" />
-    <Content Include="skills\canvas-design\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\doc-coauthoring\SKILL.md" />
-    <Content Include="skills\doc-coauthoring\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\docx\SKILL.md" />
-    <Content Include="skills\docx\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\frontend-design\SKILL.md" />
-    <Content Include="skills\frontend-design\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\internal-comms\SKILL.md" />
-    <Content Include="skills\internal-comms\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\pptx\SKILL.md" />
-    <Content Include="skills\pptx\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\slack-gif-creator\SKILL.md" />
-    <Content Include="skills\slack-gif-creator\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\theme-factory\SKILL.md" />
-    <Content Include="skills\theme-factory\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\web-artifacts-builder\SKILL.md" />
-    <Content Include="skills\web-artifacts-builder\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\webapp-testing\SKILL.md" />
-    <Content Include="skills\webapp-testing\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Remove="skills\xlsx\SKILL.md" />
-    <Content Include="skills\xlsx\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 
   <ItemGroup>

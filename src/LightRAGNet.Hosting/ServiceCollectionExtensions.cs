@@ -123,7 +123,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDriver>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<Neo4JOptions>>().Value;
-            return GraphDatabase.Driver(options.Uri, AuthTokens.Basic(options.User, options.Password));
+            return GraphDatabase.Driver(options.Uri, AuthTokens.Basic(options.User, options.GetEffectivePassword()));
         });
         services.AddSingleton<IGraphStore, Neo4JGraphStore>();
 

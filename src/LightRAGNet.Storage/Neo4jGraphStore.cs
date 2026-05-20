@@ -707,6 +707,20 @@ public class Neo4JOptions
     /// Neo4j password
     /// </summary>
     public string Password { get; set; } = "password";
+
+    public string GetEffectivePassword()
+    {
+        if (!string.IsNullOrWhiteSpace(Password))
+        {
+            return Password;
+        }
+
+        return Environment.GetEnvironmentVariable("Neo4j__Password")
+               ?? Environment.GetEnvironmentVariable("NEO4J_PASSWORD")
+               ?? Environment.GetEnvironmentVariable("LIGHTRAGNET_NEO4J_PASSWORD")
+               ?? throw new InvalidOperationException(
+                   "Configure Neo4j:Password or set Neo4j__Password, NEO4J_PASSWORD, or LIGHTRAGNET_NEO4J_PASSWORD.");
+    }
     
     /// <summary>
     /// Workspace label (optional, defaults to "base" if empty)

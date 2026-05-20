@@ -43,6 +43,111 @@ public sealed class LightRAGLifecycleIntegrationTests
     }
 
     [Fact]
+    public async Task InsertAsync_ProcessedLifecycleStatusWithCompleteChunkVectors_DoesNotProcessDocument()
+    {
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = CreateLifecycleService(statusStore);
+        await lifecycleService.PrepareIngestionAsync("original content", docId: "doc-complete", filePath: "original.md");
+        await lifecycleService.RecordChunksAsync("workspace-a", "doc-complete",
+        [
+            new Chunk
+            {
+                Id = "chunk-present",
+                Content = "original",
+                FullDocId = "doc-complete",
+                FilePath = "original.md",
+                Tokens = 1,
+                ChunkOrderIndex = 0
+            }
+        ]);
+        await lifecycleService.MarkProcessedAsync("workspace-a", "doc-complete");
+        var fullDocsStore = Substitute.For<IKVStore>();
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-present",
+            Content = "original",
+            Vector = [1.0f]
+        });
+        var rag = CreateLightRag(
+            lifecycleService,
+            fullDocsStore: fullDocsStore,
+            vectorStore: vectorStore,
+            tokenizer: new ThrowingTokenizer());
+
+        var result = await rag.InsertAsync(
+            "replacement content",
+            docId: "doc-complete",
+            filePath: "replacement.md");
+
+        result.Should().Be("doc-complete");
+        vectorStore.UpsertCalls.Should().BeEmpty();
+        await fullDocsStore.DidNotReceiveWithAnyArgs().UpsertAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task InsertAsync_ProcessedLifecycleStatusWithMissingChunkVectors_RebuildsVectorsFromChunkCache()
+    {
+        var content = "alpha beta gamma delta epsilon";
+        var docId = "doc-repair";
+        var firstChunkId = HashUtils.ComputeMd5Hash("t1 t2 t3", "chunk-");
+        var secondChunkId = HashUtils.ComputeMd5Hash("t1 t2 t3 t5", "chunk-");
+        var statusStore = new InMemoryDocumentStatusStore();
+        var lifecycleService = CreateLifecycleService(statusStore);
+        await lifecycleService.PrepareIngestionAsync(content, docId: docId, filePath: "original.md");
+        await lifecycleService.RecordChunksAsync("workspace-a", docId,
+        [
+            new Chunk
+            {
+                Id = firstChunkId,
+                Content = "t1 t2 t3",
+                FullDocId = docId,
+                FilePath = "original.md",
+                Tokens = 3,
+                ChunkOrderIndex = 0
+            },
+            new Chunk
+            {
+                Id = secondChunkId,
+                Content = "t1 t2 t3 t5",
+                FullDocId = docId,
+                FilePath = "original.md",
+                Tokens = 4,
+                ChunkOrderIndex = 1
+            }
+        ]);
+        await lifecycleService.MarkProcessedAsync("workspace-a", docId);
+        var llmCacheStore = new InMemoryKvStore();
+        llmCacheStore.Seed(firstChunkId, CreateCachedChunkResult(firstChunkId, [1.0f, 0.5f]));
+        llmCacheStore.Seed(secondChunkId, CreateCachedChunkResult(secondChunkId, [0.5f, 1.0f]));
+        var vectorStore = new InMemoryVectorStore();
+        var llmService = Substitute.For<ILLMService>();
+        var rag = CreateLightRag(
+            lifecycleService,
+            vectorStore: vectorStore,
+            llmCacheStore: llmCacheStore,
+            llmService: llmService);
+
+        var result = await rag.InsertAsync(content, docId: docId, filePath: "replacement.md");
+
+        result.Should().Be(docId);
+        vectorStore.Get("chunks", firstChunkId).Should().NotBeNull();
+        vectorStore.Get("chunks", secondChunkId).Should().NotBeNull();
+        var expectedChunkIds = new[] { firstChunkId, secondChunkId };
+        vectorStore.UpsertCalls.Should().Contain(call =>
+            call.Collection == "chunks" &&
+            call.Documents.Select(document => document.Id).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(expectedChunkIds));
+        await llmService.DidNotReceiveWithAnyArgs().ExtractEntitiesAsync(
+            default!,
+            default!,
+            default,
+            default,
+            default,
+            default);
+    }
+
+    [Fact]
     public async Task InsertAsync_FailedLifecycleStatus_ReprocessesDocument()
     {
         var statusStore = new InMemoryDocumentStatusStore();
@@ -300,7 +405,9 @@ public sealed class LightRAGLifecycleIntegrationTests
         IKVStore? fullRelationsStore = null,
         IVectorStore? vectorStore = null,
         ITokenizer? tokenizer = null,
-        IEmbeddingService? embeddingService = null)
+        IEmbeddingService? embeddingService = null,
+        IKVStore? llmCacheStore = null,
+        ILLMService? llmService = null)
     {
         var options = Options.Create(new LightRAGOptions
         {
@@ -310,7 +417,7 @@ public sealed class LightRAGLifecycleIntegrationTests
         });
         tokenizer ??= new FakeTokenizer();
 
-        var llmService = Substitute.For<ILLMService>();
+        llmService ??= Substitute.For<ILLMService>();
         llmService.ExtractEntitiesAsync(
                 Arg.Any<string>(),
                 Arg.Any<List<string>>(),
@@ -336,7 +443,7 @@ public sealed class LightRAGLifecycleIntegrationTests
         fullRelationsStore ??= Substitute.For<IKVStore>();
         var entityChunksStore = Substitute.For<IKVStore>();
         var relationChunksStore = Substitute.For<IKVStore>();
-        var llmCacheStore = Substitute.For<IKVStore>();
+        llmCacheStore ??= Substitute.For<IKVStore>();
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
@@ -419,6 +526,17 @@ public sealed class LightRAGLifecycleIntegrationTests
                 Workspace = "workspace-a"
             }),
             NullLogger<DocumentLifecycleService>.Instance);
+    }
+
+    private static Dictionary<string, object> CreateCachedChunkResult(string chunkId, IReadOnlyList<float> embedding)
+    {
+        return new Dictionary<string, object>
+        {
+            ["chunk_id"] = chunkId,
+            ["embedding"] = embedding.Select(value => (object)value).ToList(),
+            ["entities"] = new List<object>(),
+            ["relationships"] = new List<object>()
+        };
     }
 
     private sealed class ThrowingTokenizer : ITokenizer

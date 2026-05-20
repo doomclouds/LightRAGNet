@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 var configuration = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
+    .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: true)
     .Build();
 
@@ -33,6 +33,11 @@ Console.WriteLine("  insert <path> - Insert specified file into LightRAG system 
 Console.WriteLine("  test         - Read SKILL.md files from all subdirectories in ./skills and insert into RAG system");
 Console.WriteLine("  query / q    - Execute 3 preset test queries");
 Console.WriteLine("  query <question> / q <question> - Execute custom query");
+Console.WriteLine("  query [options] <question> - Execute custom query with query options");
+Console.WriteLine("    Options: --mode <local|global|hybrid|naive|mix|bypass> --stream <true|false> --references <true|false>");
+Console.WriteLine("             --response <type> --top-k <n> --chunk-top-k <n> --rerank <true|false>");
+Console.WriteLine("             --hl <keywords> --ll <keywords> --context-only --prompt-only");
+Console.WriteLine("  verify-query-options - Validate console query option parsing matrix");
 Console.WriteLine("  token <text> - Calculate token count for text using DeepSeekTokenizer");
 Console.WriteLine("  token <file> - Calculate token count for specified file using DeepSeekTokenizer (supports quotes, e.g.: token \"d:\\path\\1.md\")");
 Console.WriteLine("  exit         - Exit program");
@@ -55,8 +60,8 @@ Console.WriteLine();
 // Main loop: wait for user input
 while (true)
 {
-    Console.Write("Enter command (clear/insert/insert <path>/test/query/q/token <text or file>/exit): ");
-    var input = Console.ReadLine()?.Trim();
+    Console.Write("Enter command (clear/insert/insert <path>/test/query/q/verify-query-options/token <text or file>/exit): ");
+    var input = Console.ReadLine()?.Trim().TrimStart('\uFEFF');
     
     if (string.IsNullOrEmpty(input))
     {
@@ -213,6 +218,16 @@ while (true)
         Console.WriteLine();
         continue;
     }
+
+    if (inputLower == "verify-query-options")
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== Verify Query Options ===");
+        Console.WriteLine();
+        VerifyQueryOptions();
+        Console.WriteLine();
+        continue;
+    }
     
     if (inputLower == "query" || inputLower.StartsWith("query ") || 
         inputLower == "q" || inputLower.StartsWith("q "))
@@ -231,20 +246,31 @@ while (true)
         }
         else
         {
-            // Execute custom query
-            var question = input[commandPrefix.Length..].Trim(); // Remove command prefix
-            question = RemoveQuotes(question); // Remove quotes
-            if (string.IsNullOrEmpty(question))
+            QueryCommandOptions options;
+            try
+            {
+                options = QueryCommandOptions.Parse(input[commandPrefix.Length..].Trim());
+            }
+            catch (ArgumentException ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine("Usage: query [options] <question>");
+                Console.WriteLine("Example: query --mode naive --stream false --references true --context-only tbReviseRatio 973E 983E");
+                Console.WriteLine();
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(options.Question))
             {
                 Console.WriteLine("Error: query command requires a query question");
-                Console.WriteLine("Usage: query <question> or q <question>");
+                Console.WriteLine("Usage: query [options] <question> or q [options] <question>");
                 Console.WriteLine("Example: query How to use YuQue MCP tool to create documents?");
-                Console.WriteLine("Example: q How to use YuQue MCP tool to create documents?");
+                Console.WriteLine("Example: q --mode naive --context-only How to use search functionality?");
                 Console.WriteLine();
                 continue;
             }
             
-            await ExecuteQueryAsync(serviceProvider, question);
+            await ExecuteQueryAsync(serviceProvider, options);
         }
         
         Console.WriteLine();
@@ -252,7 +278,7 @@ while (true)
     }
     
     Console.WriteLine($"Unknown command: {input}");
-    Console.WriteLine("Available commands: clear, insert, insert <path>, test, query/q, query/q <question>, token <text or file>, exit");
+    Console.WriteLine("Available commands: clear, insert, insert <path>, test, query/q, query/q [options] <question>, verify-query-options, token <text or file>, exit");
     Console.WriteLine();
 }
 
@@ -334,44 +360,47 @@ static async Task RunPresetQueriesAsync(IServiceProvider serviceProvider)
     // Test query 1: Basic information about YuQue document management
     Console.WriteLine("=== Test Query 1 ===");
     Console.WriteLine("Question: How to use YuQue MCP tool to create documents?");
-    await ExecuteQueryWithStreamAsync(rag, "How to use YuQue MCP tool to create documents?");
+    await ExecuteQueryWithStreamAsync(rag, "How to use YuQue MCP tool to create documents?", QueryCommandOptions.CreateDefaultQueryParam());
     Console.WriteLine();
 
     // Test query 2: About search functionality
     Console.WriteLine("=== Test Query 2 ===");
     Console.WriteLine("Question: How to use search functionality to find documents?");
-    await ExecuteQueryWithStreamAsync(rag, "How to use search functionality to find documents?");
+    await ExecuteQueryWithStreamAsync(rag, "How to use search functionality to find documents?", QueryCommandOptions.CreateDefaultQueryParam());
     Console.WriteLine();
 
     // Test query 3: About error handling
     Console.WriteLine("=== Test Query 3 ===");
     Console.WriteLine("Question: How should I handle document creation failures?");
-    await ExecuteQueryWithStreamAsync(rag, "How should I handle document creation failures?");
+    await ExecuteQueryWithStreamAsync(rag, "How should I handle document creation failures?", QueryCommandOptions.CreateDefaultQueryParam());
     Console.WriteLine();
 
     Console.WriteLine("=== Preset Queries Completed ===");
 }
 
-static async Task ExecuteQueryWithStreamAsync(LightRAG rag, string question)
+static async Task ExecuteQueryWithStreamAsync(LightRAG rag, string question, QueryParam queryParam)
 {
     var queryResult = await rag.QueryAsync(
         question,
-        new QueryParam
-        {
-            Mode = QueryMode.Mix,
-            TopK = 10,
-            ChunkTopK = 5,
-            EnableRerank = true,
-            Stream = true // Enable streaming output
-        });
+        queryParam);
 
     // Display reference sources first
-    if (queryResult.ReferenceList.Count > 0)
+    if (queryParam.IncludeReferences && queryResult.ReferenceList.Count > 0)
     {
         Console.WriteLine("Reference sources:");
         foreach (var reference in queryResult.ReferenceList)
         {
             Console.WriteLine($"  [{reference.ReferenceId}] {reference.FilePath}");
+        }
+        Console.WriteLine();
+    }
+
+    if (queryResult.Metadata.Count > 0)
+    {
+        Console.WriteLine("Metadata:");
+        foreach (var (key, value) in queryResult.Metadata)
+        {
+            Console.WriteLine($"  {key}: {FormatMetadataValue(value)}");
         }
         Console.WriteLine();
     }
@@ -394,17 +423,104 @@ static async Task ExecuteQueryWithStreamAsync(LightRAG rag, string question)
     }
 }
 
-static async Task ExecuteQueryAsync(IServiceProvider serviceProvider, string question)
+static async Task ExecuteQueryAsync(IServiceProvider serviceProvider, QueryCommandOptions options)
 {
     var rag = serviceProvider.GetRequiredService<LightRAG>();
     
     Console.WriteLine("=== Custom Query ===");
-    Console.WriteLine($"Question: {question}");
+    Console.WriteLine($"Question: {options.Question}");
+    Console.WriteLine($"Options: {options.FormatSummary()}");
     Console.WriteLine();
     
-    await ExecuteQueryWithStreamAsync(rag, question);
+    await ExecuteQueryWithStreamAsync(rag, options.Question, options.QueryParam);
     
     Console.WriteLine();
+}
+
+static void VerifyQueryOptions()
+{
+    var scenarios = new (string Name, string Command, Action<QueryCommandOptions> Assert)[]
+    {
+        (
+            "legacy defaults",
+            "tbReviseRatio 973E 983E",
+            options =>
+            {
+                Require(options.Question == "tbReviseRatio 973E 983E", "legacy question");
+                Require(options.QueryParam.Mode == QueryMode.Mix, "legacy mode");
+                Require(options.QueryParam.Stream, "legacy stream");
+                Require(options.QueryParam.IncludeReferences, "legacy references");
+                Require(options.QueryParam.TopK == 10, "legacy topK");
+                Require(options.QueryParam.ChunkTopK == 5, "legacy chunkTopK");
+                Require(options.QueryParam.EnableRerank, "legacy rerank");
+            }),
+        (
+            "full option mapping",
+            "--mode naive --stream false --references true --response \"Bullet Points\" --top-k 12 --chunk-top-k 6 --rerank false --hl system,workflow --ll queue，status --context-only tbReviseRatio 973E 983E",
+            options =>
+            {
+                Require(options.Question == "tbReviseRatio 973E 983E", "full question");
+                Require(options.QueryParam.Mode == QueryMode.Naive, "full mode");
+                Require(!options.QueryParam.Stream, "full stream");
+                Require(options.QueryParam.IncludeReferences, "full references");
+                Require(options.QueryParam.ResponseType == "Bullet Points", "full response type");
+                Require(options.QueryParam.TopK == 12, "full topK");
+                Require(options.QueryParam.ChunkTopK == 6, "full chunkTopK");
+                Require(!options.QueryParam.EnableRerank, "full rerank");
+                Require(options.QueryParam.HighLevelKeywords.SequenceEqual(["system", "workflow"]), "full high keywords");
+                Require(options.QueryParam.LowLevelKeywords.SequenceEqual(["queue", "status"]), "full low keywords");
+                Require(options.QueryParam.OnlyNeedContext, "full context only");
+                Require(!options.QueryParam.OnlyNeedPrompt, "full prompt only");
+            }),
+        (
+            "prompt wins debug mode",
+            "--context-only --prompt-only --mode bypass hello",
+            options =>
+            {
+                Require(options.QueryParam.Mode == QueryMode.Bypass, "prompt mode");
+                Require(!options.QueryParam.OnlyNeedContext, "prompt context only");
+                Require(options.QueryParam.OnlyNeedPrompt, "prompt only");
+                Require(!options.QueryParam.Stream, "prompt stream");
+                Require(options.Question == "hello", "prompt question");
+            }),
+        (
+            "negative aliases",
+            "--no-stream --no-references --no-rerank --mode mix hello",
+            options =>
+            {
+                Require(!options.QueryParam.Stream, "alias stream");
+                Require(!options.QueryParam.IncludeReferences, "alias references");
+                Require(!options.QueryParam.EnableRerank, "alias rerank");
+                Require(options.QueryParam.Mode == QueryMode.Mix, "alias mode");
+            })
+    };
+
+    foreach (var scenario in scenarios)
+    {
+        var options = QueryCommandOptions.Parse(scenario.Command);
+        scenario.Assert(options);
+        Console.WriteLine($"PASS {scenario.Name}: {options.FormatSummary()}");
+    }
+}
+
+static void Require(bool condition, string message)
+{
+    if (!condition)
+    {
+        throw new InvalidOperationException($"Query option verification failed: {message}");
+    }
+}
+
+static string FormatMetadataValue(object? value)
+{
+    return value switch
+    {
+        null => "",
+        string text => text,
+        IEnumerable<string> strings => string.Join(", ", strings),
+        IEnumerable<object> objects => string.Join(", ", objects.Select(item => item?.ToString() ?? "")),
+        _ => value.ToString() ?? ""
+    };
 }
 
 static void OnTaskStateChanged(TaskState state, string logFile)
