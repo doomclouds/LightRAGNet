@@ -15,6 +15,7 @@ public sealed class InMemoryVectorStore : IVectorStore
         StringComparer.Ordinal);
 
     public List<(string Collection, IReadOnlyList<string> Ids)> DeleteCalls { get; } = [];
+    public List<(string Collection, IReadOnlyList<string> Ids)> GetByIdsCalls { get; } = [];
     public List<(string Collection, string Query, int TopK, float Threshold)> QueryCalls { get; } = [];
     public List<(string Collection, IReadOnlyList<VectorDocument> Documents)> UpsertCalls { get; } = [];
 
@@ -123,7 +124,10 @@ public sealed class InMemoryVectorStore : IVectorStore
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var documents = ids
+        var idsList = ids.ToList();
+        GetByIdsCalls.Add((collection, idsList));
+
+        var documents = idsList
             .Select(id => Get(collection, id))
             .OfType<VectorDocument>()
             .ToList();
