@@ -343,12 +343,19 @@ public sealed class LightRAGQueryModeTests
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([1.0f, 0.5f]);
         vectorStore ??= Substitute.For<IVectorStore>();
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
 
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            llmCacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -390,12 +397,6 @@ public sealed class LightRAGQueryModeTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var llmCacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         return new LightRAG(
             llmService,
             vectorStore,

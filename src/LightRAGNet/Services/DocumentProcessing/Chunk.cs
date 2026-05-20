@@ -18,5 +18,6 @@ public class ChunkResult
     public float[] Embedding { get; set; } = [];
     public List<Entity> Entities { get; set; } = [];
     public List<Relationship> Relationships { get; set; } = [];
+    public List<string> LlmCacheKeys { get; set; } = [];
 }
 

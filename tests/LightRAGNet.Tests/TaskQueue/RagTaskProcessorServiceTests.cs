@@ -245,11 +245,18 @@ public sealed class RagTaskProcessorServiceTests
             statusStore,
             options,
             NullLogger<DocumentLifecycleService>.Instance);
+        var cacheKeyBuilder = new LightRagCacheKeyBuilder();
+        var llmCacheService = new LightRagLlmCacheService(
+            llmCacheStore,
+            options,
+            cacheKeyBuilder,
+            NullLogger<LightRagLlmCacheService>.Instance);
         var documentProcessingService = new DocumentProcessingService(
             llmService,
             embeddingService,
             tokenizer,
-            llmCacheStore,
+            llmCacheService,
+            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
         var loggerFactory = NullLoggerFactory.Instance;
@@ -288,12 +295,6 @@ public sealed class RagTaskProcessorServiceTests
             llmCacheStore,
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
-        var llmCacheService = new LightRagLlmCacheService(
-            llmCacheStore,
-            options,
-            new LightRagCacheKeyBuilder(),
-            NullLogger<LightRagLlmCacheService>.Instance);
-
         return new LightRAG(
             llmService,
             vectorStore,
