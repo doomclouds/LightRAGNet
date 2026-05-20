@@ -21,6 +21,8 @@ Use C# with nullable reference types and implicit usings enabled. Follow standar
 
 Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
 
+Server/API tests must not use real developer databases or external RAG storage by default. Isolate Qdrant, Neo4j, hosted background workers, and destructive clear-all paths behind test doubles, no-op cleaners, temporary stores, or explicit opt-in integration tests with uniquely owned resources. A full `dotnet test` run must never delete or mutate local development Qdrant/Neo4j data.
+
 ## Commit & Pull Request Guidelines
 
 Recent history uses short English imperative messages such as `Add docker-compose.yml...`, `Fix: ...`, and `Refactor ...`. Keep that style, but avoid vague subjects like `Remove` or `Delete`; prefer `fix: correct rag task notification timing` or `refactor: simplify http client setup`. Pull requests should include a concise summary, verification commands run, linked issues when available, and screenshots or recordings for Blazor UI changes.
@@ -160,4 +162,3 @@ block with `event_type`, `route`, `reason`, `evidence`, `related_assets`,
 `asset_candidates`, `deferred_signals`, and `next_step`. If no candidates exist,
 write `asset_candidates: none` explicitly.
 <!-- asset-compounding-guidance:end -->
-

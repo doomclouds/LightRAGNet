@@ -4,6 +4,7 @@ using FluentAssertions;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using Microsoft.Extensions.DependencyInjection;
@@ -147,6 +148,31 @@ public sealed class MarkdownDocumentsControllerTests
         (await cacheService.GetWorkspaceQueryRevisionAsync(" workspace-a ")).Should().Be(0);
     }
 
+    [Fact]
+    public async Task ClearAllData_UsesInjectedExternalStorageCleaner()
+    {
+        var cleaner = new RecordingExternalStorageCleaner();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagExternalStorageCleaner>();
+            services.AddSingleton<IRagExternalStorageCleaner>(cleaner);
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        cleaner.CallCount.Should().Be(1);
+        await using var responseStream = await response.Content.ReadAsStreamAsync();
+        using var json = await JsonDocument.ParseAsync(responseStream);
+        json.RootElement
+            .GetProperty("details")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Should()
+            .Contain("External cleaner invoked");
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -271,6 +297,18 @@ public sealed class MarkdownDocumentsControllerTests
             StopAllTasksCallOrder = ++callOrder;
             RowsWerePresentWhenStopWasCalled = rowsExistAtStop();
             return Task.FromResult(1);
+        }
+    }
+
+    private sealed class RecordingExternalStorageCleaner : IRagExternalStorageCleaner
+    {
+        public int CallCount { get; private set; }
+
+        public Task<IReadOnlyList<string>> ClearAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CallCount++;
+            return Task.FromResult<IReadOnlyList<string>>(["External cleaner invoked"]);
         }
     }
 }

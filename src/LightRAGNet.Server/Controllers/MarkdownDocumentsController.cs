@@ -15,8 +15,6 @@ using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
-using Neo4j.Driver;
-using Qdrant.Client;
 
 namespace LightRAGNet.Server.Controllers;
 
@@ -27,6 +25,7 @@ public class MarkdownDocumentsController(
     ILogger<MarkdownDocumentsController> logger,
     IRagTaskQueueService taskQueueService,
     MarkdownDocumentDeletionService documentDeletionService,
+    IRagExternalStorageCleaner externalStorageCleaner,
     IServiceProvider serviceProvider)
     : ControllerBase
 {
@@ -609,57 +608,8 @@ public class MarkdownDocumentsController(
                 logger.LogWarning(ex, "Error occurred while clearing JSON files: {Error}", ex.Message);
             }
 
-            // 5.3 Clear Qdrant collections
-            try
-            {
-                var qdrantClient = serviceProvider.GetRequiredService<QdrantClient>();
-                var collections = await qdrantClient.ListCollectionsAsync();
-                var lightragCollections = collections.Where(c => c.StartsWith("lightrag_vdb_dotnet_")).ToList();
-
-                int deletedCollectionCount = 0;
-                foreach (var collection in lightragCollections)
-                {
-                    try
-                    {
-                        await qdrantClient.DeleteCollectionAsync(collection);
-                        deletedCollectionCount++;
-                        logger.LogInformation("Deleted Qdrant collection: {Collection}", collection);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Failed to delete Qdrant collection: {Collection}, {Error}", collection, ex.Message);
-                    }
-                }
-
-                if (deletedCollectionCount > 0)
-                {
-                    results.Add($"Deleted {deletedCollectionCount} Qdrant collections");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Error occurred while clearing Qdrant collections: {Error}", ex.Message);
-            }
-
-            // 4.4 Clear Neo4j data
-            try
-            {
-                var neo4JDriver = serviceProvider.GetRequiredService<IDriver>();
-                await using var session = neo4JDriver.AsyncSession();
-                var deleteResult = await session.RunAsync("MATCH (n) DETACH DELETE n RETURN count(n) as deleted");
-                var record = await deleteResult.SingleAsync();
-                var deletedCount = record["deleted"].As<int>();
-                if (deletedCount > 0)
-                {
-                    results.Add($"Deleted {deletedCount} Neo4j nodes");
-                }
-
-                logger.LogInformation("Deleted Neo4j node count: {Count}", deletedCount);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Error occurred while clearing Neo4j data: {Error}", ex.Message);
-            }
+            // 5.3 Clear external storage
+            results.AddRange(await externalStorageCleaner.ClearAsync());
 
             try
             {

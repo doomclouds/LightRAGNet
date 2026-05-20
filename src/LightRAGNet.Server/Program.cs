@@ -55,6 +55,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(connectionString));
 
 builder.Services.AddScoped<MarkdownDocumentDeletionService>();
+builder.Services.AddScoped<IRagExternalStorageCleaner, RagExternalStorageCleaner>();
 
 // Register SignalR (for real-time task status updates)
 builder.Services.AddSignalR()
