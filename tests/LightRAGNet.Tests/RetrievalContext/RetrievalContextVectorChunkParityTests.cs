@@ -109,6 +109,100 @@ public sealed class RetrievalContextVectorChunkParityTests
     }
 
     [Fact]
+    public async Task BuildQueryContextAsync_WhenChunkVectorMissing_FallsBackToWeightedPolling()
+    {
+        var harness = CreateHarness();
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            },
+            Content = "Alpha entity"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["source_id"] = $"chunk-far{Sep}chunk-near{Sep}chunk-mid"
+        });
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far content", "docs/far.md"),
+            ("chunk-near", "near content", "docs/near.md"),
+            ("chunk-mid", "mid content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-near", new[] { 1.0f, 0.0f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "alpha question",
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Local,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
+        harness.VectorStore.GetByIdsCalls.Should().ContainSingle(call => call.Collection == "chunks");
+    }
+
+    [Fact]
+    public async Task BuildQueryContextAsync_WhenKgChunkPickMethodWeight_DoesNotReadChunkVectors()
+    {
+        var harness = CreateHarness(new LightRAGOptions
+        {
+            KgChunkPickMethod = "WEIGHT",
+            RelatedChunkNumber = 4
+        });
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            },
+            Content = "Alpha entity"
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description",
+            ["source_id"] = $"chunk-far{Sep}chunk-near{Sep}chunk-mid"
+        });
+        await SeedTextChunksAsync(harness.TextChunks, [
+            ("chunk-far", "far content", "docs/far.md"),
+            ("chunk-near", "near content", "docs/near.md"),
+            ("chunk-mid", "mid content", "docs/mid.md")
+        ]);
+        SeedChunkVectors(harness.VectorStore, [
+            ("chunk-far", new[] { 0.0f, 1.0f }),
+            ("chunk-near", new[] { 1.0f, 0.0f }),
+            ("chunk-mid", new[] { 0.8f, 0.6f })
+        ]);
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "alpha question",
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Local,
+                EnableRerank = false,
+                TopK = 5,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-far", "chunk-near", "chunk-mid");
+        harness.VectorStore.GetByIdsCalls.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task BuildQueryContextAsync_WhenVectorChunkPickEnabled_SelectsRelationChunksByCosineSimilarity()
     {
         var harness = CreateHarness();

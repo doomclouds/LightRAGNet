@@ -669,9 +669,8 @@ public class RetrievalContextService(
     }
     
     /// <summary>
-    /// Weighted polling selection of chunks
-    /// Reference: Python version pick_by_weighted_polling function
-    /// Linear gradient weighted polling algorithm, ensuring entities/relationships with higher importance get more text chunks
+    /// Selects chunks by cosine similarity against the query embedding.
+    /// Returns an empty result when chunk vectors are unavailable or invalid so callers can fall back to weighted polling.
     /// </summary>
     private async Task<List<string>> PickByVectorSimilarityAsync(
         IReadOnlyCollection<List<string>> sortedChunkGroups,
