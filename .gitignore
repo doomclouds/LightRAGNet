@@ -42,3 +42,6 @@ docker-compose.*.override.yml
 # OS noise
 .DS_Store
 Thumbs.db
+
+.playwright-cli/
+output/

@@ -1,7 +1,7 @@
 ---
 title: LightRAG.NET
 version: 1.1.0
-lastUpdated: 2026-01-11
+lastUpdated: 2026-05-20
 powerBy: Cursor AI
 reviewer: PALINK
 ---
@@ -18,14 +18,34 @@ LightRAG 的 .NET 实现，完全参考 Python 版本的架构和实现逻辑。
 LightRAGNet/
 └── src/
     ├── LightRAGNet.Core/          # 核心接口和模型
+    ├── LightRAGNet.Share/         # Web/Server 共享 DTO 与事件合同
     ├── LightRAGNet.LLM/           # LLM服务（Deepseek OpenAI兼容）
     ├── LightRAGNet.Embedding/     # Embedding服务（阿里云）
     ├── LightRAGNet.Rerank/        # Rerank服务（阿里云）
     ├── LightRAGNet.Storage/       # 存储实现（Qdrant + Neo4j + JSON文件）
     ├── LightRAGNet/               # 核心LightRAG类
     ├── LightRAGNet.Hosting/       # 依赖注入扩展
+    ├── LightRAGNet.Server/        # ASP.NET Core API、SignalR、SQLite 文档元数据
+    ├── LightRAGNet.Web/           # Blazor Server + MudBlazor 前端
     └── LightRAGNet.Example/       # 使用示例
+└── tests/
+    ├── LightRAGNet.Tests/         # 核心服务、存储适配、查询和任务队列测试
+    ├── LightRAGNet.Server.Tests/  # API/Server 宿主测试
+    └── LightRAGNet.Web.Tests/     # Web 客户端、聊天 UI 模型和源码守护测试
 ```
+
+## 开发命令
+
+```powershell
+dotnet restore LightRAGNet.slnx
+dotnet build LightRAGNet.slnx
+dotnet test LightRAGNet.slnx
+docker compose up -d
+dotnet run --project src/LightRAGNet.Server
+dotnet run --project src/LightRAGNet.Web
+```
+
+`docker compose up -d` 会启动本机开发用 Qdrant 和 Neo4j；测试默认不应该依赖或修改这些真实服务。
 
 ## 功能特性
 
@@ -45,6 +65,13 @@ LightRAGNet/
 - ✅ **Hybrid 模式**：与 Mix 模式使用相同的实现，行为一致
 - ✅ **Naive 模式**：仅使用 chunk 向量检索，不查询知识图谱
 - ✅ **Bypass 模式**：绕过检索，直接将查询发送给 LLM 生成
+
+### Web 界面
+
+- ✅ **聊天工作台**：左侧保留对话区，右侧查询工具栏集中管理模式、响应类型、References、Rerank、TopK、ChunkTopK、关键词和调试输出
+- ✅ **参数解释**：聊天页关键按钮和查询选项提供悬浮提示，说明当前选项的作用和禁用条件
+- ✅ **文档管理**：支持 Markdown 文档上传、inbox 状态查看、加入 RAG、删除和批量刷新
+- ✅ **实时状态**：通过 SignalR 展示任务状态和连接状态，便于观察后台 RAG 处理进度
 
 ### 基础设施
 
@@ -148,6 +175,15 @@ var docId = await rag.InsertAsync("文档内容...");
 - **Microsoft.Extensions.Logging**：日志记录
 - **Microsoft.Extensions.DependencyInjection**：依赖注入
 - **System.Text.Json**：JSON 序列化
+
+## 测试安全边界
+
+`dotnet test LightRAGNet.slnx` 必须可以安全运行，不允许删除或修改本机开发用 Qdrant / Neo4j 数据。
+
+- Server/API 测试默认使用内存 SQLite、临时工作目录、no-op 外部存储清理器和测试 double。
+- `LightRagServerFactory` 会移除真实 `QdrantClient`、`IDriver` 和后台 `IHostedService`，并用 throwing `IVectorStore` / `IGraphStore` 阻止误触真实 RAG 存储。
+- 需要真实 Qdrant / Neo4j 的集成测试必须显式 opt-in，使用唯一 workspace / collection，并且只清理测试自己创建的资源。
+- 涉及 `clear-all`、批量删除、集合删除、图数据库清空、后台任务消费的测试，必须先证明环境隔离。
 
 ## 架构说明
 

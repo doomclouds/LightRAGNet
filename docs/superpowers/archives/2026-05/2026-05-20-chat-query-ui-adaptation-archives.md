@@ -4,7 +4,7 @@
 - Topic slug: `chat-query-ui-adaptation`
 - Status: `Archived`
 - Scope: `UI`
-- Tags: `chat-ui`, `rag-query`, `sse`, `query-mode`, `references`, `error-handling`, `json-unicode`
+- Tags: `chat-ui`, `rag-query`, `sse`, `query-mode`, `references`, `error-handling`, `json-unicode`, `visual-polish`
 
 ## Summary
 
@@ -32,6 +32,8 @@
 - `dotnet test .\LightRAGNet.slnx --no-restore --no-build --verbosity minimal`: passed with `LightRAGNet.Tests` 255/255, `LightRAGNet.Web.Tests` 17/17, and `LightRAGNet.Server.Tests` 29/29.
 - Follow-up diagnostics JSON fix: `RagQueryRequestMapperTests.ToMetadataEvent_PrefersRuntimeKeywordsAndFormatsComplexDiagnostics` first reproduced escaped Chinese output, then passed after `DiagnosticJsonOptions` was added; `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal` passed 29/29, and `dotnet test .\LightRAGNet.slnx --no-restore --no-build --verbosity minimal` passed 309/309.
 - Broad JSON readability follow-up added regression coverage for raw Chinese serialization in shared JSON options, KV persistence, task-state persistence, Naive context JSON lines, LLM keyword-cache payloads, server SSE/API/SignalR source guards, Sigma graph source guards, and DeepSeek prompt JSON source guards. `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal` passed with `LightRAGNet.Tests` 270/270, `LightRAGNet.Web.Tests` 18/18, and `LightRAGNet.Server.Tests` 31/31; `dotnet build .\LightRAGNet.slnx --no-restore --verbosity minimal` passed with 0 warnings and 0 errors.
+- Final visual polish moved query controls into a right-side toolbar, kept the conversation workspace on the left, aligned the page header actions, added explanatory tooltips for query controls and actions, and standardized page/chat/toolbar scrollbars to a VSCode-like hidden thin style.
+- Final visual polish verification: `dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore --filter FullyQualifiedName~RagChatSourceTests --verbosity minimal` passed 4/4; `dotnet build .\src\LightRAGNet.Web\LightRAGNet.Web.csproj --no-restore --verbosity minimal` passed with 0 warnings and 0 errors; Playwright confirmed header and send button same-row layout plus transparent default scrollbar colors for chat and toolbar.
 - Final review confirmed the empty successful response path is closed: assistant messages now track `IsComplete`, stop showing the spinner after completion, and display `No content returned.` for successful empty results.
 - Task-level reviews covered shared contracts, server mapping, Web streaming behavior, chat message model, UI state semantics, and final release blockers.
 

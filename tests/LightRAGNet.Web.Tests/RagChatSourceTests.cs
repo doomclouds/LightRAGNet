@@ -9,6 +9,10 @@ public sealed class RagChatSourceTests
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
 
+        source.Should().Contain("rag-chat-layout");
+        source.Should().Contain("rag-chat-main");
+        source.Should().Contain("rag-chat-toolbar");
+        source.Should().Contain("rag-chat-send-action");
         source.Should().Contain("_querySettings.SelectedMode");
         source.Should().Contain("_querySettings.StreamResponse");
         source.Should().Contain("_querySettings.EffectiveIncludeReferences");
@@ -19,6 +23,41 @@ public sealed class RagChatSourceTests
         source.Should().Contain("new RagQueryStreamHandlers");
         source.Should().NotContain("ApiClient.QueryRagAsync(\r\n                    userMessage");
         source.Should().NotContain("ApiClient.QueryRagAsync(\n                    userMessage");
+    }
+
+    [Fact]
+    public void RagChat_UsesScopedHiddenScrollAreas()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor.css");
+        var appCss = ReadRepositoryFile("src", "LightRAGNet.Web", "wwwroot", "app.css");
+
+        source.Should().Contain(".rag-chat-shell");
+        source.Should().Contain("height: calc(100dvh - 130px);");
+        source.Should().Contain(".rag-chat-scroll");
+        source.Should().Contain(".rag-chat-toolbar");
+        source.Should().Contain("scrollbar-color: transparent transparent;");
+        source.Should().Contain("::-webkit-scrollbar-thumb");
+        source.Should().Contain("overflow: hidden;");
+        source.Should().Contain("overflow-y: auto;");
+        appCss.Should().Contain("html, body");
+        appCss.Should().Contain("scrollbar-color: transparent transparent;");
+        appCss.Should().Contain("html::-webkit-scrollbar-thumb");
+    }
+
+    [Fact]
+    public void RagChat_QueryToolbarControlsHaveTooltips()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
+
+        source.Should().Contain("Mode decides which retrieval pipeline is used.");
+        source.Should().Contain("Streaming shows the answer as it is generated.");
+        source.Should().Contain("References attaches source document links to the answer.");
+        source.Should().Contain("TopK controls how many graph items are considered.");
+        source.Should().Contain("ChunkTopK controls how many text chunks are retrieved.");
+        source.Should().Contain("Rerank asks the reranker to reorder retrieved chunks.");
+        source.Should().Contain("High keywords guide graph-level retrieval.");
+        source.Should().Contain("Low keywords guide entity and detail retrieval.");
+        source.Should().Contain("Output switches between the final answer and debug payloads.");
     }
 
     [Fact]

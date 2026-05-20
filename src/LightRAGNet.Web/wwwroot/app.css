@@ -1,5 +1,46 @@
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+html:hover,
+html:focus-within,
+body:hover,
+body:focus-within {
+    scrollbar-color: rgba(100, 116, 139, 0.42) transparent;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+    min-height: 32px;
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    background-clip: content-box;
+}
+
+html:hover::-webkit-scrollbar-thumb,
+html:focus-within::-webkit-scrollbar-thumb,
+body:hover::-webkit-scrollbar-thumb,
+body:focus-within::-webkit-scrollbar-thumb {
+    background-color: rgba(100, 116, 139, 0.42);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(71, 85, 105, 0.58);
 }
 
 a, .btn-link {

@@ -1,7 +1,7 @@
 ---
 title: LightRAG.NET
 version: 1.1.0
-lastUpdated: 2026-01-11
+lastUpdated: 2026-05-20
 powerBy: Cursor AI
 reviewer: PALINK
 ---
@@ -18,14 +18,34 @@ A .NET implementation of LightRAG, fully referencing the architecture and implem
 LightRAGNet/
 └── src/
     ├── LightRAGNet.Core/          # Core interfaces and models
+    ├── LightRAGNet.Share/         # Shared Web/Server DTOs and event contracts
     ├── LightRAGNet.LLM/           # LLM service (Deepseek OpenAI compatible)
     ├── LightRAGNet.Embedding/     # Embedding service (Alibaba Cloud)
     ├── LightRAGNet.Rerank/        # Rerank service (Alibaba Cloud)
     ├── LightRAGNet.Storage/       # Storage implementations (Qdrant + Neo4j + JSON files)
     ├── LightRAGNet/               # Core LightRAG class
     ├── LightRAGNet.Hosting/       # Dependency injection extensions
+    ├── LightRAGNet.Server/        # ASP.NET Core API, SignalR, SQLite document metadata
+    ├── LightRAGNet.Web/           # Blazor Server + MudBlazor frontend
     └── LightRAGNet.Example/       # Usage examples
+└── tests/
+    ├── LightRAGNet.Tests/         # Core services, storage adapters, query, and task queue tests
+    ├── LightRAGNet.Server.Tests/  # API/Server host tests
+    └── LightRAGNet.Web.Tests/     # Web client, chat UI model, and source guard tests
 ```
+
+## Development Commands
+
+```powershell
+dotnet restore LightRAGNet.slnx
+dotnet build LightRAGNet.slnx
+dotnet test LightRAGNet.slnx
+docker compose up -d
+dotnet run --project src/LightRAGNet.Server
+dotnet run --project src/LightRAGNet.Web
+```
+
+`docker compose up -d` starts local development Qdrant and Neo4j. Tests must not depend on or mutate those real services by default.
 
 ## Features
 
@@ -45,6 +65,13 @@ LightRAGNet/
 - ✅ **Hybrid Mode**: Uses the same implementation as Mix mode, with consistent behavior
 - ✅ **Naive Mode**: Uses chunk vector retrieval only, without knowledge graph retrieval
 - ✅ **Bypass Mode**: Bypasses retrieval and sends the query directly to the LLM
+
+### Web UI
+
+- ✅ **Chat workspace**: Keeps the conversation on the left and centralizes query mode, response type, References, Rerank, TopK, ChunkTopK, keywords, and debug output in a right-side toolbar
+- ✅ **Control explanations**: Key chat actions and query options provide tooltips describing what they do and why they may be disabled
+- ✅ **Document management**: Supports Markdown upload, inbox status review, RAG promotion, deletion, and batch refresh
+- ✅ **Real-time status**: Uses SignalR to show task status and connection state for background RAG processing
 
 ### Infrastructure
 
@@ -148,6 +175,15 @@ var docId = await rag.InsertAsync("Document content...");
 - **Microsoft.Extensions.Logging**: Logging
 - **Microsoft.Extensions.DependencyInjection**: Dependency injection
 - **System.Text.Json**: JSON serialization
+
+## Test Safety Boundary
+
+`dotnet test LightRAGNet.slnx` must be safe to run and must never delete or mutate local development Qdrant / Neo4j data.
+
+- Server/API tests use in-memory SQLite, temporary working directories, no-op external storage cleaners, and test doubles by default.
+- `LightRagServerFactory` removes real `QdrantClient`, `IDriver`, and hosted background services, then installs throwing `IVectorStore` / `IGraphStore` implementations to catch accidental external RAG storage access.
+- Integration tests that need real Qdrant / Neo4j must be explicit opt-in, use uniquely owned workspaces / collections, and clean up only resources they created.
+- Tests around `clear-all`, bulk delete, collection deletion, graph database clearing, or background queue processing must prove environment isolation before touching storage.
 
 ## Architecture Overview
 

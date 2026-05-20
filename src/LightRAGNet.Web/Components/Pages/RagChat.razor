@@ -12,232 +12,269 @@
 
 <PageTitle>RAG Chat</PageTitle>
 
-<MudContainer Class="d-flex flex-column" Style="height: calc(100vh - 130px); max-width: 100%; overflow: hidden;">
-    <MudPaper Elevation="1" Class="ma-1 d-flex align-center justify-space-between pa-2">
-        <MudText Typo="Typo.h6">RAG Chat</MudText>
-        <MudButton Variant="Variant.Text" 
-                   Color="Color.Error" 
-                   StartIcon="@Icons.Material.Filled.DeleteSweep"
-                   Size="Size.Small"
-                   OnClick="@ClearChatHistory"
-                   Disabled="@_isWaitingResponse">
-            Clear History
-        </MudButton>
-    </MudPaper>
-    
-    <div @ref="_chatContainer" style="flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;">
-        <MudPaper Elevation="1" Class="ma-1">
-            @if (_chatHistory.Count == 0)
-            {
-                <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-2">Start chatting with RAG</MudText>
-            }
-            else
-            {
-                <MudStack Spacing="2" Class="pa-3">
-                    @foreach (var chatMessage in _chatHistory)
+<MudContainer MaxWidth="MaxWidth.False" Class="rag-chat-shell">
+    <div class="rag-chat-header">
+        <div class="rag-chat-header-title">
+            <MudText Typo="Typo.h6" Class="rag-chat-title">RAG Chat</MudText>
+        </div>
+        <MudTooltip Text="Clear the visible conversation history. It does not delete documents or RAG storage.">
+            <span class="rag-chat-clear-action">
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.DeleteSweep"
+                           Size="Size.Small"
+                           OnClick="@ClearChatHistory"
+                           Disabled="@_isWaitingResponse">
+                    Clear History
+                </MudButton>
+            </span>
+        </MudTooltip>
+    </div>
+    <div class="rag-chat-layout">
+        <section class="rag-chat-main">
+            <div @ref="_chatContainer" class="rag-chat-scroll">
+                <MudPaper Elevation="0" Class="rag-chat-messages">
+                    @if (_chatHistory.Count == 0)
                     {
-                        <div class="d-flex @(chatMessage.Role == "User" ? "justify-end" : "justify-start")">
-                            <MudPaper Elevation="0"
-                                      Class="@GetMessageBubbleClass(chatMessage)"
-                                      Style="max-width: 78%; overflow-wrap: anywhere;">
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@GetMessageSender(chatMessage)</MudText>
-                                @if (chatMessage.Role == "Assistant")
-                                {
-                                    <MudMarkdown Value="@chatMessage.Text" />
-                                    @if (string.IsNullOrEmpty(chatMessage.Text) && !chatMessage.IsComplete)
-                                    {
-                                        <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
-                                    }
-                                    @if (string.IsNullOrEmpty(chatMessage.Text) && chatMessage.IsComplete && string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                    {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">No content returned.</MudText>
-                                    }
-                                    @if (chatMessage.Mode is not null || !string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                    {
-                                        <div class="d-flex flex-wrap gap-1 mt-1">
-                                            @if (chatMessage.Mode is { } mode)
+                        <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-2">Start chatting with RAG</MudText>
+                    }
+                    else
+                    {
+                        <MudStack Spacing="2" Class="pa-3">
+                            @foreach (var chatMessage in _chatHistory)
+                            {
+                                <div class="d-flex @(chatMessage.Role == "User" ? "justify-end" : "justify-start")">
+                                    <MudPaper Elevation="0"
+                                              Class="@GetMessageBubbleClass(chatMessage)"
+                                              Style="max-width: 78%; overflow-wrap: anywhere;">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@GetMessageSender(chatMessage)</MudText>
+                                        @if (chatMessage.Role == "Assistant")
+                                        {
+                                            <MudMarkdown Value="@chatMessage.Text" />
+                                            @if (string.IsNullOrEmpty(chatMessage.Text) && !chatMessage.IsComplete)
                                             {
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@mode</MudChip>
-                                                <MudChip T="string" Size="Size.Small" Color="@(chatMessage.IsStreaming ? Color.Info : Color.Success)" Variant="Variant.Outlined">
-                                                    @(chatMessage.IsStreaming ? "Streaming" : "Cacheable")
-                                                </MudChip>
+                                                <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
+                                            }
+                                            @if (string.IsNullOrEmpty(chatMessage.Text) && chatMessage.IsComplete && string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
+                                            {
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">No content returned.</MudText>
+                                            }
+                                            @if (chatMessage.Mode is not null || !string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
+                                            {
+                                                <div class="d-flex flex-wrap gap-1 mt-1">
+                                                    @if (chatMessage.Mode is { } mode)
+                                                    {
+                                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@mode</MudChip>
+                                                        <MudChip T="string" Size="Size.Small" Color="@(chatMessage.IsStreaming ? Color.Info : Color.Success)" Variant="Variant.Outlined">
+                                                            @(chatMessage.IsStreaming ? "Streaming" : "Cacheable")
+                                                        </MudChip>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
+                                                    {
+                                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Error</MudChip>
+                                                    }
+                                                </div>
                                             }
                                             @if (!string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
                                             {
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Error</MudChip>
+                                                <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1">@chatMessage.ErrorMessage</MudText>
                                             }
-                                        </div>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1">@chatMessage.ErrorMessage</MudText>
-                                    }
-                                    @if (ShouldRenderReferences(chatMessage))
-                                    {
-                                        <MudExpansionPanels Elevation="0" Class="mt-2">
-                                            <MudExpansionPanel Text="@($"References ({chatMessage.References.Count})")">
-                                                <MudStack Spacing="1">
-                                                    @foreach (var reference in chatMessage.References)
-                                                    {
-                                                        <MudText Typo="Typo.caption">
-                                                            <strong>@reference.FilePath</strong>
-                                                            @if (!string.IsNullOrWhiteSpace(reference.ReferenceId))
+                                            @if (ShouldRenderReferences(chatMessage))
+                                            {
+                                                <MudExpansionPanels Elevation="0" Class="mt-2">
+                                                    <MudExpansionPanel Text="@($"References ({chatMessage.References.Count})")">
+                                                        <MudStack Spacing="1">
+                                                            @foreach (var reference in chatMessage.References)
                                                             {
-                                                                <span> · @reference.ReferenceId</span>
+                                                                <MudText Typo="Typo.caption">
+                                                                    <strong>@reference.FilePath</strong>
+                                                                    @if (!string.IsNullOrWhiteSpace(reference.ReferenceId))
+                                                                    {
+                                                                        <span> · @reference.ReferenceId</span>
+                                                                    }
+                                                                </MudText>
                                                             }
-                                                        </MudText>
-                                                    }
-                                                </MudStack>
-                                            </MudExpansionPanel>
-                                        </MudExpansionPanels>
-                                    }
-                                    @if (ShouldRenderDiagnostics(chatMessage))
-                                    {
-                                        <MudExpansionPanels Elevation="0" Class="mt-2">
-                                            <MudExpansionPanel Text="Diagnostics">
-                                                @if (chatMessage.HighLevelKeywords.Count > 0)
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">High</MudText>
-                                                    <div class="d-flex flex-wrap gap-1 mb-1">
-                                                        @foreach (var keyword in chatMessage.HighLevelKeywords)
+                                                        </MudStack>
+                                                    </MudExpansionPanel>
+                                                </MudExpansionPanels>
+                                            }
+                                            @if (ShouldRenderDiagnostics(chatMessage))
+                                            {
+                                                <MudExpansionPanels Elevation="0" Class="mt-2">
+                                                    <MudExpansionPanel Text="Diagnostics">
+                                                        @if (chatMessage.HighLevelKeywords.Count > 0)
                                                         {
-                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
+                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">High</MudText>
+                                                            <div class="d-flex flex-wrap gap-1 mb-1">
+                                                                @foreach (var keyword in chatMessage.HighLevelKeywords)
+                                                                {
+                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
+                                                                }
+                                                            </div>
                                                         }
-                                                    </div>
-                                                }
-                                                @if (chatMessage.LowLevelKeywords.Count > 0)
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Low</MudText>
-                                                    <div class="d-flex flex-wrap gap-1 mb-1">
-                                                        @foreach (var keyword in chatMessage.LowLevelKeywords)
+                                                        @if (chatMessage.LowLevelKeywords.Count > 0)
                                                         {
-                                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
+                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Low</MudText>
+                                                            <div class="d-flex flex-wrap gap-1 mb-1">
+                                                                @foreach (var keyword in chatMessage.LowLevelKeywords)
+                                                                {
+                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
+                                                                }
+                                                            </div>
                                                         }
-                                                    </div>
-                                                }
-                                                @if (chatMessage.Diagnostics.Count > 0)
-                                                {
-                                                    <MudSimpleTable Dense="true" Hover="true">
-                                                        <tbody>
-                                                            @foreach (var diagnostic in chatMessage.Diagnostics)
-                                                            {
-                                                                <tr>
-                                                                    <td><strong>@diagnostic.Key</strong></td>
-                                                                    <td>@diagnostic.Value</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </MudSimpleTable>
-                                                }
-                                            </MudExpansionPanel>
-                                        </MudExpansionPanels>
-                                    }
-                                }
-                                else
-                                {
-                                    <MudText>@chatMessage.Text</MudText>
-                                }
-                            </MudPaper>
-                        </div>
+                                                        @if (chatMessage.Diagnostics.Count > 0)
+                                                        {
+                                                            <MudSimpleTable Dense="true" Hover="true">
+                                                                <tbody>
+                                                                    @foreach (var diagnostic in chatMessage.Diagnostics)
+                                                                    {
+                                                                        <tr>
+                                                                            <td><strong>@diagnostic.Key</strong></td>
+                                                                            <td>@diagnostic.Value</td>
+                                                                        </tr>
+                                                                    }
+                                                                </tbody>
+                                                            </MudSimpleTable>
+                                                        }
+                                                    </MudExpansionPanel>
+                                                </MudExpansionPanels>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <MudText>@chatMessage.Text</MudText>
+                                        }
+                                    </MudPaper>
+                                </div>
+                            }
+                        </MudStack>
                     }
-                </MudStack>
-            }
-        </MudPaper>
-    </div>
+                </MudPaper>
+            </div>
 
-    <MudPaper Elevation="3" Class="mt-2">
-        <MudGrid Spacing="2" Class="pa-2 pb-0">
-            <MudItem xs="12" sm="4" md="2">
-                <MudSelect T="QueryMode"
-                           @bind-Value="_querySettings.SelectedMode"
-                           Label="Mode"
-                           Dense="true"
-                           Variant="Variant.Outlined"
-                           Disabled="@_isWaitingResponse">
-                    @foreach (var mode in _queryModes)
-                    {
-                        <MudSelectItem T="QueryMode" Value="@mode">@mode</MudSelectItem>
-                    }
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="6" sm="4" md="2">
-                <MudSwitch T="bool"
-                           @bind-Value="_querySettings.StreamResponse"
-                           Label="@(_querySettings.StreamResponse ? "Streaming" : "Cacheable")"
-                           Color="Color.Primary"
-                           Disabled="@_isWaitingResponse" />
-            </MudItem>
-            <MudItem xs="6" sm="4" md="2">
-                <MudSwitch T="bool"
-                           @bind-Value="_querySettings.EffectiveIncludeReferences"
-                           Label="References"
-                           Color="Color.Primary"
-                           Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-            </MudItem>
-            <MudItem xs="12" md="6">
-                <MudExpansionPanels Elevation="0">
-                    <MudExpansionPanel Text="Advanced">
-                        <MudGrid Spacing="2">
-                            <MudItem xs="6" sm="3">
+            <MudPaper Elevation="0" Class="rag-chat-composer">
+                <MudTextField @bind-Value="_inputMessage"
+                              Variant="Variant.Outlined"
+                              Lines="3"
+                              Disabled="_isWaitingResponse"
+                              Immediate="true"
+                              OnKeyDown="@HandleKeyPress"
+                              Placeholder="Enter your question..."
+                              Class="rag-chat-input"/>
+                <MudTooltip Text="Send the current message with the toolbar settings. Disabled while a response is running or when the input is empty.">
+                    <span class="rag-chat-send-action">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   EndIcon="@Icons.Material.Filled.Send"
+                                   Size="Size.Large"
+                                   OnClick="@SendMessageAsync"
+                                   Disabled="@CanNotSendMessage">
+                            Send
+                        </MudButton>
+                    </span>
+                </MudTooltip>
+            </MudPaper>
+        </section>
+
+        <aside class="rag-chat-toolbar">
+            <MudPaper Elevation="0" Class="rag-chat-toolbar-paper">
+                <MudStack Spacing="2">
+                    <div>
+                        <MudText Typo="Typo.subtitle1">Query toolbar</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Settings for the next message</MudText>
+                    </div>
+
+                    <MudDivider />
+
+                    <MudTooltip Text="Mode decides which retrieval pipeline is used. Bypass skips RAG, Naive uses chunks only, Mix is the recommended balanced mode.">
+                        <MudSelect T="QueryMode"
+                                   @bind-Value="_querySettings.SelectedMode"
+                                   Label="Mode"
+                                   Dense="true"
+                                   Variant="Variant.Outlined"
+                                   Disabled="@_isWaitingResponse">
+                            @foreach (var mode in _queryModes)
+                            {
+                                <MudSelectItem T="QueryMode" Value="@mode">@mode</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTooltip>
+
+                    <MudTooltip Text="Response changes the requested answer style sent to the backend.">
+                        <MudSelect T="string" @bind-Value="_querySettings.ResponseType" Label="Response" Dense="true" Variant="Variant.Outlined" Disabled="@_isWaitingResponse">
+                            @foreach (var responseType in _responseTypes)
+                            {
+                                <MudSelectItem T="string" Value="@responseType">@responseType</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTooltip>
+
+                    <div class="rag-chat-toolbar-switches">
+                        <MudTooltip Text="Streaming shows the answer as it is generated. Cacheable waits for the complete answer and can use response cache.">
+                            <MudSwitch T="bool"
+                                       @bind-Value="_querySettings.StreamResponse"
+                                       Label="@(_querySettings.StreamResponse ? "Streaming" : "Cacheable")"
+                                       Color="Color.Primary"
+                                       Disabled="@_isWaitingResponse" />
+                        </MudTooltip>
+                        <MudTooltip Text="References attaches source document links to the answer. Disabled in Bypass mode because no retrieval happens.">
+                            <MudSwitch T="bool"
+                                       @bind-Value="_querySettings.EffectiveIncludeReferences"
+                                       Label="References"
+                                       Color="Color.Primary"
+                                       Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
+                        </MudTooltip>
+                        <MudTooltip Text="Rerank asks the reranker to reorder retrieved chunks. Disabled in Bypass mode and while a response is running.">
+                            <MudCheckBox T="bool"
+                                         @bind-Value="_querySettings.EnableRerank"
+                                         Label="Rerank"
+                                         Dense="true"
+                                         Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
+                        </MudTooltip>
+                    </div>
+
+                    <MudDivider />
+
+                    <MudGrid Spacing="2">
+                        <MudItem xs="6">
+                            <MudTooltip Text="TopK controls how many graph items are considered. Larger values may improve recall but cost more tokens.">
                                 <MudNumericField T="int" @bind-Value="_querySettings.TopK" Label="TopK" Min="1" Max="200" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudItem>
-                            <MudItem xs="6" sm="3">
+                            </MudTooltip>
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudTooltip Text="ChunkTopK controls how many text chunks are retrieved. Larger values add more context and token cost.">
                                 <MudNumericField T="int" @bind-Value="_querySettings.ChunkTopK" Label="ChunkTopK" Min="1" Max="200" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudSelect T="string" @bind-Value="_querySettings.ResponseType" Label="Response" Dense="true" Variant="Variant.Outlined" Disabled="@_isWaitingResponse">
-                                    @foreach (var responseType in _responseTypes)
-                                    {
-                                        <MudSelectItem T="string" Value="@responseType">@responseType</MudSelectItem>
-                                    }
-                                </MudSelect>
-                            </MudItem>
-                            <MudItem xs="12" sm="4">
-                                <MudCheckBox T="bool" @bind-Value="_querySettings.EnableRerank" Label="Rerank" Dense="true" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="8">
-                                <MudSelect T="ChatQueryDebugOutputMode"
-                                           @bind-Value="_querySettings.DebugOutputMode"
-                                           Label="Output"
-                                           Dense="true"
-                                           Variant="Variant.Outlined"
-                                           Disabled="@_isWaitingResponse">
-                                    @foreach (var outputMode in _debugOutputModes)
-                                    {
-                                        <MudSelectItem T="ChatQueryDebugOutputMode" Value="@outputMode">@GetDebugOutputModeText(outputMode)</MudSelectItem>
-                                    }
-                                </MudSelect>
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_querySettings.HighLevelKeywordsText" Label="High keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudTextField @bind-Value="_querySettings.LowLevelKeywordsText" Label="Low keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudItem>
-                        </MudGrid>
-                    </MudExpansionPanel>
-                </MudExpansionPanels>
-            </MudItem>
-        </MudGrid>
-        <div class="d-flex gap-3 align-end">
-            <MudTextField @bind-Value="_inputMessage"
-                          Variant="Variant.Outlined"
-                          Lines="3"
-                          Disabled="_isWaitingResponse"
-                          Immediate="true"
-                          OnKeyDown="@HandleKeyPress"
-                          Placeholder="Enter your question..."
-                          Class="flex-grow-1"/>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       EndIcon="@Icons.Material.Filled.Send"
-                       Size="Size.Large"
-                       OnClick="@SendMessageAsync"
-                       Disabled="@CanNotSendMessage">
-                Send
-            </MudButton>
-        </div>
-    </MudPaper>
+                            </MudTooltip>
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudTooltip Text="High keywords guide graph-level retrieval. Leave empty to let the backend extract them from your question.">
+                        <MudTextField @bind-Value="_querySettings.HighLevelKeywordsText" Label="High keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
+                    </MudTooltip>
+
+                    <MudTooltip Text="Low keywords guide entity and detail retrieval. Leave empty to let the backend extract them from your question.">
+                        <MudTextField @bind-Value="_querySettings.LowLevelKeywordsText" Label="Low keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
+                    </MudTooltip>
+
+                    <MudDivider />
+
+                    <MudTooltip Text="Output switches between the final answer and debug payloads. Context only returns retrieved context; Prompt only returns the final prompt.">
+                        <MudSelect T="ChatQueryDebugOutputMode"
+                                   @bind-Value="_querySettings.DebugOutputMode"
+                                   Label="Output"
+                                   Dense="true"
+                                   Variant="Variant.Outlined"
+                                   Disabled="@_isWaitingResponse">
+                            @foreach (var outputMode in _debugOutputModes)
+                            {
+                                <MudSelectItem T="ChatQueryDebugOutputMode" Value="@outputMode">@GetDebugOutputModeText(outputMode)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTooltip>
+                </MudStack>
+            </MudPaper>
+        </aside>
+    </div>
 </MudContainer>
 
 @code {
