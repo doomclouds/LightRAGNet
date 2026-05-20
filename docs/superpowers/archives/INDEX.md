@@ -3,6 +3,7 @@
 ## 2026-05
 
 - [2026-05-20-chat-query-ui-adaptation-archives.md](./2026-05/2026-05-20-chat-query-ui-adaptation-archives.md): 将 Chat 升级为可选 query mode、Streaming/Cacheable、References 和 diagnostics 的查询工作台，并补齐共享请求/SSE metadata 合同。
+- [2026-05-20-indexing-llm-cache-parity-archives.md](./2026-05/2026-05-20-indexing-llm-cache-parity-archives.md): 将索引阶段 LLM cache 对齐为 `default:extract` / `default:summary` 合同，写入 chunk cache 引用并区分 extract 删除与 summary 保留语义。
 - [2026-05-19-concurrency-race-governance-archives.md](./2026-05/2026-05-19-concurrency-race-governance-archives.md): 建立文件原子写入、事件串行分发、操作取消、按 key 锁和状态泵启动保护等并发边界，收敛近期竞态问题。
 - [2026-05-19-query-llm-cache-parity-archives.md](./2026-05/2026-05-19-query-llm-cache-parity-archives.md): 为查询阶段接入 KG keyword cache、KG/Naive/Bypass non-streaming answer cache，并用 workspace revision 防止文档变更后命中旧答案。
 - [2026-05-19-query-mode-context-parity-archives.md](./2026-05/2026-05-19-query-mode-context-parity-archives.md): 接入 `QueryMode.Bypass` 直连 LLM 和 `QueryMode.Naive` vector-only 查询路由，并保留 KG keyword policy 边界。
