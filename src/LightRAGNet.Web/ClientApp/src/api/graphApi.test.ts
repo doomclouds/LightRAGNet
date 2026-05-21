@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   checkEntityNameExists,
+  createEntity,
+  createRelation,
   deleteEntity,
   deleteRelation,
   editEntity,
@@ -168,6 +170,55 @@ describe("graphApi", () => {
         body: JSON.stringify({
           sourceEntities: ["ALPHA", "BETA"],
           targetEntity: "OMEGA"
+        })
+      })
+    );
+  });
+
+  test("createEntity posts entity name and entity data", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ succeeded: true }));
+
+    await createEntity("/api-root/", "ALPHA", {
+      entity_type: "PERSON",
+      description: "Seed entity"
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api-root/api/graph/entity",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          entityName: "ALPHA",
+          entityData: {
+            entity_type: "PERSON",
+            description: "Seed entity"
+          }
+        })
+      })
+    );
+  });
+
+  test("createRelation posts relation endpoints and relation data", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ succeeded: true }));
+
+    await createRelation("", "ALPHA", "BETA", {
+      description: "knows",
+      keywords: "friend"
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/graph/relation",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceEntity: "ALPHA",
+          targetEntity: "BETA",
+          relationData: {
+            description: "knows",
+            keywords: "friend"
+          }
         })
       })
     );

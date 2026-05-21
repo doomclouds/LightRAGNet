@@ -209,9 +209,9 @@
   resize: vertical;
 }
 
-.graph-workbench__primary-button,
-.graph-workbench__danger-button,
-.graph-workbench__dialog button {
+.graph-workbench .graph-workbench__primary-button,
+.graph-workbench .graph-workbench__danger-button,
+.graph-workbench .graph-workbench__dialog button {
   border: 1px solid #cbd5d1;
   border-radius: 6px;
   background: #ffffff;
@@ -220,14 +220,14 @@
   padding: 8px 12px;
 }
 
-.graph-workbench__primary-button {
+.graph-workbench .graph-workbench__primary-button {
   border-color: #0f766e;
   background: #0f766e;
   color: #ffffff;
   font-weight: 800;
 }
 
-.graph-workbench__danger-button {
+.graph-workbench .graph-workbench__danger-button {
   border-color: #dc2626;
   background: #dc2626;
   color: #ffffff;
