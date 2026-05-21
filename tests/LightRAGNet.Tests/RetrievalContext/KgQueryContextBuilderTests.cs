@@ -200,7 +200,7 @@ public sealed class KgQueryContextBuilderTests
             {
                 MaxEntityTokens = 1000,
                 MaxRelationTokens = 1000,
-                MaxTotalTokens = 191
+                MaxTotalTokens = 211
             },
             query: "alpha");
 
@@ -212,7 +212,7 @@ public sealed class KgQueryContextBuilderTests
     [Fact]
     public void Build_LimitsChunksUsingFinalChunkAndReferenceSections()
     {
-        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var builder = new KgQueryContextBuilder(new FinalChunkReferenceBudgetTokenizer());
         var searchResult = new KGSearchResult
         {
             Chunks =
@@ -238,7 +238,7 @@ public sealed class KgQueryContextBuilderTests
             {
                 MaxEntityTokens = 1000,
                 MaxRelationTokens = 1000,
-                MaxTotalTokens = 220
+                MaxTotalTokens = 211
             },
             query: "alpha");
 
@@ -312,6 +312,36 @@ public sealed class KgQueryContextBuilderTests
             return text
                 .Split(["\r\n", "\n"], StringSplitOptions.None)
                 .Any(line => line.StartsWith("Reference Document List", StringComparison.Ordinal));
+        }
+    }
+
+    private sealed class FinalChunkReferenceBudgetTokenizer : ITokenizer
+    {
+        public List<int> Encode(string text)
+        {
+            return Enumerable.Range(1, CountTokens(text)).ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return string.Join(" ", tokens.Select(token => $"t{token}"));
+        }
+
+        public int CountTokens(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return 0;
+            }
+
+            if (!text.Contains("Document Chunks", StringComparison.Ordinal))
+            {
+                return 1;
+            }
+
+            return text.Contains("beta beta beta", StringComparison.Ordinal)
+                ? 25
+                : 10;
         }
     }
 }
