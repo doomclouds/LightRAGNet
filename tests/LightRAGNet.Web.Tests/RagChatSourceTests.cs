@@ -77,6 +77,21 @@ public sealed class RagChatSourceTests
     }
 
     [Fact]
+    public void RagChat_WiresMessageLevelRetrievalDataAction()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
+
+        source.Should().Contain("@inject IDialogService DialogService");
+        source.Should().Contain("查看检索数据");
+        source.Should().Contain("CanShowRetrievalDataButton(chatMessage)");
+        source.Should().Contain("LoadRetrievalDataAsync(chatMessage)");
+        source.Should().Contain("OpenRetrievalDataDialog(chatMessage)");
+        source.Should().Contain("assistantMessage.RetrievalDataRequest = ChatQuerySettingsModel.CloneRequest(request);");
+        source.Should().Contain("message.Mode != QueryMode.Bypass");
+        source.Should().Contain("await ApiClient.GetRagQueryDataAsync(message.RetrievalDataRequest");
+    }
+
+    [Fact]
     public void RagQueryDataDialog_RendersGroupedRetrievalDataSections()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagQueryDataDialog.razor");
