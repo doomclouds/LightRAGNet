@@ -76,6 +76,23 @@ public sealed class RagChatSourceTests
         source.Should().Contain("ChatQuerySettingsModel.ApplyMetadata(assistantMessage, metadataEvent)");
     }
 
+    [Fact]
+    public void RagQueryDataDialog_RendersGroupedRetrievalDataSections()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagQueryDataDialog.razor");
+
+        source.Should().Contain("@using System.Text.Json");
+        source.Should().Contain("[CascadingParameter] IMudDialogInstance MudDialog");
+        source.Should().Contain("[Parameter] public RagQueryDataResponse? RetrievalData { get; set; }");
+        source.Should().Contain("Entities");
+        source.Should().Contain("Relationships");
+        source.Should().Contain("Chunks");
+        source.Should().Contain("References");
+        source.Should().Contain("Metadata");
+        source.Should().Contain("Raw JSON");
+        source.Should().Contain("SerializeSection");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();
