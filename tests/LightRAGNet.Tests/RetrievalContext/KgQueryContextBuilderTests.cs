@@ -186,12 +186,13 @@ public sealed class KgQueryContextBuilderTests
                 new ChunkData
                 {
                     ChunkId = "chunk-a",
-                    Content = "alpha beta gamma delta epsilon",
+                    Content = "alpha",
                     FilePath = "docs/a.md"
                 }
             ]
         };
 
+        // Budget is intentionally above the payload-only cost but below the final chunk section plus reference list cost.
         var result = builder.Build(
             searchResult,
             new QueryParam
