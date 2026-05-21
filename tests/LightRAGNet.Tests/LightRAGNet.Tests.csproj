@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LightRAGNet\LightRAGNet.csproj" />
+    <ProjectReference Include="..\..\src\LightRAGNet.Hosting\LightRAGNet.Hosting.csproj" />
     <ProjectReference Include="..\..\src\LightRAGNet.Example\LightRAGNet.Example.csproj" />
   </ItemGroup>
 

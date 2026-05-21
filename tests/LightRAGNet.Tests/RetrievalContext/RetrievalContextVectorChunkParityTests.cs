@@ -409,10 +409,24 @@ public sealed class RetrievalContextVectorChunkParityTests
                 ["file_path"] = "docs/a.md"
             }
         });
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Content = "Alpha entity",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            }
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description"
+        });
 
         var result = await harness.Service.BuildQueryContextAsync(
             "mix question",
-            new KeywordsResult(),
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
             new QueryParam
             {
                 Mode = QueryMode.Mix,

@@ -162,9 +162,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DocumentProcessingService>();
         services.AddSingleton<DocumentDeletionService>();
         services.AddSingleton<KnowledgeGraphMergeService>();
-        services.AddSingleton<RetrievalContextService>();
         services.AddSingleton<RerankDocumentChunker>();
         services.AddSingleton<RerankCoordinator>();
+        services.AddSingleton(sp => new RetrievalContextService(
+            sp.GetRequiredService<IEmbeddingService>(),
+            sp.GetRequiredService<IVectorStore>(),
+            sp.GetRequiredService<IGraphStore>(),
+            sp.GetRequiredService<RerankCoordinator>(),
+            sp.GetRequiredService<ITokenizer>(),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.TextChunks),
+            sp.GetRequiredService<IOptions<LightRAGOptions>>(),
+            sp.GetRequiredService<ILoggerFactory>()));
         services.AddSingleton(sp => new NaiveQueryService(
             sp.GetRequiredService<IVectorStore>(),
             sp.GetRequiredService<RerankCoordinator>(),
