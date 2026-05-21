@@ -843,15 +843,25 @@ public sealed class GraphCurationService
         Dictionary<string, object> entityData,
         CancellationToken cancellationToken)
     {
-        var chunkIds = ExtractChunkIds(entityData);
+        await UpsertEntityTrackingAsync(
+            entityName,
+            ExtractChunkIds(entityData),
+            cancellationToken);
+    }
 
+    private async Task UpsertEntityTrackingAsync(
+        string entityName,
+        IEnumerable<string> chunkIds,
+        CancellationToken cancellationToken)
+    {
+        var chunkIdsList = chunkIds.Distinct(StringComparer.Ordinal).ToList();
         await entityChunksStore.UpsertAsync(
             new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal)
             {
                 [entityName] = new(StringComparer.Ordinal)
                 {
-                    ["chunk_ids"] = chunkIds,
-                    ["count"] = chunkIds.Count
+                    ["chunk_ids"] = chunkIdsList,
+                    ["count"] = chunkIdsList.Count
                 }
             },
             cancellationToken);
@@ -863,7 +873,20 @@ public sealed class GraphCurationService
         CancellationToken cancellationToken,
         string? previousEntityName = null)
     {
-        var docIds = await ResolveFullDocIdsAsync(entityData, cancellationToken);
+        await UpsertFullEntityIndexAsync(
+            entityName,
+            ExtractChunkIds(entityData),
+            cancellationToken,
+            previousEntityName);
+    }
+
+    private async Task UpsertFullEntityIndexAsync(
+        string entityName,
+        IEnumerable<string> chunkIds,
+        CancellationToken cancellationToken,
+        string? previousEntityName = null)
+    {
+        var docIds = await ResolveFullDocIdsAsync(chunkIds, cancellationToken);
         if (docIds.Count == 0)
         {
             logger.LogDebug(
@@ -1180,6 +1203,25 @@ public sealed class GraphCurationService
         }
 
         var sourceSet = sourceEntities.ToHashSet(StringComparer.Ordinal);
+        var sourceEntityChunkIds = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var (sourceEntity, sourceNode) in sourceNodes)
+        {
+            sourceEntityChunkIds[sourceEntity] = await CollectEntityChunkIdsAsync(
+                sourceEntity,
+                sourceNode.Properties,
+                cancellationToken);
+        }
+
+        var targetChunkIds = new List<string>();
+        AddUnique(targetChunkIds, await CollectEntityChunkIdsAsync(
+            targetEntity,
+            targetNode.Properties,
+            cancellationToken));
+        foreach (var chunkIds in sourceEntityChunkIds.Values)
+        {
+            AddUnique(targetChunkIds, chunkIds);
+        }
+
         var targetData = MergeEntityData(targetEntity, targetNode.Properties, sourceNodes.Values.Select(node => node.Properties));
         var oldRelationEdges = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
         var transferredEdgesByNewKey = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
@@ -1218,6 +1260,7 @@ public sealed class GraphCurationService
                         pair => pair.Value,
                         StringComparer.Ordinal));
                 oldRelationEdges[oldKey] = oldEdge;
+                var oldRelationChunkIds = await CollectRelationChunkIdsAsync(oldEdge, cancellationToken);
 
                 var otherEntity = string.Equals(oldPair.Source, sourceEntity, StringComparison.Ordinal)
                     ? oldPair.Target
@@ -1232,18 +1275,42 @@ public sealed class GraphCurationService
                 var newPair = GraphCurationVectorIds.NormalizePair(targetEntity, otherEntity);
                 var newKey = GraphSourceReferenceParser.MakeRelationKey(newPair.Source, newPair.Target);
                 Dictionary<string, object> newProperties;
+                var newRelationChunkIds = new List<string>();
                 if (transferredEdgesByNewKey.TryGetValue(newKey, out var plannedEdge))
                 {
                     newProperties = MergeRelationData(plannedEdge.Properties, oldEdge.Properties);
+                    AddUnique(newRelationChunkIds, ExtractChunkIds(plannedEdge.Properties));
                 }
                 else
                 {
                     var existingEdge = await graphStore.GetEdgeAsync(newPair.Source, newPair.Target, cancellationToken);
-                    newProperties = existingEdge is null
-                        ? oldEdge.Properties.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
-                        : MergeRelationData(existingEdge.Properties, oldEdge.Properties);
+                    if (existingEdge is null)
+                    {
+                        newProperties = oldEdge.Properties.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                    }
+                    else
+                    {
+                        var existingRewiredEdge = new RewiredEdge(
+                            newPair.Source,
+                            newPair.Target,
+                            newPair.Source,
+                            newPair.Target,
+                            existingEdge.Properties.ToDictionary(
+                                pair => pair.Key,
+                                pair => pair.Value,
+                                StringComparer.Ordinal));
+                        AddUnique(newRelationChunkIds, await CollectRelationChunkIdsAsync(existingRewiredEdge, cancellationToken));
+                        newProperties = MergeRelationData(existingEdge.Properties, oldEdge.Properties);
+                    }
                 }
 
+                AddUnique(newRelationChunkIds, oldRelationChunkIds);
+                if (newRelationChunkIds.Count == 0)
+                {
+                    AddUnique(newRelationChunkIds, ExtractChunkIds(newProperties));
+                }
+
+                newProperties["source_id"] = GraphSourceReferenceParser.Join(newRelationChunkIds);
                 var transferredEdge = new RewiredEdge(
                     oldPair.Source,
                     oldPair.Target,
@@ -1264,6 +1331,8 @@ public sealed class GraphCurationService
             targetEntity,
             sourceEntities,
             targetData,
+            targetChunkIds,
+            sourceEntityChunkIds,
             oldRelationEdges.Values.ToList(),
             transferredEdgesByNewKey.Values.ToList(),
             fullRelationReplacements,
@@ -1294,9 +1363,14 @@ public sealed class GraphCurationService
 
         foreach (var sourceEntity in plan.SourceEntities)
         {
-            await UpsertFullEntityIndexAsync(plan.TargetEntity, plan.TargetData, cancellationToken, sourceEntity);
+            await UpsertFullEntityIndexAsync(
+                plan.TargetEntity,
+                plan.SourceEntityChunkIds[sourceEntity],
+                cancellationToken,
+                sourceEntity);
         }
 
+        await UpsertFullEntityIndexAsync(plan.TargetEntity, plan.TargetChunkIds, cancellationToken);
         await UpsertFullRelationIndexesAsync(plan.FullRelationReplacements, cancellationToken);
         foreach (var skippedEdge in plan.SkippedRelationEdges)
         {
@@ -1312,7 +1386,7 @@ public sealed class GraphCurationService
         await DeleteOldRelationTrackingAsync(plan.OldRelationEdges, cancellationToken);
         await UpsertRelationTrackingAsync(plan.NewRelationEdges, cancellationToken);
         await entityChunksStore.DeleteAsync(plan.SourceEntities, cancellationToken);
-        await UpsertEntityTrackingAsync(plan.TargetEntity, plan.TargetData, cancellationToken);
+        await UpsertEntityTrackingAsync(plan.TargetEntity, plan.TargetChunkIds, cancellationToken);
         await DeleteOldRelationVectorsAsync(plan.OldRelationEdges, cancellationToken);
         await vectorStore.DeleteAsync(
             EntitiesCollection,
@@ -2014,6 +2088,8 @@ public sealed class GraphCurationService
         string TargetEntity,
         IReadOnlyList<string> SourceEntities,
         Dictionary<string, object> TargetData,
+        IReadOnlyList<string> TargetChunkIds,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> SourceEntityChunkIds,
         IReadOnlyList<RewiredEdge> OldRelationEdges,
         IReadOnlyList<RewiredEdge> NewRelationEdges,
         IReadOnlyList<RewiredEdge> FullRelationReplacements,
