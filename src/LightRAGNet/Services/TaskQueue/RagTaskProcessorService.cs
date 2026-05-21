@@ -78,7 +78,7 @@ public class RagTaskProcessorService(
         await using var progressQueue = new AsyncEventDispatcher<TaskState>(
             async (state, token) =>
             {
-                if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed)
+                if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled)
                 {
                     logger.LogDebug(
                         "Discarding late progress update for terminal task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",
@@ -198,28 +198,21 @@ public class RagTaskProcessorService(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Cancellation due to service shutdown, reset task to Pending so it can be retried after service restart
-            logger.LogWarning("Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
+            const string errorMessage = "Task processing was interrupted by service shutdown or restart.";
+            logger.LogWarning(
+                "Task {TaskId} was cancelled due to service shutdown, marking as Failed to require explicit retry",
+                task.TaskId);
 
-            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
-            
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Failed.ToString());
+
+            task.Status = RagTaskStatus.Failed;
+            task.ErrorMessage = errorMessage;
+            task.CompletedAt = DateTime.UtcNow;
+
             await taskQueue.UpdateTaskStatusAsync(
                 task.TaskId,
-                RagTaskStatus.Pending,
-                null,
-                CancellationToken.None); // Use CancellationToken.None because service may be shutting down
-        }
-        catch (TaskCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            // Cancellation due to service shutdown, reset task to Pending
-            logger.LogWarning(ex, "Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
-
-            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
-            
-            await taskQueue.UpdateTaskStatusAsync(
-                task.TaskId,
-                RagTaskStatus.Pending,
-                null,
+                RagTaskStatus.Failed,
+                errorMessage,
                 CancellationToken.None);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -382,16 +375,25 @@ public class RagTaskProcessorService(
         {
             var tasks = await taskQueue.GetAllTasksAsync(cancellationToken);
 
-            foreach (var task in tasks)
+            var interruptedTasks = tasks
+                .Where(task => task.Status == RagTaskStatus.Processing)
+                .ToList();
+
+            foreach (var task in interruptedTasks)
             {
-                if (task.Status != RagTaskStatus.Processing) continue;
-                
-                // When service restarts, reset tasks being processed to Pending
-                logger.LogInformation("Restoring task {TaskId}, status reset from Processing to Pending", task.TaskId);
-                await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Pending, cancellationToken: cancellationToken);
+                const string errorMessage = "Task processing was interrupted by service shutdown or restart.";
+
+                logger.LogWarning(
+                    "Restoring task {TaskId}, status changed from Processing to Failed because processing was interrupted",
+                    task.TaskId);
+                await taskQueue.UpdateTaskStatusAsync(
+                    task.TaskId,
+                    RagTaskStatus.Failed,
+                    errorMessage,
+                    cancellationToken);
             }
 
-            logger.LogInformation("Task restoration completed, restored {Count} tasks", tasks.Count(t => t.Status == RagTaskStatus.Processing));
+            logger.LogInformation("Task restoration completed, restored {Count} tasks", interruptedTasks.Count);
         }
         catch (Exception ex)
         {

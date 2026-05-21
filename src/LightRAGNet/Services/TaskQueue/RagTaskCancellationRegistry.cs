@@ -29,6 +29,18 @@ public sealed class RagTaskCancellationRegistry : IRagTaskCancellationRegistry
         }
     }
 
+    public bool CancelTask(string taskId)
+    {
+        if (!processingTasks.TryGetValue(taskId, out var cancellation) ||
+            cancellation.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        cancellation.Cancel();
+        return true;
+    }
+
     public int CancelActiveTasks()
     {
         var cancelledCount = 0;

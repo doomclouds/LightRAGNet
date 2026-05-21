@@ -257,6 +257,11 @@ public sealed class MarkdownDocumentsControllerTests
             return Task.FromResult(false);
         }
 
+        public Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+
         public Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(false);

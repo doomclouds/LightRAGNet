@@ -49,6 +49,11 @@ public class MarkdownDocumentDto
     /// RAG processing status: Pending, Processing, Completed, Failed, or null (not added to RAG system)
     /// </summary>
     public string? RagStatus { get; set; }
+
+    /// <summary>
+    /// Intake pipeline track identifier for the submission batch
+    /// </summary>
+    public string? TrackId { get; set; }
     
     /// <summary>
     /// RAG processing progress (0-100)
@@ -59,6 +64,31 @@ public class MarkdownDocumentDto
     /// Current RAG processing stage
     /// </summary>
     public string? RagCurrentStage { get; set; }
+
+    /// <summary>
+    /// Active RAG task identifier currently processing this document
+    /// </summary>
+    public string? ActiveRagTaskId { get; set; }
+
+    /// <summary>
+    /// Time when the intake pipeline started processing the document
+    /// </summary>
+    public DateTime? PipelineStartedAt { get; set; }
+
+    /// <summary>
+    /// Time when the intake pipeline completed the document
+    /// </summary>
+    public DateTime? PipelineCompletedAt { get; set; }
+
+    /// <summary>
+    /// Time when the intake pipeline cancelled the document
+    /// </summary>
+    public DateTime? PipelineCancelledAt { get; set; }
+
+    /// <summary>
+    /// Number of retry attempts for the intake pipeline
+    /// </summary>
+    public int RagRetryCount { get; set; }
     
     /// <summary>
     /// RAG processing error message

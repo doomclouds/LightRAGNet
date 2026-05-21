@@ -39,8 +39,85 @@ public sealed class MarkdownDocumentsSourceTests
         var source = NormalizeLineEndings(ReadPageSource());
 
         source.Should().Contain("ApplyTaskStatusUpdate(update)");
-        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus)");
+        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus, _selectedStatusFilter)");
         source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized)");
+    }
+
+    [Fact]
+    public void ApiClient_MarkdownDocumentsQuery_SupportsStatusAndTrackFilters()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("string? status = null");
+        source.Should().Contain("string? trackId = null");
+        source.Should().Contain("status={Uri.EscapeDataString(status)}");
+        source.Should().Contain("trackId={Uri.EscapeDataString(trackId)}");
+    }
+
+    [Fact]
+    public void ApiClient_DocumentPipelineActions_PostToDocumentEndpoints()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("Task<DocumentPipelineActionResult?> RetryDocumentAsync(");
+        source.Should().Contain("api/MarkdownDocuments/{id}/retry");
+        source.Should().Contain("Task<DocumentPipelineActionResult?> CancelDocumentPipelineAsync(");
+        source.Should().Contain("api/MarkdownDocuments/{id}/cancel");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_StatusFilter_IsSentThroughServerReload()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("private string? _selectedStatusFilter;");
+        source.Should().Contain("Value=\"_selectedStatusFilter\"");
+        source.Should().Contain("GetMarkdownDocumentsAsync(state.Page + 1, state.PageSize, cancellationToken, status: _selectedStatusFilter)");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_StatusFilter_ReloadsWhenTaskStatusCrossesFilterBoundary()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus, _selectedStatusFilter)");
+        source.Should().Contain("!string.IsNullOrWhiteSpace(selectedStatusFilter)");
+        source.Should().Contain("NormalizeFilterStatus(oldStatus) != NormalizeFilterStatus(update.Status)");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_StatusFilter_ReloadsWhenMissingTaskUpdateMatchesFilter()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+        var indexHandlerStart = source.IndexOf(
+            "private async Task HandleIndexTaskStatusUpdateAsync",
+            StringComparison.Ordinal);
+        var serverReloadStart = source.IndexOf(
+            "private async Task<TableData<MarkdownDocumentDto>> ServerReload",
+            StringComparison.Ordinal);
+        var missingStatusRefresh = source.IndexOf(
+            "ShouldRefreshForMissingTaskStatus(update, _selectedStatusFilter)",
+            StringComparison.Ordinal);
+
+        indexHandlerStart.Should().BeGreaterThanOrEqualTo(0);
+        serverReloadStart.Should().BeGreaterThan(indexHandlerStart);
+        missingStatusRefresh.Should().BeGreaterThan(indexHandlerStart);
+        missingStatusRefresh.Should().BeLessThan(serverReloadStart);
+        source.Should().Contain("NormalizeFilterStatus(update.Status) == NormalizeFilterStatus(selectedStatusFilter)");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_PipelineActions_AreAvailableForEligibleStatuses()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("CanRetryDocument(context)");
+        source.Should().Contain("CanCancelDocumentPipeline(context)");
+        source.Should().Contain("RetryDocument(context)");
+        source.Should().Contain("CancelDocumentPipeline(context)");
+        source.Should().Contain("private async Task RetryDocument(MarkdownDocumentDto document)");
+        source.Should().Contain("private async Task CancelDocumentPipeline(MarkdownDocumentDto document)");
+        source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.UserAction)");
     }
 
     private static string ReadPageSource()
@@ -55,6 +132,18 @@ public sealed class MarkdownDocumentsSourceTests
             "MarkdownDocuments.razor");
 
         return File.ReadAllText(pagePath);
+    }
+
+    private static string ReadApiClientSource()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var clientPath = Path.Combine(
+            repositoryRoot,
+            "src",
+            "LightRAGNet.Web",
+            "ApiClient.cs");
+
+        return File.ReadAllText(clientPath);
     }
 
     private static string FindRepositoryRoot()

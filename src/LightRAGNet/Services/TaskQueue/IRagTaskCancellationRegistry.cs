@@ -6,5 +6,7 @@ public interface IRagTaskCancellationRegistry
 
     void CompleteProcessingTask(string taskId);
 
+    bool CancelTask(string taskId);
+
     int CancelActiveTasks();
 }

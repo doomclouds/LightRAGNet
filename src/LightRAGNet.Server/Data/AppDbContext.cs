@@ -20,6 +20,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(e => e.UploadTime).IsRequired();
             entity.Property(e => e.IsInRagSystem).IsRequired().HasDefaultValue(false);
             entity.Property(e => e.RagStatus).HasMaxLength(50);
+            entity.Property(e => e.TrackId).HasMaxLength(100);
+            entity.Property(e => e.RagCurrentStage).HasMaxLength(100);
+            entity.Property(e => e.ActiveRagTaskId).HasMaxLength(100);
+            entity.Property(e => e.RagRetryCount).IsRequired().HasDefaultValue(0);
             entity.Property(e => e.RagProgress).IsRequired().HasDefaultValue(0);
             entity.Property(e => e.RagDocumentId).HasMaxLength(200);
             entity.Property(e => e.RagErrorMessage).HasMaxLength(2000);
@@ -27,6 +31,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(e => e.FileHash).HasMaxLength(64);
             entity.HasIndex(e => e.FileName);
             entity.HasIndex(e => e.IsInRagSystem);
+            entity.HasIndex(e => e.TrackId);
+            entity.HasIndex(e => e.RagStatus);
+            entity.HasIndex(e => e.ActiveRagTaskId);
             entity.HasIndex(e => e.RagDocumentId);
             entity.HasIndex(e => e.FileHash);
         });
