@@ -277,6 +277,26 @@ GET    /api/graph/labels
 - 构建产物输出到 `wwwroot/graph-workbench/`。
 - README 或开发文档说明 Node 依赖和构建命令。
 
+## Reference Source Declaration
+
+本阶段明确参考 Python LightRAG 源码仓库：
+
+- Source repository: `https://github.com/HKUDS/LightRAG`
+- Local reference copy: `LightRAG/`
+- Referenced frontend areas:
+  - `LightRAG/lightrag_webui/src/features/GraphViewer.tsx`
+  - `LightRAG/lightrag_webui/src/hooks/useLightragGraph.tsx`
+  - `LightRAG/lightrag_webui/src/stores/graph.ts`
+  - `LightRAG/lightrag_webui/src/stores/settings.ts`
+  - `LightRAG/lightrag_webui/src/components/graph/*`
+  - `LightRAG/lightrag_webui/src/api/lightrag.ts`
+- Referenced backend areas:
+  - `LightRAG/lightrag/api/routers/graph_routes.py`
+  - `LightRAG/lightrag/lightrag.py`
+  - `LightRAG/lightrag/utils_graph.py`
+
+实现和归档都必须保留这个声明。最终 archive 需要单独写出“参考了 Python LightRAG 的图谱工作台 UI、图谱 API 合同、实体/关系编辑与合并语义”，避免把大量参考来源隐去。
+
 ## Out of Scope
 
 - 不迁移全站 Web 到 React。
