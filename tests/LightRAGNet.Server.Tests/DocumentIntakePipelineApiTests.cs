@@ -384,7 +384,17 @@ public sealed class DocumentIntakePipelineApiTests
     [Fact]
     public async Task CancelDocument_WhenPending_MarksCancelled()
     {
-        using var factory = new LightRagServerFactory();
+        var queue = new LookupCancelRagTaskQueueService(new RagTask
+        {
+            TaskId = "task-pending",
+            DocumentId = 407,
+            Status = RagTaskStatus.Pending
+        });
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
         await SeedDocumentAsync(factory, new MarkdownDocument
         {
             Id = 407,
@@ -398,6 +408,7 @@ public sealed class DocumentIntakePipelineApiTests
         var response = await client.PostAsync("/api/MarkdownDocuments/407/cancel", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.CancelCalls.Should().ContainSingle().Which.Should().Be("task-pending");
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var document = await context.MarkdownDocuments.FindAsync(407);
@@ -436,9 +447,54 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task CancelDocument_WhenPendingTaskLookupRejectsCancel_ReturnsConflictAndKeepsOriginalStatus()
+    {
+        var queue = new LookupCancelRagTaskQueueService(new RagTask
+        {
+            TaskId = "task-pending-reject",
+            DocumentId = 411,
+            Status = RagTaskStatus.Pending
+        }, cancelResult: false);
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 411,
+            FileName = "pending-reject.md",
+            Content = "pending reject",
+            TrackId = "track-cancel-pending-reject",
+            RagStatus = "Pending"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/411/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        queue.CancelCalls.Should().ContainSingle().Which.Should().Be("task-pending-reject");
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(411);
+        document!.RagStatus.Should().Be("Pending");
+        document.PipelineCancelledAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task CancelTrack_CancelsAllQueuedDocumentsInTrack()
     {
-        using var factory = new LightRagServerFactory();
+        var queue = new LookupCancelRagTaskQueueService(new RagTask
+        {
+            TaskId = "task-track-queued",
+            DocumentId = 403,
+            Status = RagTaskStatus.Pending
+        });
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
         await SeedDocumentAsync(factory, new MarkdownDocument
         {
             Id = 403,
@@ -460,6 +516,7 @@ public sealed class DocumentIntakePipelineApiTests
         var response = await client.PostAsync("/api/MarkdownDocuments/tracks/track-batch-cancel/cancel", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.CancelCalls.Should().ContainSingle().Which.Should().Be("task-track-queued");
         var track = await client.GetFromJsonAsync<DocumentTrackStatusResponse>(
             "/api/MarkdownDocuments/tracks/track-batch-cancel");
         track!.CancelledCount.Should().Be(1);
@@ -701,6 +758,33 @@ public sealed class DocumentIntakePipelineApiTests
         queue.EnqueueCalls.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task AddToRagSystem_WhenQueueAcceptsTask_StoresActiveTaskId()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(new RecordingRagTaskQueueService());
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 307,
+            FileName = "legacy-add.md",
+            Content = "legacy add",
+            FileUrl = "/uploads/legacy-add.md"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/307/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(307);
+        document!.RagStatus.Should().Be("Pending");
+        document.ActiveRagTaskId.Should().Be("task-1");
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -714,6 +798,7 @@ public sealed class DocumentIntakePipelineApiTests
         private int nextTaskId;
 
         public List<EnqueueCall> EnqueueCalls { get; } = [];
+        public List<string> CancelCalls { get; } = [];
 
         public virtual Task<string?> EnqueueTaskAsync(
             int documentId,
@@ -750,7 +835,7 @@ public sealed class DocumentIntakePipelineApiTests
             return Task.FromResult<RagTask?>(null);
         }
 
-        public Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default)
+        public virtual Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<RagTask?>(null);
         }
@@ -792,6 +877,7 @@ public sealed class DocumentIntakePipelineApiTests
 
         public virtual Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
         {
+            CancelCalls.Add(taskId);
             return Task.FromResult(true);
         }
 
@@ -849,6 +935,20 @@ public sealed class DocumentIntakePipelineApiTests
             return Task.FromResult(documentIds.Contains(task.DocumentId)
                 ? new Dictionary<int, RagTask> { [task.DocumentId] = task }
                 : new Dictionary<int, RagTask>());
+        }
+    }
+
+    private sealed class LookupCancelRagTaskQueueService(RagTask task, bool cancelResult = true) : RecordingRagTaskQueueService
+    {
+        public override Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(documentId == task.DocumentId ? task : null);
+        }
+
+        public override Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            CancelCalls.Add(taskId);
+            return Task.FromResult(cancelResult);
         }
     }
 

@@ -640,6 +640,7 @@ public class MarkdownDocumentsController(
 
             // Update document status to Pending
             document.RagStatus = "Pending";
+            document.ActiveRagTaskId = taskId;
             await context.SaveChangesAsync();
 
             var dto = document.ToDto();

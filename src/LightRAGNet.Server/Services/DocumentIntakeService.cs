@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Models;
@@ -298,13 +299,27 @@ public sealed class DocumentIntakeService(
 
     private async Task<bool> CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
+        var taskId = document.ActiveRagTaskId;
+        if (string.IsNullOrWhiteSpace(taskId))
         {
-            var queueCancelled = await taskQueueService.CancelTaskAsync(document.ActiveRagTaskId, cancellationToken);
+            var activeTask = await taskQueueService.GetTaskByDocumentIdAsync(document.Id, cancellationToken);
+            if (activeTask is { Status: RagTaskStatus.Pending or RagTaskStatus.Processing })
+            {
+                taskId = activeTask.TaskId;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            var queueCancelled = await taskQueueService.CancelTaskAsync(taskId, cancellationToken);
             if (!queueCancelled)
             {
                 return false;
             }
+        }
+        else if (DocumentIntakeStatus.IsCancellable(document.RagStatus))
+        {
+            return false;
         }
 
         document.RagStatus = DocumentIntakeStatus.Cancelled;
