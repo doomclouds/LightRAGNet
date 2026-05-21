@@ -112,7 +112,7 @@ public class RagQueryController(
         }
     }
 
-    private static (Dictionary<string, object> Data, Dictionary<string, object> Metadata) SplitRawData(
+    internal static (Dictionary<string, object> Data, Dictionary<string, object> Metadata) SplitRawData(
         Dictionary<string, object>? rawData)
     {
         if (rawData is null)
