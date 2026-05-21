@@ -142,6 +142,9 @@ public sealed class GraphCurationServiceTests
             AllowMerge: false));
 
         result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededNode("ALPHA")!.Properties["source_id"].Should().Be("real-chunk");
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Metadata["source_id"]
+            .Should().Be("real-chunk");
         fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "real-chunk" });
         ReadStrings(fixture.FullEntities.Items["real-doc"], "entity_names")
             .Should().BeEquivalentTo(new[] { "ALPHA", "OTHER" });
@@ -453,6 +456,9 @@ public sealed class GraphCurationServiceTests
             new Dictionary<string, object> { ["description"] = "new", ["keywords"] = "new-keyword" }));
 
         result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties["source_id"].Should().Be("real-rel");
+        fixture.VectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA"))!.Metadata["source_id"]
+            .Should().Be("real-rel");
         fixture.RelationChunks.Items["ALPHA<SEP>BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "real-rel" });
         ReadRelationPairs(fixture.FullRelations.Items["real-doc"], "relation_pairs")
             .Should().BeEquivalentTo(new[] { new[] { "ALPHA", "BETA" } });
@@ -730,6 +736,10 @@ public sealed class GraphCurationServiceTests
         var result = await fixture.Service.MergeEntitiesAsync(new GraphEntityMergeRequest(["ALPHA"], "BETA"));
 
         result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededNode("BETA")!.Properties["source_id"].ToString()
+            .Should().Contain("chunk-hidden");
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("BETA"))!.Metadata["source_id"].ToString()
+            .Should().Contain("chunk-hidden");
         fixture.EntityChunks.Items["BETA"]["chunk_ids"]
             .Should().BeEquivalentTo(new[] { "chunk-a", "chunk-hidden", "chunk-b" });
         ReadStrings(fixture.FullEntities.Items["doc-2"], "entity_names")
@@ -866,6 +876,17 @@ public sealed class GraphCurationServiceTests
         var result = await fixture.Service.MergeEntitiesAsync(new GraphEntityMergeRequest(["ALPHA"], "BETA"));
 
         result.Succeeded.Should().BeTrue();
+        var mergedEdgeSourceId = fixture.Graph.GetSeededEdge("BETA", "GAMMA")!.Properties["source_id"].ToString();
+        mergedEdgeSourceId.Should().Contain("chunk-r1");
+        mergedEdgeSourceId.Should().Contain("chunk-r-hidden");
+        mergedEdgeSourceId.Should().Contain("chunk-existing");
+        var mergedRelationVectorSourceId = fixture.VectorStore
+            .Get("relationships", GraphCurationVectorIds.Relation("BETA", "GAMMA"))!
+            .Metadata["source_id"]
+            .ToString();
+        mergedRelationVectorSourceId.Should().Contain("chunk-r1");
+        mergedRelationVectorSourceId.Should().Contain("chunk-r-hidden");
+        mergedRelationVectorSourceId.Should().Contain("chunk-existing");
         fixture.RelationChunks.Items.Should().NotContainKey("ALPHA<SEP>GAMMA");
         fixture.RelationChunks.Items["BETA<SEP>GAMMA"]["chunk_ids"]
             .Should().BeEquivalentTo(new[] { "chunk-r1", "chunk-r-hidden", "chunk-existing" });

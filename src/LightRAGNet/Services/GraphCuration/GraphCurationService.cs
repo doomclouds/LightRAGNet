@@ -325,6 +325,8 @@ public sealed class GraphCurationService
         var connectedRelationChunkIds = renamed
             ? await BuildRelationChunkOverridesByNewKeyAsync(connectedEdges, cancellationToken)
             : new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        updatedData["source_id"] = GraphSourceReferenceParser.Join(entityChunkIds);
+        ApplyRelationChunkOverrides(connectedEdges, connectedRelationChunkIds);
         var entityVector = await BuildEntityVectorDocumentAsync(finalName, updatedData, cancellationToken);
         var relationVectors = renamed
             ? await CreateRelationVectorDocumentsAsync(connectedEdges, cancellationToken)
@@ -792,6 +794,7 @@ public sealed class GraphCurationService
                 {
                     [GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId)] = relationChunkIds
                 };
+                updatedData["source_id"] = GraphSourceReferenceParser.Join(relationChunkIds);
                 var relationVector = await CreateRelationVectorDocumentAsync(edge, cancellationToken);
 
                 await graphStore.UpsertEdgeAsync(
@@ -1142,6 +1145,20 @@ public sealed class GraphCurationService
         return overrides;
     }
 
+    private static void ApplyRelationChunkOverrides(
+        IReadOnlyList<RewiredEdge> edges,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> relationChunkOverrides)
+    {
+        foreach (var edge in edges)
+        {
+            var relationKey = GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId);
+            if (relationChunkOverrides.TryGetValue(relationKey, out var chunkIds))
+            {
+                edge.Properties["source_id"] = GraphSourceReferenceParser.Join(chunkIds);
+            }
+        }
+    }
+
     private static void AddUnique(List<string> target, IEnumerable<string> values)
     {
         foreach (var value in values)
@@ -1261,6 +1278,7 @@ public sealed class GraphCurationService
         }
 
         var targetData = MergeEntityData(targetEntity, targetNode.Properties, sourceNodes.Values.Select(node => node.Properties));
+        targetData["source_id"] = GraphSourceReferenceParser.Join(targetChunkIds);
         var oldRelationEdges = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
         var transferredEdgesByNewKey = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
         var fullRelationReplacements = new List<RewiredEdge>();
