@@ -81,15 +81,23 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
       const updatedData = propertyValuesToUpdatedData(target, values);
 
       if (target === "node" && selectedNode) {
-        const response = await editEntity(apiBase, selectedNode.id, updatedData, true, false);
+        const originalEntityName = selectedNode.id;
+        const updatedEntityName = formatValue(updatedData.entity_name);
+        const response = await editEntity(apiBase, originalEntityName, updatedData, true, false);
         if (!response.succeeded) {
           throw new Error(response.message || "Failed to edit entity.");
         }
 
-        useGraphStore.updateNodeProperty(selectedNode.id, "entity_id", updatedData.entity_name);
-        useGraphStore.updateNodeProperty(selectedNode.id, "entity_name", updatedData.entity_name);
-        useGraphStore.updateNodeProperty(selectedNode.id, "entity_type", updatedData.entity_type);
-        useGraphStore.updateNodeProperty(selectedNode.id, "description", updatedData.description);
+        if (updatedEntityName && updatedEntityName !== originalEntityName) {
+          useGraphStore.renameNode(originalEntityName, updatedEntityName);
+        } else {
+          useGraphStore.updateNodeProperty(originalEntityName, "entity_id", updatedData.entity_name);
+          useGraphStore.updateNodeProperty(originalEntityName, "entity_name", updatedData.entity_name);
+        }
+
+        const currentEntityName = updatedEntityName || originalEntityName;
+        useGraphStore.updateNodeProperty(currentEntityName, "entity_type", updatedData.entity_type);
+        useGraphStore.updateNodeProperty(currentEntityName, "description", updatedData.description);
       }
 
       if (target === "edge" && selectedEdge) {

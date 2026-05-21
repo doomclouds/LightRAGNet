@@ -17,6 +17,7 @@ export type GraphStoreApi = {
   selectEdge: (edgeId: string | null) => void;
   setIsFetching: (isFetching: boolean) => void;
   updateNodeProperty: (nodeId: string, key: string, value: JsonValue) => void;
+  renameNode: (oldId: string, newId: string) => void;
   updateEdgeProperty: (edgeId: string, key: string, value: JsonValue) => void;
   resetSelection: () => void;
 };
@@ -114,6 +115,58 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         ...state,
         rawGraph: { ...state.rawGraph, nodes },
         selectedNode: state.selectedNode?.id === nodeId ? updatedNode : state.selectedNode
+      });
+    },
+    renameNode: (oldId, newId) => {
+      if (!state.rawGraph || oldId === newId) {
+        return;
+      }
+
+      let updatedNode: GraphNodeDto | null = null;
+      const nodes = state.rawGraph.nodes.map((node) => {
+        if (node.id !== oldId) {
+          return node;
+        }
+
+        const properties: GraphNodeProperties = {
+          ...node.properties,
+          entity_id: newId,
+          entity_name: newId
+        };
+        updatedNode = {
+          ...node,
+          id: newId,
+          label: newId,
+          properties
+        };
+        return updatedNode;
+      });
+
+      if (!updatedNode) {
+        return;
+      }
+
+      const edges = state.rawGraph.edges.map((edge) => {
+        if (edge.source !== oldId && edge.target !== oldId) {
+          return edge;
+        }
+
+        return {
+          ...edge,
+          source: edge.source === oldId ? newId : edge.source,
+          target: edge.target === oldId ? newId : edge.target
+        };
+      });
+
+      const selectedEdge = state.selectedEdge
+        ? edges.find((edge) => edge.id === state.selectedEdge?.id) ?? state.selectedEdge
+        : null;
+
+      setState({
+        ...state,
+        rawGraph: { ...state.rawGraph, nodes, edges },
+        selectedNode: state.selectedNode?.id === oldId ? updatedNode : state.selectedNode,
+        selectedEdge
       });
     },
     updateEdgeProperty: (edgeId, key, value) => {

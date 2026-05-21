@@ -1,9 +1,20 @@
 type MergeDialogProps = {
   open: boolean;
+  sourceEntity: string;
+  targetEntity: string;
   onCancel: () => void;
+  onUseMergedStart: () => void;
+  onKeepCurrentStart: () => void;
 };
 
-export function MergeDialog({ open, onCancel }: MergeDialogProps) {
+export function MergeDialog({
+  open,
+  sourceEntity,
+  targetEntity,
+  onCancel,
+  onUseMergedStart,
+  onKeepCurrentStart
+}: MergeDialogProps) {
   if (!open) {
     return null;
   }
@@ -18,11 +29,20 @@ export function MergeDialog({ open, onCancel }: MergeDialogProps) {
           </button>
         </header>
         <div className="graph-workbench__dialog-body">
-          <p>Merge workflow is reserved for the next task.</p>
+          <p>
+            {sourceEntity} will be merged into {targetEntity}. Choose which entity should provide the starting
+            properties for the merge.
+          </p>
         </div>
         <footer>
           <button onClick={onCancel} type="button">
-            Close
+            Cancel
+          </button>
+          <button onClick={onKeepCurrentStart} type="button">
+            Keep current start
+          </button>
+          <button className="graph-workbench__primary-button" onClick={onUseMergedStart} type="button">
+            Use merged start
           </button>
         </footer>
       </section>

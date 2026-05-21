@@ -12,7 +12,7 @@ const graph: GraphViewDto = {
       size: 1,
       color: "#999",
       type: "PERSON",
-      properties: { description: "old", weight: 1 }
+      properties: { entity_id: "ALPHA", entity_name: "Alpha", description: "old", weight: 1 }
     },
     {
       id: "BETA",
@@ -113,6 +113,25 @@ describe("graphStore", () => {
     expect(state.rawGraph).not.toBe(graph);
     expect(state.rawGraph?.nodes[0]).not.toBe(graph.nodes[0]);
     expect(graph.nodes[0]?.properties.description).toBe("old");
+  });
+
+  test("renameNode synchronizes node identity, connected edges, and selectedNode", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectNode("ALPHA");
+    store.renameNode("ALPHA", "OMEGA");
+
+    const state = store.getState();
+    const renamedNode = state.rawGraph?.nodes.find((node) => node.id === "OMEGA");
+    expect(renamedNode?.label).toBe("OMEGA");
+    expect(renamedNode?.properties.entity_id).toBe("OMEGA");
+    expect(renamedNode?.properties.entity_name).toBe("OMEGA");
+    expect(state.rawGraph?.edges[0]?.source).toBe("OMEGA");
+    expect(state.rawGraph?.edges[0]?.target).toBe("BETA");
+    expect(state.selectedNode?.id).toBe("OMEGA");
+    expect(state.selectedNode?.properties.entity_id).toBe("OMEGA");
+    expect(graph.nodes[0]?.id).toBe("ALPHA");
+    expect(graph.edges[0]?.source).toBe("ALPHA");
   });
 
   test("updateEdgeProperty immutably updates rawGraph and selectedEdge", () => {
