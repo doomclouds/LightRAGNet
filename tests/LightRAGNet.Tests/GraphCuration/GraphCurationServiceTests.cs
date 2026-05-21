@@ -43,6 +43,7 @@ public sealed class GraphCurationServiceTests
     public async Task CreateEntityAsync_WhenEntityIsNew_WritesGraphVectorAndTracking()
     {
         var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "doc-1" });
 
         var result = await fixture.Service.CreateEntityAsync(new GraphEntityCreateRequest(
             "ALPHA",
@@ -61,6 +62,9 @@ public sealed class GraphCurationServiceTests
         fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Vector
             .Should().Equal(FakeEmbeddingService.Embedding);
         fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
+        ReadStrings(fixture.FullEntities.Items["doc-1"], "entity_names").Should().Contain("ALPHA");
+        fixture.FullEntities.Items["doc-1"]["count"].Should().Be(1);
+        fixture.FullEntities.Items.Should().NotContainKey("ALPHA");
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 
@@ -68,6 +72,12 @@ public sealed class GraphCurationServiceTests
     public async Task EditEntityAsync_WhenDescriptionChanges_UpdatesGraphAndEntityVector()
     {
         var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "doc-1" });
+        fixture.FullEntities.Seed("doc-1", new()
+        {
+            ["entity_names"] = new List<string> { "ALPHA" },
+            ["count"] = 1
+        });
         fixture.Graph.SeedNode("ALPHA", new()
         {
             ["entity_id"] = "ALPHA",
@@ -89,6 +99,8 @@ public sealed class GraphCurationServiceTests
             .Should().Be("ALPHA\nnew");
         fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Vector
             .Should().Equal(FakeEmbeddingService.Embedding);
+        ReadStrings(fixture.FullEntities.Items["doc-1"], "entity_names").Should().Contain("ALPHA");
+        fixture.FullEntities.Items.Should().NotContainKey("ALPHA");
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 
@@ -96,6 +108,9 @@ public sealed class GraphCurationServiceTests
     public async Task EditEntityAsync_WhenRenameSucceeds_PreservesConnectedEdgesAndMovesEntityRecords()
     {
         var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "doc-1" });
+        fixture.TextChunks.Seed("chunk-r", new() { ["full_doc_id"] = "doc-1" });
+        fixture.TextChunks.Seed("chunk-s", new() { ["full_doc_id"] = "doc-1" });
         fixture.Graph.SeedNode("ALPHA", new()
         {
             ["entity_id"] = "ALPHA",
@@ -118,6 +133,16 @@ public sealed class GraphCurationServiceTests
         var newRelationKey = "BETA_RENAMED<SEP>GAMMA";
         var oldRelationVectorId = GraphCurationVectorIds.Relation("ALPHA", "GAMMA");
         var newRelationVectorId = GraphCurationVectorIds.Relation("BETA_RENAMED", "GAMMA");
+        fixture.FullEntities.Seed("doc-1", new()
+        {
+            ["entity_names"] = new List<string> { "ALPHA", "GAMMA" },
+            ["count"] = 2
+        });
+        fixture.FullRelations.Seed("doc-1", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "ALPHA", "GAMMA" } },
+            ["count"] = 1
+        });
         fixture.VectorStore.Seed("relationships", new VectorDocument
         {
             Id = oldRelationVectorId,
@@ -136,7 +161,6 @@ public sealed class GraphCurationServiceTests
             Vector = [1.0f],
             Metadata = new Dictionary<string, object>()
         });
-        fixture.FullEntities.Seed("ALPHA", new() { ["entity_id"] = "ALPHA" });
         fixture.EntityChunks.Seed("ALPHA", new()
         {
             ["chunk_ids"] = new List<string> { "chunk-a" },
@@ -169,12 +193,37 @@ public sealed class GraphCurationServiceTests
         newRelationVector.Metadata["src_id"].Should().Be("BETA_RENAMED");
         newRelationVector.Metadata["tgt_id"].Should().Be("GAMMA");
         fixture.FullEntities.Items.Should().NotContainKey("ALPHA");
-        fixture.FullEntities.Items.Should().ContainKey("BETA_RENAMED");
+        ReadStrings(fixture.FullEntities.Items["doc-1"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "BETA_RENAMED", "GAMMA" });
+        fixture.FullEntities.Items["doc-1"]["count"].Should().Be(2);
         fixture.EntityChunks.Items.Should().NotContainKey("ALPHA");
         fixture.EntityChunks.Items["BETA_RENAMED"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
         fixture.RelationChunks.Items.Should().NotContainKey(oldRelationKey);
         fixture.RelationChunks.Items[newRelationKey]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-r", "chunk-s" });
+        ReadRelationPairs(fixture.FullRelations.Items["doc-1"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "BETA_RENAMED", "GAMMA" } });
+        fixture.FullRelations.Items["doc-1"]["count"].Should().Be(1);
         fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateEntityAsync_WhenSourceHasNoDocumentId_DoesNotWriteEntityNameKey()
+    {
+        var fixture = GraphCurationFixture.Create();
+
+        var result = await fixture.Service.CreateEntityAsync(new GraphEntityCreateRequest(
+            "MANUAL",
+            new Dictionary<string, object>
+            {
+                ["description"] = "Manual description",
+                ["entity_type"] = "Concept",
+                ["source_id"] = "manual_creation",
+                ["file_path"] = ""
+            }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.FullEntities.Items.Should().NotContainKey("MANUAL");
+        fixture.FullEntities.Items.Should().BeEmpty();
     }
 
     [Fact]
@@ -207,6 +256,7 @@ public sealed class GraphCurationServiceTests
         public InMemoryGraphStore Graph { get; } = new();
         public InMemoryVectorStore VectorStore { get; } = new();
         public FakeEmbeddingService EmbeddingService { get; } = new();
+        public InMemoryKvStore TextChunks { get; } = new();
         public InMemoryKvStore FullEntities { get; } = new();
         public InMemoryKvStore FullRelations { get; } = new();
         public InMemoryKvStore EntityChunks { get; } = new();
@@ -220,6 +270,7 @@ public sealed class GraphCurationServiceTests
                 Graph,
                 VectorStore,
                 EmbeddingService,
+                TextChunks,
                 FullEntities,
                 FullRelations,
                 EntityChunks,
@@ -233,6 +284,29 @@ public sealed class GraphCurationServiceTests
         }
 
         public static GraphCurationFixture Create() => new();
+    }
+
+    private static IReadOnlyList<string> ReadStrings(Dictionary<string, object> data, string key)
+    {
+        return data[key] switch
+        {
+            IEnumerable<string> strings => strings.ToList(),
+            IEnumerable<object> objects => objects.Select(item => item.ToString() ?? string.Empty).ToList(),
+            _ => []
+        };
+    }
+
+    private static IReadOnlyList<string[]> ReadRelationPairs(Dictionary<string, object> data, string key)
+    {
+        return data[key] switch
+        {
+            IEnumerable<string[]> pairs => pairs.Select(pair => pair.ToArray()).ToList(),
+            IEnumerable<object> objects => objects
+                .OfType<IEnumerable<object>>()
+                .Select(pair => pair.Select(item => item.ToString() ?? string.Empty).ToArray())
+                .ToList(),
+            _ => []
+        };
     }
 
     private sealed class FakeEmbeddingService : IEmbeddingService

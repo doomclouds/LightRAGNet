@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.Json;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Services.DocumentDeletion;
 using Microsoft.Extensions.Logging;
@@ -14,17 +16,20 @@ public sealed class GraphCurationService
     private readonly IGraphStore graphStore;
     private readonly IVectorStore vectorStore;
     private readonly IEmbeddingService embeddingService;
+    private readonly IKVStore textChunksStore;
     private readonly IKVStore fullEntitiesStore;
     private readonly IKVStore fullRelationsStore;
     private readonly IKVStore entityChunksStore;
     private readonly IKVStore relationChunksStore;
     private readonly Func<Task> bumpQueryRevisionAsync;
     private readonly ILogger<GraphCurationService> logger;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> entityLocks = new(StringComparer.Ordinal);
 
     public GraphCurationService(
         IGraphStore graphStore,
         IVectorStore vectorStore,
         IEmbeddingService embeddingService,
+        IKVStore textChunksStore,
         IKVStore fullEntitiesStore,
         IKVStore fullRelationsStore,
         IKVStore entityChunksStore,
@@ -35,6 +40,7 @@ public sealed class GraphCurationService
         this.graphStore = graphStore;
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
+        this.textChunksStore = textChunksStore;
         this.fullEntitiesStore = fullEntitiesStore;
         this.fullRelationsStore = fullRelationsStore;
         this.entityChunksStore = entityChunksStore;
@@ -70,6 +76,17 @@ public sealed class GraphCurationService
                 "validation_error");
         }
 
+        return await ExecuteWithEntityLocksAsync(
+            [entityName],
+            () => CreateEntityCoreAsync(entityName, request, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<GraphCurationOperationResult> CreateEntityCoreAsync(
+        string entityName,
+        GraphEntityCreateRequest request,
+        CancellationToken cancellationToken)
+    {
         if (await graphStore.HasNodeAsync(entityName, cancellationToken))
         {
             return GraphCurationOperationResult.Failure(
@@ -81,10 +98,10 @@ public sealed class GraphCurationService
         var nodeData = BuildEntityData(entityName, request.EntityData);
         var entityVector = await BuildEntityVectorDocumentAsync(entityName, nodeData, cancellationToken);
 
-        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
         await graphStore.UpsertNodeAsync(entityName, nodeData, cancellationToken);
         await UpsertEntityTrackingAsync(entityName, nodeData, cancellationToken);
-        await UpsertFullEntityAsync(entityName, nodeData, cancellationToken);
+        await UpsertFullEntityIndexAsync(entityName, nodeData, cancellationToken);
+        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
         await bumpQueryRevisionAsync();
 
         return GraphCurationOperationResult.Success(
@@ -121,15 +138,6 @@ public sealed class GraphCurationService
                 "validation_error");
         }
 
-        var currentNode = await graphStore.GetNodeAsync(currentName, cancellationToken);
-        if (currentNode is null)
-        {
-            return GraphCurationOperationResult.Failure(
-                $"Entity '{currentName}' was not found.",
-                "graph",
-                "not_found");
-        }
-
         var requestedName = GetString(request.UpdatedData, "entity_name");
         var finalName = string.IsNullOrWhiteSpace(requestedName) ? currentName : requestedName.Trim();
         var renamed = !string.Equals(currentName, finalName, StringComparison.Ordinal);
@@ -140,6 +148,28 @@ public sealed class GraphCurationService
                 "Entity rename is not allowed.",
                 "validation",
                 "rename_not_allowed");
+        }
+
+        return await ExecuteWithEntityLocksAsync(
+            renamed ? [currentName, finalName] : [currentName],
+            () => EditEntityCoreAsync(request, currentName, finalName, renamed, cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<GraphCurationOperationResult> EditEntityCoreAsync(
+        GraphEntityEditRequest request,
+        string currentName,
+        string finalName,
+        bool renamed,
+        CancellationToken cancellationToken)
+    {
+        var currentNode = await graphStore.GetNodeAsync(currentName, cancellationToken);
+        if (currentNode is null)
+        {
+            return GraphCurationOperationResult.Failure(
+                $"Entity '{currentName}' was not found.",
+                "graph",
+                "not_found");
         }
 
         if (renamed && await graphStore.HasNodeAsync(finalName, cancellationToken))
@@ -178,28 +208,37 @@ public sealed class GraphCurationService
             ? await CreateRelationVectorDocumentsAsync(connectedEdges, cancellationToken)
             : [];
 
-        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
-
         if (renamed)
         {
             await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
             await UpsertRewiredEdgesAsync(connectedEdges, cancellationToken);
             await graphStore.DeleteNodeAsync(currentName, cancellationToken);
-            await vectorStore.DeleteAsync(EntitiesCollection, [GraphCurationVectorIds.Entity(currentName)], cancellationToken);
-            await DeleteOldRelationVectorsAsync(connectedEdges, cancellationToken);
-            await UpsertRelationVectorsAsync(relationVectors, cancellationToken);
             await fullEntitiesStore.DeleteAsync([currentName], cancellationToken);
             await entityChunksStore.DeleteAsync([currentName], cancellationToken);
             await DeleteOldRelationTrackingAsync(connectedEdges, cancellationToken);
             await UpsertRelationTrackingAsync(connectedEdges, cancellationToken);
+            await UpsertFullEntityIndexAsync(finalName, updatedData, cancellationToken, currentName);
+            await UpsertFullRelationIndexesAsync(connectedEdges, cancellationToken);
         }
         else
         {
             await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
+            await UpsertFullEntityIndexAsync(finalName, updatedData, cancellationToken);
         }
 
         await UpsertEntityTrackingAsync(finalName, updatedData, cancellationToken);
-        await UpsertFullEntityAsync(finalName, updatedData, cancellationToken);
+        if (renamed)
+        {
+            await vectorStore.DeleteAsync(EntitiesCollection, [GraphCurationVectorIds.Entity(currentName)], cancellationToken);
+            await DeleteOldRelationVectorsAsync(connectedEdges, cancellationToken);
+        }
+
+        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
+        if (renamed)
+        {
+            await UpsertRelationVectorsAsync(relationVectors, cancellationToken);
+        }
+
         await bumpQueryRevisionAsync();
 
         return GraphCurationOperationResult.Success(
@@ -279,20 +318,103 @@ public sealed class GraphCurationService
             cancellationToken);
     }
 
-    private async Task UpsertFullEntityAsync(
+    private async Task UpsertFullEntityIndexAsync(
         string entityName,
         Dictionary<string, object> entityData,
+        CancellationToken cancellationToken,
+        string? previousEntityName = null)
+    {
+        var docIds = await ResolveFullDocIdsAsync(entityData, cancellationToken);
+        if (docIds.Count == 0)
+        {
+            logger.LogDebug(
+                "No full_doc_id resolved for entity {EntityName}; skipping full_entities index update.",
+                entityName);
+            return;
+        }
+
+        var updates = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+        foreach (var docId in docIds)
+        {
+            var existing = await fullEntitiesStore.GetByIdAsync(docId, cancellationToken)
+                ?? new Dictionary<string, object>(StringComparer.Ordinal);
+            var entityNames = ReadStringList(existing, "entity_names").ToList();
+
+            if (!string.IsNullOrWhiteSpace(previousEntityName))
+            {
+                entityNames.RemoveAll(name => string.Equals(name, previousEntityName, StringComparison.Ordinal));
+            }
+
+            if (!entityNames.Contains(entityName, StringComparer.Ordinal))
+            {
+                entityNames.Add(entityName);
+            }
+
+            var updated = existing.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.Ordinal);
+            updated["entity_names"] = entityNames;
+            updated["count"] = entityNames.Count;
+            updates[docId] = updated;
+        }
+
+        await fullEntitiesStore.UpsertAsync(updates, cancellationToken);
+    }
+
+    private async Task UpsertFullRelationIndexesAsync(
+        IReadOnlyList<RewiredEdge> edges,
         CancellationToken cancellationToken)
     {
-        await fullEntitiesStore.UpsertAsync(
-            new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal)
+        var updates = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+
+        foreach (var edge in edges)
+        {
+            var docIds = await ResolveFullDocIdsAsync(edge.Properties, cancellationToken);
+            if (docIds.Count == 0)
             {
-                [entityName] = entityData.ToDictionary(
+                logger.LogDebug(
+                    "No full_doc_id resolved for relation {SourceId}->{TargetId}; skipping full_relations index update.",
+                    edge.SourceId,
+                    edge.TargetId);
+                continue;
+            }
+
+            var oldKey = GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId);
+            var newKey = GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId);
+
+            foreach (var docId in docIds)
+            {
+                var existing = updates.TryGetValue(docId, out var pending)
+                    ? pending
+                    : await fullRelationsStore.GetByIdAsync(docId, cancellationToken)
+                        ?? new Dictionary<string, object>(StringComparer.Ordinal);
+
+                var relationKeys = ReadRelationPairKeys(existing, "relation_pairs").ToList();
+                relationKeys.RemoveAll(key => string.Equals(key, oldKey, StringComparison.Ordinal));
+                if (!relationKeys.Contains(newKey, StringComparer.Ordinal))
+                {
+                    relationKeys.Add(newKey);
+                }
+
+                var updated = existing.ToDictionary(
                     pair => pair.Key,
                     pair => pair.Value,
-                    StringComparer.Ordinal)
-            },
-            cancellationToken);
+                    StringComparer.Ordinal);
+                updated["relation_pairs"] = relationKeys
+                    .Select(key => key.Split(GraphSourceReferenceParser.GraphFieldSep, StringSplitOptions.None))
+                    .ToList();
+                updated["count"] = relationKeys.Count;
+                updates[docId] = updated;
+            }
+        }
+
+        if (updates.Count == 0)
+        {
+            return;
+        }
+
+        await fullRelationsStore.UpsertAsync(updates, cancellationToken);
     }
 
     private static Dictionary<string, object> BuildEntityData(
@@ -329,9 +451,170 @@ public sealed class GraphCurationService
             .ToList();
     }
 
-    private static string? GetString(Dictionary<string, object> data, string key)
+    private async Task<IReadOnlyList<string>> ResolveFullDocIdsAsync(
+        Dictionary<string, object> sourceData,
+        CancellationToken cancellationToken)
     {
-        return data.TryGetValue(key, out var value) ? value?.ToString() : null;
+        var docIds = new List<string>();
+        foreach (var chunkId in ExtractChunkIds(sourceData))
+        {
+            var chunk = await textChunksStore.GetByIdAsync(chunkId, cancellationToken);
+            var docId = GetString(chunk, "full_doc_id");
+            if (!string.IsNullOrWhiteSpace(docId) && !docIds.Contains(docId, StringComparer.Ordinal))
+            {
+                docIds.Add(docId);
+            }
+        }
+
+        return docIds;
+    }
+
+    private static string? GetString(Dictionary<string, object>? data, string key)
+    {
+        if (data is null || !data.TryGetValue(key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),
+            JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => null,
+            JsonElement json => json.ToString(),
+            _ => value.ToString()
+        };
+    }
+
+    private static IReadOnlyList<string> ReadStringList(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value) || value is null)
+        {
+            return [];
+        }
+
+        return value switch
+        {
+            JsonElement json => ReadJsonStringList(json),
+            IEnumerable<string> strings => strings
+                .Select(item => item.Trim())
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            IEnumerable<object> objects => objects
+                .Select(item => item?.ToString()?.Trim() ?? string.Empty)
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            string text when !string.IsNullOrWhiteSpace(text) => [text.Trim()],
+            _ => []
+        };
+    }
+
+    private static IReadOnlyList<string> ReadJsonStringList(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Array => value.EnumerateArray()
+                .Select(ReadJsonScalar)
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            JsonValueKind.String => string.IsNullOrWhiteSpace(value.GetString()) ? [] : [value.GetString()!.Trim()],
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => [value.ToString()],
+            _ => []
+        };
+    }
+
+    private static string ReadJsonScalar(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString()?.Trim() ?? string.Empty,
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => value.ToString(),
+            _ => string.Empty
+        };
+    }
+
+    private static IReadOnlyList<string> ReadRelationPairKeys(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value) || value is null)
+        {
+            return [];
+        }
+
+        var keys = value switch
+        {
+            JsonElement json => ReadJsonRelationPairKeys(json),
+            IEnumerable<string[]> arrays => arrays
+                .Where(pair => pair.Length >= 2)
+                .Select(pair => GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1])),
+            IEnumerable<object> objects => objects.SelectMany(ReadObjectRelationPairKeys),
+            _ => []
+        };
+
+        return keys.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private static IEnumerable<string> ReadObjectRelationPairKeys(object? value)
+    {
+        switch (value)
+        {
+            case JsonElement json:
+                return ReadJsonRelationPairKeys(json);
+            case IEnumerable<string> strings:
+            {
+                var pair = strings.ToList();
+                return pair.Count >= 2 ? [GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1])] : [];
+            }
+            case IEnumerable<object> objects:
+            {
+                var pair = objects.Select(item => item?.ToString() ?? string.Empty)
+                    .Where(item => item.Length > 0)
+                    .ToList();
+                return pair.Count >= 2 ? [GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1])] : [];
+            }
+            case string text:
+            {
+                var pair = GraphSourceReferenceParser.Split(text);
+                return pair.Count >= 2 ? [GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1])] : [];
+            }
+            default:
+                return [];
+        }
+    }
+
+    private static IReadOnlyList<string> ReadJsonRelationPairKeys(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var keys = new List<string>();
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Array)
+            {
+                var pair = item.EnumerateArray()
+                    .Select(ReadJsonScalar)
+                    .Where(text => text.Length > 0)
+                    .ToList();
+                if (pair.Count >= 2)
+                {
+                    keys.Add(GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1]));
+                }
+            }
+            else if (item.ValueKind == JsonValueKind.String)
+            {
+                var pair = GraphSourceReferenceParser.Split(item.GetString());
+                if (pair.Count >= 2)
+                {
+                    keys.Add(GraphSourceReferenceParser.MakeRelationKey(pair[0], pair[1]));
+                }
+            }
+        }
+
+        return keys;
     }
 
     private async Task<List<VectorDocument>> CreateRelationVectorDocumentsAsync(
@@ -525,6 +808,37 @@ public sealed class GraphCurationService
                 out var parsed) => parsed,
             _ => 0
         };
+    }
+
+    private async Task<T> ExecuteWithEntityLocksAsync<T>(
+        IEnumerable<string> entityNames,
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var locks = entityNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(name => entityLocks.GetOrAdd(name, _ => new SemaphoreSlim(1, 1)))
+            .ToList();
+
+        foreach (var semaphore in locks)
+        {
+            await semaphore.WaitAsync(cancellationToken);
+        }
+
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            for (var i = locks.Count - 1; i >= 0; i--)
+            {
+                locks[i].Release();
+            }
+        }
     }
 
     private sealed record RewiredEdge(

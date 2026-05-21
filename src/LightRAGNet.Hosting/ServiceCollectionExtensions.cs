@@ -166,6 +166,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IGraphStore>(),
             sp.GetRequiredService<IVectorStore>(),
             sp.GetRequiredService<IEmbeddingService>(),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.TextChunks),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullEntities),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullRelations),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.EntityChunks),
