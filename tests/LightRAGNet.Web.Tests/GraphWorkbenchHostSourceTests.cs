@@ -13,6 +13,7 @@ public sealed class GraphWorkbenchHostSourceTests
         source.Should().Contain("IJSRuntime");
         source.Should().Contain("mountGraphWorkbench");
         source.Should().Contain("unmountGraphWorkbench");
+        source.Should().Contain("./graph-workbench/assets/graph-workbench.js");
         source.Should().Contain("graph-workbench/assets/graph-workbench.css");
         source.Should().NotContain("<script type=\"module\"");
     }
