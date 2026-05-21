@@ -23,7 +23,12 @@ public enum RagTaskStatus
     /// <summary>
     /// Failed
     /// </summary>
-    Failed
+    Failed,
+
+    /// <summary>
+    /// Cancelled
+    /// </summary>
+    Cancelled
 }
 
 public enum RagTaskOperationType
@@ -69,7 +74,7 @@ public class RagTask
     public string FilePath { get; set; } = string.Empty;
     
     /// <summary>
-    /// Task status: Pending, Processing, Completed, or Failed
+    /// Task status: Pending, Processing, Completed, Failed, or Cancelled
     /// </summary>
     public RagTaskStatus Status { get; set; } = RagTaskStatus.Pending;
     

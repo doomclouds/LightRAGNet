@@ -281,6 +281,95 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task RetryDocument_WhenFailed_RequeuesSameDocumentAndIncrementsRetryCount()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 401,
+            FileName = "failed.md",
+            Content = "failed content",
+            TrackId = "track-retry",
+            RagStatus = "Failed",
+            RagErrorMessage = "boom",
+            RagRetryCount = 1
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/401/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<DocumentPipelineActionResult>();
+        body.Should().NotBeNull();
+        body!.Accepted.Should().BeTrue();
+        body.Status.Should().Be("Queued");
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(401);
+        document!.TrackId.Should().Be("track-retry");
+        document.RagRetryCount.Should().Be(2);
+        document.RagErrorMessage.Should().BeNull();
+        document.RagStatus.Should().Be("Queued");
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenQueued_MarksCancelledAndDoesNotProcess()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 402,
+            FileName = "queued.md",
+            Content = "queued content",
+            TrackId = "track-cancel",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-queued"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/402/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(402);
+        document!.RagStatus.Should().Be("Cancelled");
+        document.PipelineCancelledAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CancelTrack_CancelsAllQueuedDocumentsInTrack()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 403,
+            FileName = "one.md",
+            Content = "one",
+            TrackId = "track-batch-cancel",
+            RagStatus = "Queued"
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 404,
+            FileName = "two.md",
+            Content = "two",
+            TrackId = "track-batch-cancel",
+            RagStatus = "Completed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/tracks/track-batch-cancel/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var track = await client.GetFromJsonAsync<DocumentTrackStatusResponse>(
+            "/api/MarkdownDocuments/tracks/track-batch-cancel");
+        track!.CancelledCount.Should().Be(1);
+        track.CompletedCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task UploadMarkdownDocumentsBatch_CreatesOneTrackForAllFiles()
     {
         using var factory = new LightRagServerFactory();
@@ -554,6 +643,11 @@ public sealed class DocumentIntakePipelineApiTests
         public Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(false);
+        }
+
+        public Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
         }
 
         public Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default)

@@ -285,6 +285,54 @@ public class MarkdownDocumentsController(
         return result is null ? NotFound() : Ok(result);
     }
 
+    [HttpPost("{id:int}/retry")]
+    [ProducesResponseType(typeof(DocumentPipelineActionResult), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DocumentPipelineActionResult>> RetryDocument(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await documentIntakeService.RetryDocumentAsync(id, cancellationToken);
+            return result is null ? NotFound() : Accepted(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:int}/cancel")]
+    [ProducesResponseType(typeof(DocumentPipelineActionResult), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DocumentPipelineActionResult>> CancelDocument(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await documentIntakeService.CancelDocumentAsync(id, cancellationToken);
+            return result is null ? NotFound() : Accepted(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("tracks/{trackId}/cancel")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public async Task<ActionResult> CancelTrack(
+        string trackId,
+        CancellationToken cancellationToken)
+    {
+        var cancelledCount = await documentIntakeService.CancelTrackAsync(trackId, cancellationToken);
+        return Accepted(new { trackId, cancelledCount });
+    }
+
     /// <summary>
     /// Get total count of Markdown documents
     /// </summary>

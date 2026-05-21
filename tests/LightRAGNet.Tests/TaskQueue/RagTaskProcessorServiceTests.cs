@@ -480,6 +480,9 @@ public sealed class RagTaskProcessorServiceTests
         public Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
+        public Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
         public Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 

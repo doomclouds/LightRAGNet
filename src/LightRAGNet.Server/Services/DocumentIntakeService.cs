@@ -181,6 +181,97 @@ public sealed class DocumentIntakeService(
         };
     }
 
+    public async Task<DocumentPipelineActionResult?> RetryDocumentAsync(
+        int documentId,
+        CancellationToken cancellationToken)
+    {
+        var document = await context.MarkdownDocuments.FindAsync([documentId], cancellationToken);
+        if (document is null)
+        {
+            return null;
+        }
+
+        if (!DocumentIntakeStatus.IsRetryable(document.RagStatus))
+        {
+            throw new InvalidOperationException("Document is not retryable.");
+        }
+
+        var taskId = await taskQueueService.EnqueueTaskAsync(
+            document.Id,
+            document.Content,
+            document.FileUrl ?? document.FileName,
+            cancellationToken);
+
+        if (taskId is null)
+        {
+            throw new InvalidOperationException("Document could not be queued because an active task already exists.");
+        }
+
+        document.RagRetryCount++;
+        document.RagErrorMessage = null;
+        document.RagStatus = DocumentIntakeStatus.Queued;
+        document.RagCurrentStage = "Accepted";
+        document.RagProgress = 0;
+        document.PipelineStartedAt = null;
+        document.PipelineCompletedAt = null;
+        document.PipelineCancelledAt = null;
+        document.ActiveRagTaskId = taskId;
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new DocumentPipelineActionResult
+        {
+            Accepted = true,
+            DocumentId = document.Id,
+            Status = DocumentIntakeStatus.Queued,
+            Message = "Document retry has been queued."
+        };
+    }
+
+    public async Task<DocumentPipelineActionResult?> CancelDocumentAsync(
+        int documentId,
+        CancellationToken cancellationToken)
+    {
+        var document = await context.MarkdownDocuments.FindAsync([documentId], cancellationToken);
+        if (document is null)
+        {
+            return null;
+        }
+
+        if (!DocumentIntakeStatus.IsCancellable(document.RagStatus))
+        {
+            throw new InvalidOperationException("Document is not cancellable.");
+        }
+
+        await CancelDocumentCoreAsync(document, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new DocumentPipelineActionResult
+        {
+            Accepted = true,
+            DocumentId = document.Id,
+            Status = DocumentIntakeStatus.Cancelled,
+            Message = "Document pipeline has been cancelled."
+        };
+    }
+
+    public async Task<int> CancelTrackAsync(string trackId, CancellationToken cancellationToken)
+    {
+        var documents = await context.MarkdownDocuments
+            .Where(d => d.TrackId == trackId &&
+                        (d.RagStatus == DocumentIntakeStatus.Queued ||
+                         d.RagStatus == DocumentIntakeStatus.Processing ||
+                         d.RagStatus == "Pending"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var document in documents)
+        {
+            await CancelDocumentCoreAsync(document, cancellationToken);
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+        return documents.Count;
+    }
+
     private static string CreateTrackId()
     {
         return $"track-{Guid.NewGuid():N}";
@@ -194,6 +285,19 @@ public sealed class DocumentIntakeService(
     private static bool IsQueuedStatus(string? status)
     {
         return status is DocumentIntakeStatus.Queued or "Pending";
+    }
+
+    private async Task CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
+        {
+            await taskQueueService.CancelTaskAsync(document.ActiveRagTaskId, cancellationToken);
+        }
+
+        document.RagStatus = DocumentIntakeStatus.Cancelled;
+        document.RagCurrentStage = DocumentIntakeStatus.Cancelled;
+        document.PipelineCancelledAt = DateTime.UtcNow;
+        document.ActiveRagTaskId = null;
     }
 
     private static bool IsSupportedUploadExtension(string? extension)

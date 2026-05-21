@@ -67,6 +67,11 @@ public interface IRagTaskQueueService
     /// Delete task (only for Pending status)
     /// </summary>
     Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancel a pending or processing task.
+    /// </summary>
+    Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Retry failed task

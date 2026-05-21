@@ -643,6 +643,49 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task CancelTaskAsync_WhenPending_RemovesTaskAndPublishesCancelled()
+    {
+        var (service, store, mediator, _) = CreateService();
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        mediator.ClearReceivedCalls();
+
+        var cancelled = await service.CancelTaskAsync(taskId!);
+
+        cancelled.Should().BeTrue();
+        (await service.GetTaskAsync(taskId!)).Should().BeNull();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+        await mediator.Received(1).Publish(
+            Arg.Is<RagTaskStatusChangedEvent>(e =>
+                e.Task.TaskId == taskId &&
+                e.Task.Status == RagTaskStatus.Cancelled),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CancelTaskAsync_WhenProcessing_CancelsRegisteredTokenAndPublishesCancelled()
+    {
+        var (service, store, mediator, cancellationRegistry) = CreateService();
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        using var hostCancellation = new CancellationTokenSource();
+        var processingToken = cancellationRegistry.RegisterProcessingTask(taskId!, hostCancellation.Token);
+        mediator.ClearReceivedCalls();
+
+        var cancelled = await service.CancelTaskAsync(taskId!);
+
+        cancelled.Should().BeTrue();
+        processingToken.IsCancellationRequested.Should().BeTrue();
+        hostCancellation.IsCancellationRequested.Should().BeFalse();
+        (await service.GetTaskAsync(taskId!)).Should().BeNull();
+        (await store.LoadTaskStateAsync(taskId!)).Should().BeNull();
+        await mediator.Received(1).Publish(
+            Arg.Is<RagTaskStatusChangedEvent>(e =>
+                e.Task.TaskId == taskId &&
+                e.Task.Status == RagTaskStatus.Cancelled),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task StopAllTasksAsync_FailsPendingAndProcessingTasks()
     {
         var (service, _, mediator, _) = CreateService();

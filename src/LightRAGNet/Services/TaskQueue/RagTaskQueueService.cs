@@ -308,7 +308,7 @@ public class RagTaskQueueService(
                 task.StartedAt = DateTime.UtcNow;
             }
 
-            if (status is RagTaskStatus.Completed or RagTaskStatus.Failed)
+            if (IsTerminalStatus(status))
             {
                 task.CompletedAt = DateTime.UtcNow;
                 shouldDelete = true;
@@ -381,8 +381,8 @@ public class RagTaskQueueService(
                 _tasks.TryAdd(taskId, task);
             }
 
-            // If task is completed or failed, no longer update progress (task is completed, no need to save state)
-            if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed)
+            // If task is terminal, no longer update progress.
+            if (IsTerminalStatus(task.Status))
             {
                 return;
             }
@@ -422,7 +422,7 @@ public class RagTaskQueueService(
             var hasActiveTask = _tasks.TryGetValue(taskId, out var activeTask);
             if (hasActiveTask &&
                 ReferenceEquals(activeTask, task) &&
-                activeTask.Status is not (RagTaskStatus.Completed or RagTaskStatus.Failed))
+                !IsTerminalStatus(activeTask.Status))
             {
                 taskToPublish = CloneTaskForPublication(activeTask);
             }
@@ -538,6 +538,56 @@ public class RagTaskQueueService(
         }
     }
 
+    public async Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        await EnsureTasksLoadedAsync(cancellationToken);
+        await using var publishLease = await _publishLocks.LockAsync(taskId, cancellationToken);
+
+        RagTask taskToPublish;
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_tasks.TryGetValue(taskId, out var task))
+            {
+                task = await stateStore.LoadTaskStateAsync(taskId, cancellationToken);
+                if (task == null)
+                {
+                    return false;
+                }
+
+                _tasks.TryAdd(taskId, task);
+            }
+
+            if (task.Status is not (RagTaskStatus.Pending or RagTaskStatus.Processing))
+            {
+                logger.LogWarning("Can only cancel pending or processing tasks: {TaskId}, current status: {Status}", taskId, task.Status);
+                return false;
+            }
+
+            if (task.Status == RagTaskStatus.Processing)
+            {
+                cancellationRegistry.CancelTask(taskId);
+            }
+
+            task.Status = RagTaskStatus.Cancelled;
+            task.ErrorMessage = null;
+            task.CompletedAt = DateTime.UtcNow;
+            _terminalTaskIds.TryAdd(taskId, 0);
+            _tasks.TryRemove(taskId, out _);
+            taskToPublish = CloneTaskForPublication(task);
+            logger.LogInformation("Task cancelled and removed from active queue: {TaskId}", taskId);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        await stateStore.DeleteTaskStateAsync(taskId, cancellationToken);
+        await PublishStatusChangedAsync(taskToPublish, cancellationToken);
+        _terminalTaskIds.TryRemove(taskId, out _);
+        return true;
+    }
+
     public async Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
         await _lock.WaitAsync(cancellationToken);
@@ -599,6 +649,11 @@ public class RagTaskQueueService(
         {
             logger.LogError(ex, "Failed to publish task status change event: {TaskId}", task.TaskId);
         }
+    }
+
+    private static bool IsTerminalStatus(RagTaskStatus status)
+    {
+        return status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled;
     }
 
     private async Task LoadTasksFromStoreAsync(CancellationToken cancellationToken = default)
