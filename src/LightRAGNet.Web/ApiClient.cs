@@ -21,9 +21,27 @@ public class ApiClient(HttpClient httpClient)
     public async Task<PagedResult<MarkdownDocumentDto>?> GetMarkdownDocumentsAsync(
         int page = 1, 
         int pageSize = 10, 
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? status = null,
+        string? trackId = null)
     {
-        var url = $"api/MarkdownDocuments?page={page}&pageSize={pageSize}";
+        var queryParameters = new List<string>
+        {
+            $"page={page}",
+            $"pageSize={pageSize}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            queryParameters.Add($"status={Uri.EscapeDataString(status)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(trackId))
+        {
+            queryParameters.Add($"trackId={Uri.EscapeDataString(trackId)}");
+        }
+
+        var url = $"api/MarkdownDocuments?{string.Join("&", queryParameters)}";
         return await httpClient.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(url, cancellationToken);
     }
 
@@ -144,6 +162,34 @@ public class ApiClient(HttpClient httpClient)
         {
             ErrorMessage = await ReadErrorMessageAsync(response.Content, cancellationToken)
         };
+    }
+
+    public async Task<DocumentPipelineActionResult?> RetryDocumentAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsync($"api/MarkdownDocuments/{id}/retry", null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<DocumentPipelineActionResult>(
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<DocumentPipelineActionResult?> CancelDocumentPipelineAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsync($"api/MarkdownDocuments/{id}/cancel", null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<DocumentPipelineActionResult>(
+            cancellationToken: cancellationToken);
     }
 
     private static async Task<string> ReadErrorMessageAsync(

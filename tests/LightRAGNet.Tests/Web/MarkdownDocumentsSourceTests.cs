@@ -43,6 +43,52 @@ public sealed class MarkdownDocumentsSourceTests
         source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized)");
     }
 
+    [Fact]
+    public void ApiClient_MarkdownDocumentsQuery_SupportsStatusAndTrackFilters()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("string? status = null");
+        source.Should().Contain("string? trackId = null");
+        source.Should().Contain("status={Uri.EscapeDataString(status)}");
+        source.Should().Contain("trackId={Uri.EscapeDataString(trackId)}");
+    }
+
+    [Fact]
+    public void ApiClient_DocumentPipelineActions_PostToDocumentEndpoints()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("Task<DocumentPipelineActionResult?> RetryDocumentAsync(");
+        source.Should().Contain("api/MarkdownDocuments/{id}/retry");
+        source.Should().Contain("Task<DocumentPipelineActionResult?> CancelDocumentPipelineAsync(");
+        source.Should().Contain("api/MarkdownDocuments/{id}/cancel");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_StatusFilter_IsSentThroughServerReload()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("private string? _selectedStatusFilter;");
+        source.Should().Contain("Value=\"_selectedStatusFilter\"");
+        source.Should().Contain("GetMarkdownDocumentsAsync(state.Page + 1, state.PageSize, cancellationToken, status: _selectedStatusFilter)");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_PipelineActions_AreAvailableForEligibleStatuses()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("CanRetryDocument(context)");
+        source.Should().Contain("CanCancelDocumentPipeline(context)");
+        source.Should().Contain("RetryDocument(context)");
+        source.Should().Contain("CancelDocumentPipeline(context)");
+        source.Should().Contain("private async Task RetryDocument(MarkdownDocumentDto document)");
+        source.Should().Contain("private async Task CancelDocumentPipeline(MarkdownDocumentDto document)");
+        source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.UserAction)");
+    }
+
     private static string ReadPageSource()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -55,6 +101,18 @@ public sealed class MarkdownDocumentsSourceTests
             "MarkdownDocuments.razor");
 
         return File.ReadAllText(pagePath);
+    }
+
+    private static string ReadApiClientSource()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var clientPath = Path.Combine(
+            repositoryRoot,
+            "src",
+            "LightRAGNet.Web",
+            "ApiClient.cs");
+
+        return File.ReadAllText(clientPath);
     }
 
     private static string FindRepositoryRoot()
