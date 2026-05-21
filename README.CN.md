@@ -47,6 +47,18 @@ dotnet run --project src/LightRAGNet.Web
 
 `docker compose up -d` 会启动本机开发用 Qdrant 和 Neo4j；测试默认不应该依赖或修改这些真实服务。
 
+### React 图谱工作台
+
+图谱工作台是由 Blazor Web 承载的 React/Vite island，后续可迁移为主 React 前端模块。
+
+```powershell
+Set-Location .\src\LightRAGNet.Web\ClientApp
+npm install
+npm run build
+Set-Location ..\..\..
+dotnet run --project .\src\LightRAGNet.Web
+```
+
 ## 功能特性
 
 ### 核心功能
@@ -198,11 +210,20 @@ LightRAGNet 采用分层架构设计：
 
 ## 参考实现
 
-本实现完全参考 Python 版本的 LightRAG：
+本实现参考 Python 版本的 LightRAG：
 - `lightrag.py` - 主类实现
 - `operate.py` - 核心操作函数
 - `prompt.py` - 提示词模板
 - `kg/` - 存储实现
+
+图谱治理工作台参考来源声明：
+
+- Source repository: `https://github.com/HKUDS/LightRAG`
+- Local reference copy: `LightRAG/`
+- 参考的前端区域：`LightRAG/lightrag_webui/src/features/GraphViewer.tsx`、`LightRAG/lightrag_webui/src/hooks/useLightragGraph.tsx`、`LightRAG/lightrag_webui/src/stores/graph.ts`、`LightRAG/lightrag_webui/src/stores/settings.ts`、`LightRAG/lightrag_webui/src/components/graph/PropertiesView.tsx`、`LightRAG/lightrag_webui/src/components/graph/EditablePropertyRow.tsx`、`LightRAG/lightrag_webui/src/components/graph/MergeDialog.tsx`、`LightRAG/lightrag_webui/src/api/lightrag.ts`
+- 参考的后端区域：`LightRAG/lightrag/api/routers/graph_routes.py`、`LightRAG/lightrag/lightrag.py`、`LightRAG/lightrag/utils_graph.py`
+
+React 图谱工作台参考并移植了 Python LightRAG WebUI 的产品语义和 UI 结构，不声称图谱治理设计完全原创于本仓库。
 
 ## RAG 任务处理
 

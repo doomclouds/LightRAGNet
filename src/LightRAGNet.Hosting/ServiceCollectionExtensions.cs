@@ -6,6 +6,7 @@ using LightRAGNet.Rerank;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.GraphCuration;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.Query;
 using LightRAGNet.Services.QueryCache;
@@ -161,6 +162,20 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<DocumentProcessingService>();
         services.AddSingleton<DocumentDeletionService>();
+        services.AddSingleton(sp => new GraphCurationService(
+            sp.GetRequiredService<IGraphStore>(),
+            sp.GetRequiredService<IVectorStore>(),
+            sp.GetRequiredService<IEmbeddingService>(),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.TextChunks),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullEntities),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullRelations),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.EntityChunks),
+            sp.GetRequiredKeyedService<IKVStore>(KVContracts.RelationChunks),
+            () => sp.GetRequiredService<LightRagLlmCacheService>()
+                .BumpWorkspaceQueryRevisionAsync(
+                    sp.GetRequiredService<IOptions<LightRAGOptions>>().Value.Workspace,
+                    CancellationToken.None),
+            sp.GetRequiredService<ILogger<GraphCurationService>>()));
         services.AddSingleton<KnowledgeGraphMergeService>();
         services.AddSingleton<RerankDocumentChunker>();
         services.AddSingleton<RerankCoordinator>();
