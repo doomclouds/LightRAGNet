@@ -1,4 +1,5 @@
 using FluentAssertions;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.Query;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
@@ -56,6 +57,21 @@ public sealed class RerankDocumentChunkerTests
     }
 
     [Fact]
+    public void Chunk_WhenTokenizerExceedsLimitWithoutWordBoundaries_UsesCharacterFallback()
+    {
+        var chunker = CreateChunker(
+            maxTokensPerDocument: 3,
+            overlapTokens: 1,
+            tokenizer: new CharacterCountingTokenizer());
+
+        var result = chunker.Chunk(["abcdef"]);
+
+        result.Documents.Should().Equal("abc", "cde", "ef");
+        result.DocumentIndices.Should().Equal(0, 0, 0);
+        result.WasChunked.Should().BeTrue();
+    }
+
+    [Fact]
     public void Chunk_WhenInputIsEmpty_ReturnsEmptyResult()
     {
         var chunker = CreateChunker(maxTokensPerDocument: 10, overlapTokens: 2);
@@ -69,14 +85,33 @@ public sealed class RerankDocumentChunkerTests
 
     private static RerankDocumentChunker CreateChunker(
         int maxTokensPerDocument,
-        int overlapTokens)
+        int overlapTokens,
+        ITokenizer? tokenizer = null)
     {
         return new RerankDocumentChunker(
-            new FakeTokenizer(),
+            tokenizer ?? new FakeTokenizer(),
             Options.Create(new RerankChunkingOptions
             {
                 MaxTokensPerDocument = maxTokensPerDocument,
                 OverlapTokens = overlapTokens
             }));
+    }
+
+    private sealed class CharacterCountingTokenizer : ITokenizer
+    {
+        public List<int> Encode(string text)
+        {
+            return Enumerable.Range(0, text.Length).ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return new string('x', tokens.Count);
+        }
+
+        public int CountTokens(string text)
+        {
+            return text.Length;
+        }
     }
 }

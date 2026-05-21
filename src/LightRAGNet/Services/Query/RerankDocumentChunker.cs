@@ -41,8 +41,14 @@ public sealed class RerankDocumentChunker(
             var tokens = document.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (tokens.Length <= maxTokens)
             {
-                chunkedDocuments.Add(document);
-                documentIndices.Add(documentIndex);
+                AddCharacterChunks(
+                    document,
+                    documentIndex,
+                    maxTokens,
+                    overlapTokens,
+                    chunkedDocuments,
+                    documentIndices);
+                wasChunked = true;
                 continue;
             }
 
@@ -64,5 +70,29 @@ public sealed class RerankDocumentChunker(
         }
 
         return new RerankChunkingResult(chunkedDocuments, documentIndices, wasChunked);
+    }
+
+    private static void AddCharacterChunks(
+        string document,
+        int documentIndex,
+        int maxCharacters,
+        int overlapCharacters,
+        List<string> chunkedDocuments,
+        List<int> documentIndices)
+    {
+        var step = maxCharacters - overlapCharacters;
+        for (var start = 0; start < document.Length;)
+        {
+            var length = Math.Min(maxCharacters, document.Length - start);
+            chunkedDocuments.Add(document.Substring(start, length));
+            documentIndices.Add(documentIndex);
+
+            if (start + length >= document.Length)
+            {
+                break;
+            }
+
+            start += step;
+        }
     }
 }
