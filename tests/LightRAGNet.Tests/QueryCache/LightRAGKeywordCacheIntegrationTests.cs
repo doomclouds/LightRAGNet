@@ -305,11 +305,16 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
+        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
+        var rerankCoordinator = new RerankCoordinator(
+            rerankService,
+            new RerankDocumentChunker(tokenizer, rerankOptions),
+            rerankOptions);
         var retrievalContextService = new RetrievalContextService(
             embeddingService,
             vectorStore,
             graphStore,
-            rerankService,
+            rerankCoordinator,
             tokenizer,
             textChunksStore,
             optionsMonitor,
@@ -335,7 +340,10 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             documentProcessingService,
             knowledgeGraphMergeService,
             retrievalContextService,
-            new NaiveQueryService(vectorStore, rerankService, tokenizer),
+            new NaiveQueryService(
+                vectorStore,
+                rerankCoordinator,
+                tokenizer),
             cacheService,
             tokenizer,
             textChunksStore,

@@ -196,11 +196,16 @@ public sealed class LightRAGStateProcessorTests
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
+        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
+        var rerankCoordinator = new RerankCoordinator(
+            rerankService,
+            new RerankDocumentChunker(tokenizer, rerankOptions),
+            rerankOptions);
         var retrievalContextService = new RetrievalContextService(
             embeddingService,
             vectorStore,
             graphStore,
-            rerankService,
+            rerankCoordinator,
             tokenizer,
             textChunksStore,
             options,
@@ -225,7 +230,10 @@ public sealed class LightRAGStateProcessorTests
             documentProcessingService,
             knowledgeGraphMergeService,
             retrievalContextService,
-            new NaiveQueryService(vectorStore, rerankService, tokenizer),
+            new NaiveQueryService(
+                vectorStore,
+                rerankCoordinator,
+                tokenizer),
             llmCacheService,
             tokenizer,
             textChunksStore,

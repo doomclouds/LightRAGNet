@@ -4,6 +4,7 @@ using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.Query;
 using LightRAGNet.Tests.TestDoubles;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace LightRAGNet.Tests.Query;
@@ -147,6 +148,31 @@ public sealed class NaiveQueryServiceTests
     }
 
     [Fact]
+    public void ConstructorSurface_RequiresRerankCoordinatorInsteadOfDirectRerankService()
+    {
+        var constructorParameterLists = typeof(NaiveQueryService)
+            .GetConstructors(System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance)
+            .Select(constructor => constructor.GetParameters()
+                .Select(parameter => parameter.ParameterType)
+                .ToArray())
+            .ToList();
+
+        var constructorParameterTypes = constructorParameterLists
+            .SelectMany(parameterTypes => parameterTypes)
+            .ToList();
+
+        constructorParameterTypes.Should().NotContain(typeof(IRerankService));
+        constructorParameterTypes.Should().NotContain(typeof(object));
+        constructorParameterLists.Should().ContainSingle()
+            .Which.Should().Equal(
+                typeof(IVectorStore),
+                typeof(RerankCoordinator),
+                typeof(ITokenizer));
+    }
+
+    [Fact]
     public async Task BuildContextAsync_WhenRerankEnabled_OrdersChunksByRerankScore()
     {
         var vectorStore = new InMemoryVectorStore();
@@ -229,6 +255,64 @@ public sealed class NaiveQueryServiceTests
         result.Context.IndexOf("second content", StringComparison.Ordinal)
             .Should()
             .BeLessThan(result.Context.IndexOf("first content", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_WhenRerankChunkingAggregatesLongChunks_OrdersOriginalChunksByAggregatedScore()
+    {
+        var vectorStore = new InMemoryVectorStore();
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Content = "alpha boost winner tail",
+            Metadata = new Dictionary<string, object> { ["file_path"] = "docs/a.md" }
+        });
+        vectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-b",
+            Content = "beta low weaker tail",
+            Metadata = new Dictionary<string, object> { ["file_path"] = "docs/b.md" }
+        });
+        var rerankService = new RecordingRerankService(
+        [
+            new RerankResult { Index = 3, RelevanceScore = 0.2f },
+            new RerankResult { Index = 1, RelevanceScore = 0.95f },
+            new RerankResult { Index = 5, RelevanceScore = 0.4f }
+        ]);
+        var service = CreateService(
+            vectorStore,
+            rerankService,
+            new RoundTripWhitespaceTokenizer(),
+            new RerankChunkingOptions
+            {
+                EnableChunking = true,
+                MaxTokensPerDocument = 2,
+                OverlapTokens = 1
+            });
+
+        var result = await service.BuildContextAsync(
+            "alpha",
+            new QueryParam
+            {
+                Mode = QueryMode.Naive,
+                ChunkTopK = 2,
+                EnableRerank = true
+            },
+            CancellationToken.None);
+
+        result.Should().NotBeNull();
+        result!.Context.IndexOf("alpha boost winner tail", StringComparison.Ordinal)
+            .Should()
+            .BeLessThan(result.Context.IndexOf("beta low weaker tail", StringComparison.Ordinal));
+        rerankService.Calls.Should().ContainSingle();
+        rerankService.Calls[0].Documents.Should().Equal(
+            "alpha boost",
+            "boost winner",
+            "winner tail",
+            "beta low",
+            "low weaker",
+            "weaker tail");
+        rerankService.Calls[0].TopN.Should().Be(6);
     }
 
     [Fact]
@@ -315,12 +399,22 @@ public sealed class NaiveQueryServiceTests
     private static NaiveQueryService CreateService(
         IVectorStore vectorStore,
         IRerankService? rerankService = null,
-        ITokenizer? tokenizer = null)
+        ITokenizer? tokenizer = null,
+        RerankChunkingOptions? rerankChunkingOptions = null)
     {
+        tokenizer ??= new FakeTokenizer();
+        var options = Options.Create(rerankChunkingOptions ?? new RerankChunkingOptions
+        {
+            EnableChunking = false
+        });
+
         return new NaiveQueryService(
             vectorStore,
-            rerankService ?? Substitute.For<IRerankService>(),
-            tokenizer ?? new FakeTokenizer());
+            new RerankCoordinator(
+                rerankService ?? Substitute.For<IRerankService>(),
+                new RerankDocumentChunker(tokenizer, options),
+                options),
+            tokenizer);
     }
 
     private static int CountOccurrences(string text, string value)
@@ -334,5 +428,69 @@ public sealed class NaiveQueryServiceTests
         }
 
         return count;
+    }
+
+    private sealed class RecordingRerankService(List<RerankResult> resultsToReturn) : IRerankService
+    {
+        public List<RerankCall> Calls { get; } = [];
+
+        public Task<List<RerankResult>> RerankAsync(
+            string query,
+            List<string> documents,
+            int topN,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new RerankCall(query, [.. documents], topN, cancellationToken));
+            return Task.FromResult(resultsToReturn);
+        }
+    }
+
+    private sealed record RerankCall(
+        string Query,
+        List<string> Documents,
+        int TopN,
+        CancellationToken CancellationToken);
+
+    private sealed class RoundTripWhitespaceTokenizer : ITokenizer
+    {
+        private readonly Dictionary<string, int> _tokenIdsByWord = new(StringComparer.Ordinal);
+        private readonly Dictionary<int, string> _wordsByTokenId = [];
+        private int _nextTokenId = 1;
+
+        public List<int> Encode(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return [];
+            }
+
+            return text
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(GetTokenId)
+                .ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return string.Join(' ', tokens.Select(token => _wordsByTokenId[token]));
+        }
+
+        public int CountTokens(string text)
+        {
+            return Encode(text).Count;
+        }
+
+        private int GetTokenId(string word)
+        {
+            if (_tokenIdsByWord.TryGetValue(word, out var tokenId))
+            {
+                return tokenId;
+            }
+
+            tokenId = _nextTokenId++;
+            _tokenIdsByWord[word] = tokenId;
+            _wordsByTokenId[tokenId] = word;
+            return tokenId;
+        }
     }
 }

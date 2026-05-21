@@ -1,6 +1,8 @@
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -371,7 +373,88 @@ public sealed class RetrievalContextVectorChunkParityTests
         chunkIds.Should().OnlyHaveUniqueItems();
     }
 
-    private static TestHarness CreateHarness(LightRAGOptions? options = null, string? failingQuery = null)
+    [Fact]
+    public async Task BuildQueryContextAsync_WhenMixVectorRerankChunksDocuments_AggregatesScoresByOriginalChunk()
+    {
+        var rerankService = new RecordingRerankService(
+        [
+            new RerankResult { Index = 4, RelevanceScore = 0.95f },
+            new RerankResult { Index = 0, RelevanceScore = 0.8f },
+            new RerankResult { Index = 5, RelevanceScore = 0.2f }
+        ]);
+        var harness = CreateHarness(
+            rerankService: rerankService,
+            tokenizer: new RoundTripWhitespaceTokenizer(),
+            rerankChunkingOptions: new RerankChunkingOptions
+            {
+                EnableChunking = true,
+                MaxTokensPerDocument = 2,
+                OverlapTokens = 0
+            });
+        harness.VectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-b",
+            Content = "b1 b2 b3 b4 b5 b6",
+            Metadata = new Dictionary<string, object>
+            {
+                ["file_path"] = "docs/b.md"
+            }
+        });
+        harness.VectorStore.Seed("chunks", new VectorDocument
+        {
+            Id = "chunk-a",
+            Content = "a1 a2 a3 a4 a5 a6",
+            Metadata = new Dictionary<string, object>
+            {
+                ["file_path"] = "docs/a.md"
+            }
+        });
+        harness.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-alpha",
+            Content = "Alpha entity",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "Alpha"
+            }
+        });
+        harness.GraphStore.SeedNode("Alpha", new Dictionary<string, object>
+        {
+            ["entity_type"] = "Concept",
+            ["description"] = "Alpha description"
+        });
+
+        var result = await harness.Service.BuildQueryContextAsync(
+            "mix question",
+            new KeywordsResult { LowLevelKeywords = ["alpha"] },
+            new QueryParam
+            {
+                Mode = QueryMode.Mix,
+                EnableRerank = true,
+                TopK = 2,
+                ChunkTopK = 6,
+                MaxTotalTokens = 30000
+            });
+
+        result.Should().NotBeNull();
+        GetChunkIds(result!).Should().Equal("chunk-a", "chunk-b");
+        rerankService.Calls.Should().ContainSingle();
+        rerankService.Calls[0].Documents.Should().Equal(
+            "b1 b2",
+            "b3 b4",
+            "b5 b6",
+            "a1 a2",
+            "a3 a4",
+            "a5 a6");
+        rerankService.Calls[0].TopN.Should().Be(6);
+    }
+
+    private static TestHarness CreateHarness(
+        LightRAGOptions? options = null,
+        string? failingQuery = null,
+        IRerankService? rerankService = null,
+        ITokenizer? tokenizer = null,
+        RerankChunkingOptions? rerankChunkingOptions = null)
     {
         var embeddingService = Substitute.For<IEmbeddingService>();
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -388,12 +471,20 @@ public sealed class RetrievalContextVectorChunkParityTests
         var vectorStore = new InMemoryVectorStore();
         var graphStore = new InMemoryGraphStore();
         var textChunks = new InMemoryKvStore();
+        tokenizer ??= new FakeTokenizer();
+        var chunkingOptions = Options.Create(rerankChunkingOptions ?? new RerankChunkingOptions
+        {
+            EnableChunking = false
+        });
         var service = new RetrievalContextService(
             embeddingService,
             vectorStore,
             graphStore,
-            Substitute.For<IRerankService>(),
-            new FakeTokenizer(),
+            new RerankCoordinator(
+                rerankService ?? Substitute.For<IRerankService>(),
+                new RerankDocumentChunker(tokenizer, chunkingOptions),
+                chunkingOptions),
+            tokenizer,
             textChunks,
             Options.Create(options ?? new LightRAGOptions
             {
@@ -403,6 +494,70 @@ public sealed class RetrievalContextVectorChunkParityTests
             NullLoggerFactory.Instance);
 
         return new TestHarness(service, vectorStore, graphStore, textChunks);
+    }
+
+    private sealed class RecordingRerankService(List<RerankResult> resultsToReturn) : IRerankService
+    {
+        public List<RerankCall> Calls { get; } = [];
+
+        public Task<List<RerankResult>> RerankAsync(
+            string query,
+            List<string> documents,
+            int topN,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new RerankCall(query, [.. documents], topN, cancellationToken));
+            return Task.FromResult(resultsToReturn);
+        }
+    }
+
+    private sealed record RerankCall(
+        string Query,
+        List<string> Documents,
+        int TopN,
+        CancellationToken CancellationToken);
+
+    private sealed class RoundTripWhitespaceTokenizer : ITokenizer
+    {
+        private readonly Dictionary<string, int> _tokenIdsByWord = new(StringComparer.Ordinal);
+        private readonly Dictionary<int, string> _wordsByTokenId = [];
+        private int _nextTokenId = 1;
+
+        public List<int> Encode(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return [];
+            }
+
+            return text
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(GetTokenId)
+                .ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return string.Join(' ', tokens.Select(token => _wordsByTokenId[token]));
+        }
+
+        public int CountTokens(string text)
+        {
+            return Encode(text).Count;
+        }
+
+        private int GetTokenId(string word)
+        {
+            if (_tokenIdsByWord.TryGetValue(word, out var tokenId))
+            {
+                return tokenId;
+            }
+
+            tokenId = _nextTokenId++;
+            _tokenIdsByWord[word] = tokenId;
+            _wordsByTokenId[tokenId] = word;
+            return tokenId;
+        }
     }
 
     private static async Task SeedTextChunksAsync(

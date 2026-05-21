@@ -1,6 +1,7 @@
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -12,23 +13,43 @@ namespace LightRAGNet.Services.RetrievalContext;
 /// Query context construction
 /// Build query context through retrieval, reference Python version operate.py kg_query and _build_query_context functions
 /// </summary>
-public class RetrievalContextService(
-    IEmbeddingService embeddingService,
-    IVectorStore vectorStore,
-    IGraphStore graphStore,
-    IRerankService rerankService,
-    ITokenizer tokenizer,
-    [FromKeyedServices(KVContracts.TextChunks)] IKVStore textChunksStore,
-    IOptions<LightRAGOptions> options,
-    ILoggerFactory loggerFactory)
+public class RetrievalContextService
 {
     private const string GraphFieldSep = "<SEP>";
     private const string DefaultKgChunkPickMethod = "VECTOR";
-    
-    private readonly ILogger<RetrievalContextService> _logger = loggerFactory.CreateLogger<RetrievalContextService>();
-    private readonly LightRAGOptions _options = options.Value;
+
+    private readonly IEmbeddingService _embeddingService;
+    private readonly IVectorStore _vectorStore;
+    private readonly IGraphStore _graphStore;
+    private readonly RerankCoordinator _rerankCoordinator;
+    private readonly IKVStore _textChunksStore;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<RetrievalContextService> _logger;
+    private readonly LightRAGOptions _options;
     private readonly ReferenceListBuilder _referenceListBuilder = new();
-    private readonly KgQueryContextBuilder _contextBuilder = new(tokenizer);
+    private readonly KgQueryContextBuilder _contextBuilder;
+
+    internal RetrievalContextService(
+        IEmbeddingService embeddingService,
+        IVectorStore vectorStore,
+        IGraphStore graphStore,
+        RerankCoordinator rerankCoordinator,
+        ITokenizer tokenizer,
+        [FromKeyedServices(KVContracts.TextChunks)] IKVStore textChunksStore,
+        IOptions<LightRAGOptions> options,
+        ILoggerFactory loggerFactory)
+    {
+        _embeddingService = embeddingService;
+        _vectorStore = vectorStore;
+        _graphStore = graphStore;
+        _rerankCoordinator = rerankCoordinator;
+        _textChunksStore = textChunksStore;
+        _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<RetrievalContextService>();
+        _options = options.Value;
+        _contextBuilder = new KgQueryContextBuilder(tokenizer);
+    }
+
     /// <summary>
     /// Build query context
     /// Reference: operate.py _build_query_context function
@@ -173,7 +194,7 @@ public class RetrievalContextService(
         {
             try
             {
-                queryEmbedding = await embeddingService.GenerateEmbeddingAsync(query, cancellationToken);
+                queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(query, cancellationToken);
                 _logger.LogDebug("Pre-computed query embedding for all vector operations");
             }
             catch (Exception e)
@@ -188,7 +209,7 @@ public class RetrievalContextService(
         float[]? llKeywordsEmbedding = null;
         if (!string.IsNullOrEmpty(llKeywords))
         {
-            llKeywordsEmbedding = await embeddingService.GenerateEmbeddingAsync(llKeywords, cancellationToken);
+            llKeywordsEmbedding = await _embeddingService.GenerateEmbeddingAsync(llKeywords, cancellationToken);
         }
         
         // Generate embedding vector for HighLevelKeywords (for relationship retrieval)
@@ -196,11 +217,11 @@ public class RetrievalContextService(
         float[]? hlKeywordsEmbedding = null;
         if (!string.IsNullOrEmpty(hlKeywords))
         {
-            hlKeywordsEmbedding = await embeddingService.GenerateEmbeddingAsync(hlKeywords, cancellationToken);
+            hlKeywordsEmbedding = await _embeddingService.GenerateEmbeddingAsync(hlKeywords, cancellationToken);
         }
         
         // Create strategy factory and get corresponding strategy
-        var strategyFactory = new KGSearchStrategyFactory(vectorStore, graphStore, loggerFactory);
+        var strategyFactory = new KGSearchStrategyFactory(_vectorStore, _graphStore, _loggerFactory);
         var strategy = strategyFactory.GetStrategy(queryParam.Mode);
         
         // Create search context
@@ -289,7 +310,7 @@ public class RetrievalContextService(
         CancellationToken cancellationToken)
     {
         // Vector retrieve document chunks
-        var chunkResults = await vectorStore.QueryAsync(
+        var chunkResults = await _vectorStore.QueryAsync(
             "chunks",
             query,
             queryParam.ChunkTopK > 0 ? queryParam.ChunkTopK : queryParam.TopK,
@@ -307,7 +328,7 @@ public class RetrievalContextService(
         if (queryParam.EnableRerank && vectorChunks.Count > 0)
         {
             var documents = vectorChunks.Select(c => c.Content).ToList();
-            var rerankResults = await rerankService.RerankAsync(
+            var rerankResults = await _rerankCoordinator.RerankAsync(
                 query,
                 documents,
                 queryParam.ChunkTopK > 0 ? queryParam.ChunkTopK : queryParam.TopK,
@@ -315,6 +336,8 @@ public class RetrievalContextService(
             
             var rerankedChunks = rerankResults
                 .OrderByDescending(r => r.RelevanceScore)
+                .DistinctBy(r => r.Index)
+                .Where(r => r.Index >= 0 && r.Index < vectorChunks.Count)
                 .Select(r => vectorChunks[r.Index])
                 .ToList();
             
@@ -447,7 +470,7 @@ public class RetrievalContextService(
         
         // Step 5: Batch get chunk data
         var uniqueChunkIds = selectedChunkIds.Distinct().ToList();
-        var chunkDataList = await textChunksStore.GetByIdsAsync(uniqueChunkIds, cancellationToken);
+        var chunkDataList = await _textChunksStore.GetByIdsAsync(uniqueChunkIds, cancellationToken);
         
         // Step 6: Build result chunks and update chunk tracking
         var resultChunks = new List<ChunkData>();
@@ -634,7 +657,7 @@ public class RetrievalContextService(
         
         // Step 6: Batch get chunk data
         var uniqueChunkIds = selectedChunkIds.Distinct().ToList();
-        var chunkDataList = await textChunksStore.GetByIdsAsync(uniqueChunkIds, cancellationToken);
+        var chunkDataList = await _textChunksStore.GetByIdsAsync(uniqueChunkIds, cancellationToken);
         
         // Step 7: Build result chunks and update chunk tracking
         var resultChunks = new List<ChunkData>();
@@ -696,7 +719,7 @@ public class RetrievalContextService(
 
         try
         {
-            var documents = await vectorStore.GetByIdsAsync("chunks", uniqueChunkIds, cancellationToken);
+            var documents = await _vectorStore.GetByIdsAsync("chunks", uniqueChunkIds, cancellationToken);
             if (documents.Count != uniqueChunkIds.Count)
             {
                 _logger.LogWarning(

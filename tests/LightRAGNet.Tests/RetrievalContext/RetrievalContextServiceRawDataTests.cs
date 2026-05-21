@@ -1,6 +1,7 @@
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Services.Query;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Storage;
 using LightRAGNet.Tests.TestDoubles;
@@ -103,12 +104,17 @@ public sealed class RetrievalContextServiceRawDataTests
             }
         });
 
+        var tokenizer = new FakeTokenizer();
+        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
         var service = new RetrievalContextService(
             embeddingService,
             vectorStore,
             graphStore,
-            Substitute.For<IRerankService>(),
-            new FakeTokenizer(),
+            new RerankCoordinator(
+                Substitute.For<IRerankService>(),
+                new RerankDocumentChunker(tokenizer, rerankOptions),
+                rerankOptions),
+            tokenizer,
             textChunks,
             Options.Create(new LightRAGOptions { KgChunkPickMethod = "WEIGHT" }),
             NullLoggerFactory.Instance);

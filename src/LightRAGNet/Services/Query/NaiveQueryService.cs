@@ -6,12 +6,22 @@ using LightRAGNet.Services.RetrievalContext;
 
 namespace LightRAGNet.Services.Query;
 
-public sealed class NaiveQueryService(
-    IVectorStore vectorStore,
-    IRerankService rerankService,
-    ITokenizer tokenizer)
+public sealed class NaiveQueryService
 {
+    private readonly IVectorStore _vectorStore;
+    private readonly RerankCoordinator _rerankCoordinator;
+    private readonly ITokenizer _tokenizer;
     private readonly ReferenceListBuilder _referenceListBuilder = new();
+
+    internal NaiveQueryService(
+        IVectorStore vectorStore,
+        RerankCoordinator rerankCoordinator,
+        ITokenizer tokenizer)
+    {
+        _vectorStore = vectorStore;
+        _rerankCoordinator = rerankCoordinator;
+        _tokenizer = tokenizer;
+    }
 
     public async Task<QueryContextResult?> BuildContextAsync(
         string query,
@@ -19,7 +29,7 @@ public sealed class NaiveQueryService(
         CancellationToken cancellationToken = default)
     {
         var topK = queryParam.ChunkTopK > 0 ? queryParam.ChunkTopK : queryParam.TopK;
-        var results = await vectorStore.QueryAsync(
+        var results = await _vectorStore.QueryAsync(
             "chunks",
             query,
             topK,
@@ -43,9 +53,9 @@ public sealed class NaiveQueryService(
             chunks = await RerankChunksAsync(query, chunks, topK, cancellationToken);
         }
 
-        var promptOverheadTokens = tokenizer.CountTokens(
+        var promptOverheadTokens = _tokenizer.CountTokens(
             NaiveQueryPromptBuilder.BuildPromptOverhead(queryParam));
-        var availableChunkTokens = queryParam.MaxTotalTokens - promptOverheadTokens - tokenizer.CountTokens(query) - 200;
+        var availableChunkTokens = queryParam.MaxTotalTokens - promptOverheadTokens - _tokenizer.CountTokens(query) - 200;
         if (availableChunkTokens <= 0)
         {
             return null;
@@ -70,7 +80,7 @@ public sealed class NaiveQueryService(
         int topK,
         CancellationToken cancellationToken)
     {
-        var rerankResults = await rerankService.RerankAsync(
+        var rerankResults = await _rerankCoordinator.RerankAsync(
             query,
             chunks.Select(chunk => chunk.Content).ToList(),
             topK,
@@ -94,7 +104,7 @@ public sealed class NaiveQueryService(
             var candidateChunks = acceptedChunks.Concat([chunk]).ToList();
             var (candidateReferences, candidateChunksWithRefIds) = _referenceListBuilder.Build(candidateChunks);
             var candidateContext = BuildContext(candidateChunksWithRefIds, candidateReferences);
-            if (tokenizer.CountTokens(candidateContext) > availableChunkTokens)
+            if (_tokenizer.CountTokens(candidateContext) > availableChunkTokens)
             {
                 break;
             }
@@ -166,4 +176,5 @@ public sealed class NaiveQueryService(
             }
         };
     }
+
 }
