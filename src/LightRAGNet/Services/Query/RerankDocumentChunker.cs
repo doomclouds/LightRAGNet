@@ -38,56 +38,35 @@ public sealed class RerankDocumentChunker(
                 continue;
             }
 
-            var tokens = document.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length <= maxTokens)
-            {
-                AddCharacterChunks(
-                    document,
-                    documentIndex,
-                    maxTokens,
-                    overlapTokens,
-                    chunkedDocuments,
-                    documentIndices);
-                wasChunked = true;
-                continue;
-            }
-
             wasChunked = true;
-            var step = maxTokens - overlapTokens;
-            for (var start = 0; start < tokens.Length;)
-            {
-                var length = Math.Min(maxTokens, tokens.Length - start);
-                chunkedDocuments.Add(string.Join(' ', tokens.Skip(start).Take(length)));
-                documentIndices.Add(documentIndex);
-
-                if (start + length >= tokens.Length)
-                {
-                    break;
-                }
-
-                start += step;
-            }
+            AddTokenChunks(
+                tokenizer.Encode(document),
+                documentIndex,
+                maxTokens,
+                overlapTokens,
+                chunkedDocuments,
+                documentIndices);
         }
 
         return new RerankChunkingResult(chunkedDocuments, documentIndices, wasChunked);
     }
 
-    private static void AddCharacterChunks(
-        string document,
+    private void AddTokenChunks(
+        List<int> tokens,
         int documentIndex,
-        int maxCharacters,
-        int overlapCharacters,
+        int maxTokens,
+        int overlapTokens,
         List<string> chunkedDocuments,
         List<int> documentIndices)
     {
-        var step = maxCharacters - overlapCharacters;
-        for (var start = 0; start < document.Length;)
+        var step = maxTokens - overlapTokens;
+        for (var start = 0; start < tokens.Count;)
         {
-            var length = Math.Min(maxCharacters, document.Length - start);
-            chunkedDocuments.Add(document.Substring(start, length));
+            var length = Math.Min(maxTokens, tokens.Count - start);
+            chunkedDocuments.Add(tokenizer.Decode(tokens.GetRange(start, length)));
             documentIndices.Add(documentIndex);
 
-            if (start + length >= document.Length)
+            if (start + length >= tokens.Count)
             {
                 break;
             }
