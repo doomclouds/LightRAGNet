@@ -148,6 +148,21 @@ public sealed class NaiveQueryServiceTests
     }
 
     [Fact]
+    public void ConstructorSurface_RequiresRerankCoordinatorInsteadOfDirectRerankService()
+    {
+        var constructorParameterTypes = typeof(NaiveQueryService)
+            .GetConstructors(System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance)
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType)
+            .ToList();
+
+        constructorParameterTypes.Should().NotContain(typeof(IRerankService));
+        constructorParameterTypes.Should().Contain(typeof(RerankCoordinator));
+    }
+
+    [Fact]
     public async Task BuildContextAsync_WhenRerankEnabled_OrdersChunksByRerankScore()
     {
         var vectorStore = new InMemoryVectorStore();

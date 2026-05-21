@@ -3,7 +3,6 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.RetrievalContext;
-using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Services.Query;
 
@@ -24,11 +23,11 @@ public sealed class NaiveQueryService
         _tokenizer = tokenizer;
     }
 
-    public NaiveQueryService(
+    internal NaiveQueryService(
         IVectorStore vectorStore,
-        IRerankService rerankService,
+        object rerankCoordinator,
         ITokenizer tokenizer)
-        : this(vectorStore, CreateDefaultRerankCoordinator(rerankService, tokenizer), tokenizer)
+        : this(vectorStore, (RerankCoordinator)rerankCoordinator, tokenizer)
     {
     }
 
@@ -186,14 +185,4 @@ public sealed class NaiveQueryService
         };
     }
 
-    private static RerankCoordinator CreateDefaultRerankCoordinator(
-        IRerankService rerankService,
-        ITokenizer tokenizer)
-    {
-        var options = Options.Create(new RerankChunkingOptions());
-        return new RerankCoordinator(
-            rerankService,
-            new RerankDocumentChunker(tokenizer, options),
-            options);
-    }
 }
