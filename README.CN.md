@@ -51,6 +51,18 @@ dotnet run --project src/LightRAGNet.Web
 
 图谱工作台是由 Blazor Web 承载的 React/Vite island，后续可迁移为主 React 前端模块。
 
+一键启动开发环境（只启动 Server/Web，不管理 Qdrant/Neo4j）：
+
+```powershell
+.\scripts\dev-start.ps1
+```
+
+关闭由脚本启动的开发进程：
+
+```powershell
+.\scripts\dev-stop.ps1
+```
+
 ```powershell
 Set-Location .\src\LightRAGNet.Web\ClientApp
 npm install

@@ -51,6 +51,18 @@ dotnet run --project src/LightRAGNet.Web
 
 The graph workbench is a React/Vite island hosted by the Blazor web app.
 
+One-command development startup (starts Server/Web only; it does not manage Qdrant/Neo4j):
+
+```powershell
+.\scripts\dev-start.ps1
+```
+
+Stop the development processes started by the script:
+
+```powershell
+.\scripts\dev-stop.ps1
+```
+
 ```powershell
 Set-Location .\src\LightRAGNet.Web\ClientApp
 npm install
