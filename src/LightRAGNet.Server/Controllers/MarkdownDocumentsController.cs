@@ -24,6 +24,7 @@ public class MarkdownDocumentsController(
     AppDbContext context,
     ILogger<MarkdownDocumentsController> logger,
     IRagTaskQueueService taskQueueService,
+    DocumentIntakeService documentIntakeService,
     MarkdownDocumentDeletionService documentDeletionService,
     IRagExternalStorageCleaner externalStorageCleaner,
     IServiceProvider serviceProvider)
@@ -130,6 +131,35 @@ public class MarkdownDocumentsController(
         };
 
         return Ok(result);
+    }
+
+    [HttpPost("text")]
+    [ProducesResponseType(typeof(DocumentSubmissionResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<DocumentSubmissionResponse>> SubmitTextDocuments(
+        [FromBody] SubmitTextDocumentsRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await documentIntakeService.SubmitTextDocumentsAsync(request, cancellationToken);
+            return Accepted(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("tracks/{trackId}")]
+    [ProducesResponseType(typeof(DocumentTrackStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DocumentTrackStatusResponse>> GetTrackStatus(
+        string trackId,
+        CancellationToken cancellationToken)
+    {
+        var result = await documentIntakeService.GetTrackStatusAsync(trackId, cancellationToken);
+        return result is null ? NotFound() : Ok(result);
     }
 
     /// <summary>
