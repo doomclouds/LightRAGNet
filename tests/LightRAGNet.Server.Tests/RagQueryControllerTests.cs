@@ -43,6 +43,27 @@ public sealed class RagQueryControllerTests
     }
 
     [Fact]
+    public async Task QueryDataEndpoint_WhenBackendThrows_ReturnsGenericFailureMessage()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/RagQuery/data", new RagQueryRequest
+        {
+            Query = "force store failure",
+            Mode = QueryMode.Naive
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+
+        var body = await response.Content.ReadFromJsonAsync<RagQueryDataResponse>();
+        body.Should().NotBeNull();
+        body!.Status.Should().Be("failure");
+        body.Message.Should().Be("Error retrieving query data.");
+        body.Message.Should().NotContain("Server tests must not use real external RAG storage");
+    }
+
+    [Fact]
     public async Task QueryDataAsync_WhenQueryIsBlank_ReturnsBadRequest()
     {
         var controller = new RagQueryController(null!, NullLogger<RagQueryController>.Instance);

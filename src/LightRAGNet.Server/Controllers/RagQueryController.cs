@@ -107,7 +107,7 @@ public class RagQueryController(
             return StatusCode(StatusCodes.Status500InternalServerError, new RagQueryDataResponse
             {
                 Status = "failure",
-                Message = ex.Message
+                Message = "Error retrieving query data."
             });
         }
     }
