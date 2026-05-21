@@ -650,6 +650,53 @@ public sealed class GraphCurationServiceTests
     }
 
     [Fact]
+    public async Task MergeEntitiesAsync_WhenEntityTrackingExists_DoesNotUseStaleNodeSourceIdForFullEntityIndexes()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("stale-chunk", new() { ["full_doc_id"] = "stale-doc" });
+        fixture.TextChunks.Seed("chunk-real", new() { ["full_doc_id"] = "real-doc" });
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_name"] = "ALPHA",
+            ["description"] = "alpha",
+            ["source_id"] = "stale-chunk"
+        });
+        fixture.Graph.SeedNode("BETA", new()
+        {
+            ["entity_id"] = "BETA",
+            ["entity_name"] = "BETA",
+            ["description"] = "beta",
+            ["source_id"] = ""
+        });
+        fixture.EntityChunks.Seed("ALPHA", new()
+        {
+            ["chunk_ids"] = new List<string> { "chunk-real" },
+            ["count"] = 1
+        });
+        fixture.FullEntities.Seed("stale-doc", new()
+        {
+            ["entity_names"] = new List<string> { "OTHER" },
+            ["count"] = 1
+        });
+        fixture.FullEntities.Seed("real-doc", new()
+        {
+            ["entity_names"] = new List<string> { "ALPHA", "OTHER" },
+            ["count"] = 2
+        });
+
+        var result = await fixture.Service.MergeEntitiesAsync(new GraphEntityMergeRequest(["ALPHA"], "BETA"));
+
+        result.Succeeded.Should().BeTrue();
+        ReadStrings(fixture.FullEntities.Items["real-doc"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "BETA", "OTHER" });
+        ReadStrings(fixture.FullEntities.Items["stale-doc"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "OTHER" });
+        fixture.FullEntities.Items["stale-doc"]["count"].Should().Be(1);
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
     public async Task MergeEntitiesAsync_UsesRelationChunksForTransferredRelationTrackingAndFullRelationIndexes()
     {
         var fixture = GraphCurationFixture.Create();
@@ -737,6 +784,63 @@ public sealed class GraphCurationServiceTests
             .Should().BeEquivalentTo(new[] { new[] { "BETA", "GAMMA" } });
         fixture.VectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "GAMMA")).Should().BeNull();
         fixture.VectorStore.Get("relationships", GraphCurationVectorIds.Relation("BETA", "GAMMA")).Should().NotBeNull();
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_WhenRelationTrackingExists_DoesNotUseStaleEdgeSourceIdForFullRelationIndexes()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("stale-rel-chunk", new() { ["full_doc_id"] = "stale-doc" });
+        fixture.TextChunks.Seed("chunk-rel-real", new() { ["full_doc_id"] = "real-doc" });
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_name"] = "ALPHA",
+            ["description"] = "alpha"
+        });
+        fixture.Graph.SeedNode("BETA", new()
+        {
+            ["entity_id"] = "BETA",
+            ["entity_name"] = "BETA",
+            ["description"] = "beta"
+        });
+        fixture.Graph.SeedNode("GAMMA", new()
+        {
+            ["entity_id"] = "GAMMA",
+            ["entity_name"] = "GAMMA",
+            ["description"] = "gamma"
+        });
+        fixture.Graph.SeedEdge("ALPHA", "GAMMA", new()
+        {
+            ["description"] = "alpha gamma",
+            ["keywords"] = "ag",
+            ["source_id"] = "stale-rel-chunk"
+        });
+        fixture.RelationChunks.Seed("ALPHA<SEP>GAMMA", new()
+        {
+            ["chunk_ids"] = new List<string> { "chunk-rel-real" },
+            ["count"] = 1
+        });
+        fixture.FullRelations.Seed("stale-doc", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "OTHER", "PAIR" } },
+            ["count"] = 1
+        });
+        fixture.FullRelations.Seed("real-doc", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "ALPHA", "GAMMA" } },
+            ["count"] = 1
+        });
+
+        var result = await fixture.Service.MergeEntitiesAsync(new GraphEntityMergeRequest(["ALPHA"], "BETA"));
+
+        result.Succeeded.Should().BeTrue();
+        ReadRelationPairs(fixture.FullRelations.Items["real-doc"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "BETA", "GAMMA" } });
+        ReadRelationPairs(fixture.FullRelations.Items["stale-doc"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "OTHER", "PAIR" } });
+        fixture.FullRelations.Items["stale-doc"]["count"].Should().Be(1);
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 

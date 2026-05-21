@@ -1074,34 +1074,36 @@ public sealed class GraphCurationService
         Dictionary<string, object> entityData,
         CancellationToken cancellationToken)
     {
-        var chunkIds = new List<string>();
-        AddUnique(chunkIds, ExtractChunkIds(entityData));
-
         var tracking = await entityChunksStore.GetByIdAsync(entityName, cancellationToken);
         if (tracking is not null)
         {
-            AddUnique(chunkIds, ReadStringList(tracking, "chunk_ids"));
+            var trackingChunkIds = ReadStringList(tracking, "chunk_ids");
+            if (trackingChunkIds.Count > 0)
+            {
+                return trackingChunkIds;
+            }
         }
 
-        return chunkIds;
+        return ExtractChunkIds(entityData);
     }
 
     private async Task<IReadOnlyList<string>> CollectRelationChunkIdsAsync(
         RewiredEdge edge,
         CancellationToken cancellationToken)
     {
-        var chunkIds = new List<string>();
-        AddUnique(chunkIds, ExtractChunkIds(edge.Properties));
-
         var tracking = await relationChunksStore.GetByIdAsync(
             GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId),
             cancellationToken);
         if (tracking is not null)
         {
-            AddUnique(chunkIds, ReadStringList(tracking, "chunk_ids"));
+            var trackingChunkIds = ReadStringList(tracking, "chunk_ids");
+            if (trackingChunkIds.Count > 0)
+            {
+                return trackingChunkIds;
+            }
         }
 
-        return chunkIds;
+        return ExtractChunkIds(edge.Properties);
     }
 
     private static void AddUnique(List<string> target, IEnumerable<string> values)
