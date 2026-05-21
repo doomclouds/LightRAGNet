@@ -17,6 +17,7 @@ export type GraphStoreApi = {
   selectEdge: (edgeId: string | null) => void;
   setIsFetching: (isFetching: boolean) => void;
   updateNodeProperty: (nodeId: string, key: string, value: JsonValue) => void;
+  updateEdgeProperty: (edgeId: string, key: string, value: JsonValue) => void;
   resetSelection: () => void;
 };
 
@@ -113,6 +114,35 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         ...state,
         rawGraph: { ...state.rawGraph, nodes },
         selectedNode: state.selectedNode?.id === nodeId ? updatedNode : state.selectedNode
+      });
+    },
+    updateEdgeProperty: (edgeId, key, value) => {
+      if (!state.rawGraph) {
+        return;
+      }
+
+      let updatedEdge: GraphEdgeDto | null = null;
+      const edges = state.rawGraph.edges.map((edge) => {
+        if (edge.id !== edgeId) {
+          return edge;
+        }
+
+        const properties: GraphNodeProperties = {
+          ...(edge.properties ?? {}),
+          [key]: value
+        };
+        updatedEdge = { ...edge, properties };
+        return updatedEdge;
+      });
+
+      if (!updatedEdge) {
+        return;
+      }
+
+      setState({
+        ...state,
+        rawGraph: { ...state.rawGraph, edges },
+        selectedEdge: state.selectedEdge?.id === edgeId ? updatedEdge : state.selectedEdge
       });
     },
     resetSelection: () => {

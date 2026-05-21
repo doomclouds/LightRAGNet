@@ -13,8 +13,11 @@
     "build": "tsc --noEmit --pretty false && vite build"
   },
   "dependencies": {
+    "@react-sigma/core": "^5.0.6",
+    "graphology": "^0.26.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "sigma": "^3.0.3"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

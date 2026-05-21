@@ -30,7 +30,8 @@ const graph: GraphViewDto = {
       target: "BETA",
       type: "related",
       size: 1,
-      color: "#ccc"
+      color: "#ccc",
+      properties: { description: "old relation", weight: 0.5 }
     }
   ],
   isTruncated: false
@@ -112,6 +113,20 @@ describe("graphStore", () => {
     expect(state.rawGraph).not.toBe(graph);
     expect(state.rawGraph?.nodes[0]).not.toBe(graph.nodes[0]);
     expect(graph.nodes[0]?.properties.description).toBe("old");
+  });
+
+  test("updateEdgeProperty immutably updates rawGraph and selectedEdge", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectEdge("ALPHA-BETA");
+    store.updateEdgeProperty("ALPHA-BETA", "description", "new relation");
+
+    const state = store.getState();
+    expect(state.rawGraph?.edges[0]?.properties?.description).toBe("new relation");
+    expect(state.selectedEdge?.properties?.description).toBe("new relation");
+    expect(state.rawGraph).not.toBe(graph);
+    expect(state.rawGraph?.edges[0]).not.toBe(graph.edges[0]);
+    expect(graph.edges[0]?.properties?.description).toBe("old relation");
   });
 });
 

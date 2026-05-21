@@ -24,6 +24,7 @@ export type GraphEdgeDto = {
   type?: string | null;
   size: number;
   color: string;
+  properties?: GraphNodeProperties;
 };
 
 export type GraphViewDto = {
