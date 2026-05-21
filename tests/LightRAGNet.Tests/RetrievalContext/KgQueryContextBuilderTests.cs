@@ -200,13 +200,53 @@ public sealed class KgQueryContextBuilderTests
             {
                 MaxEntityTokens = 1000,
                 MaxRelationTokens = 1000,
-                MaxTotalTokens = 211
+                MaxTotalTokens = 191
             },
             query: "alpha");
 
         result.Chunks.Should().BeEmpty();
         result.References.Should().BeEmpty();
         result.Context.Should().NotContain("Document Chunks");
+    }
+
+    [Fact]
+    public void Build_LimitsChunksUsingFinalChunkAndReferenceSections()
+    {
+        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var searchResult = new KGSearchResult
+        {
+            Chunks =
+            [
+                new ChunkData
+                {
+                    ChunkId = "chunk-a",
+                    Content = "alpha",
+                    FilePath = "docs/a.md"
+                },
+                new ChunkData
+                {
+                    ChunkId = "chunk-b",
+                    Content = "beta beta beta beta beta beta beta beta beta beta",
+                    FilePath = "docs/b.md"
+                }
+            ]
+        };
+
+        var result = builder.Build(
+            searchResult,
+            new QueryParam
+            {
+                MaxEntityTokens = 1000,
+                MaxRelationTokens = 1000,
+                MaxTotalTokens = 220
+            },
+            query: "alpha");
+
+        result.Chunks.Should().ContainSingle(chunk => chunk.ChunkId == "chunk-a");
+        result.Context.Should().Contain("""{"reference_id":"1","content":"alpha"}""");
+        result.Context.Should().Contain("[1] docs/a.md");
+        result.Context.Should().NotContain("chunk-b");
+        result.Context.Should().NotContain("docs/b.md");
     }
 
     private sealed class WhitespaceTokenizer : ITokenizer

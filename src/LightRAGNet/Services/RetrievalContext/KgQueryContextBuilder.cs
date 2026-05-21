@@ -6,7 +6,7 @@ namespace LightRAGNet.Services.RetrievalContext;
 
 internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
 {
-    private const int ReferenceAndSafetyBufferTokens = 200;
+    private const int SafetyBufferTokens = 180;
     private readonly ReferenceListBuilder _referenceListBuilder = new();
 
     public KgQueryContextBuildResult Build(
@@ -90,7 +90,7 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
             queryParam.MaxTotalTokens
             - tokenizer.CountTokens(query)
             - tokenizer.CountTokens(kgContextWithoutChunks)
-            - ReferenceAndSafetyBufferTokens;
+            - SafetyBufferTokens;
 
         if (availableChunkTokens <= 0)
         {
