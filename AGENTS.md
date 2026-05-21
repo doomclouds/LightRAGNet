@@ -70,6 +70,8 @@ When `compound-development-asset` and `write-superpowers-problem` are available,
 - `suggest_asset_route.py`: get a first-pass route suggestion: `none`, `inbox`, `update-existing`, `new-problem`, `archive`, or `both`.
 - `check_indexes.py`: validate archive/problem/inbox index order, dead links, duplicate entries, and orphan files.
 - `check_completion_gate.py`: check close-out evidence, completed-topic archive coverage, reviewer/subagent asset candidates, src/tests relayout leftovers, and solution-folder drift.
+- `asset_status.py`: summarize requirement archive coverage, related problem/inbox assets, index health, and completed-topic gate status for one topic.
+- `asset_closeout.py`: aggregate topic status into a closeout route, required actions, related assets, and a compact handoff block.
 - `archive-superpowers-feature/scripts/validate_archive_asset.py`: validate formal archive assets.
 - `write-superpowers-problem/scripts/validate_problem_asset.py`: validate formal problem assets and inbox notes.
 - `write-superpowers-problem/scripts/inspect_inbox_lifecycle.py`: inspect related inbox lifecycle status and revisit candidates.
@@ -79,6 +81,8 @@ Scripts provide evidence, not final authority. Use the output to reduce misses a
 For completed requirement work, include the topic so spec+plan without archive coverage cannot silently pass:
 
 ```powershell
+python <compound-development-asset>/scripts/asset_status.py . --topic "<topic-keyword-or-slug>" --json
+python <compound-development-asset>/scripts/asset_closeout.py . --topic "<topic-keyword-or-slug>" --json
 python <compound-development-asset>/scripts/check_completion_gate.py . --completed-topic "<topic-keyword-or-slug>" --json
 ```
 
@@ -162,3 +166,4 @@ block with `event_type`, `route`, `reason`, `evidence`, `related_assets`,
 `asset_candidates`, `deferred_signals`, and `next_step`. If no candidates exist,
 write `asset_candidates: none` explicitly.
 <!-- asset-compounding-guidance:end -->
+
