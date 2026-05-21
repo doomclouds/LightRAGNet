@@ -22,6 +22,21 @@ public sealed class RagQueryControllerSourceTests
     }
 
     [Fact]
+    public void QueryDataAsync_ExposesJsonEndpointAndForcesRetrievalDataMode()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Server", "Controllers", "RagQueryController.cs");
+
+        source.Should().Contain("[HttpPost(\"data\")]");
+        source.Should().Contain("public async Task<ActionResult<RagQueryDataResponse>> QueryDataAsync(");
+        source.Should().Contain("ForceRetrievalDataRequest(request)");
+        source.Should().Contain("Stream = false");
+        source.Should().Contain("IncludeReferences = true");
+        source.Should().Contain("OnlyNeedContext = true");
+        source.Should().Contain("OnlyNeedPrompt = false");
+        source.Should().Contain("SplitRawData(queryResult.RawData)");
+    }
+
+    [Fact]
     public void SerializeEvent_UsesHumanReadableJsonOptions()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Server", "Controllers", "RagQueryController.cs");
