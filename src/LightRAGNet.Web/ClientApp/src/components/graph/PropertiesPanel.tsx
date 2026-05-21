@@ -70,6 +70,10 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   );
 
   async function saveProperties(values: PropertyEditValues) {
+    if (isSaving) {
+      return;
+    }
+
     if (!target) {
       return;
     }

@@ -1,6 +1,6 @@
 import { SigmaContainer, useLoadGraph, useRegisterEvents } from "@react-sigma/core";
 import "@react-sigma/core/lib/style.css";
-import { MultiDirectedGraph } from "graphology";
+import { MultiUndirectedGraph } from "graphology";
 import { useEffect, useMemo } from "react";
 
 import { useGraphStore } from "../../stores/graphStore";
@@ -31,11 +31,11 @@ function getNodeLabel(node: GraphNodeDto): string {
 }
 
 function getEdgeLabel(edge: GraphEdgeDto): string {
-  return readString(edge.properties?.description) ?? edge.type ?? `${edge.source} -> ${edge.target}`;
+  return readString(edge.properties?.description) ?? edge.type ?? `${edge.source} - ${edge.target}`;
 }
 
 function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId?: string, selectedEdgeId?: string) {
-  const sigmaGraph = new MultiDirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes>();
+  const sigmaGraph = new MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes>();
 
   if (!graph) {
     return sigmaGraph;
@@ -65,7 +65,7 @@ function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId?: stri
     }
 
     const isSelected = selectedEdgeId === edge.id;
-    sigmaGraph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
+    sigmaGraph.addUndirectedEdgeWithKey(edge.id, edge.source, edge.target, {
       label: getEdgeLabel(edge),
       size: isSelected ? Math.max(edge.size + 2, 4) : Math.max(edge.size, 1),
       color: isSelected ? "#dc2626" : edge.color,
@@ -91,7 +91,7 @@ function GraphEvents() {
   return null;
 }
 
-function GraphLoader({ graph }: { graph: MultiDirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes> }) {
+function GraphLoader({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes> }) {
   const loadGraph = useLoadGraph();
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export function GraphCanvas({ graph, isFetching, errorMessage }: GraphCanvasProp
         className="graph-workbench__sigma"
         settings={{
           allowInvalidContainer: true,
-          defaultEdgeType: "arrow",
+          defaultEdgeType: "line",
           enableEdgeEvents: true,
           labelDensity: 0.08,
           labelRenderedSizeThreshold: 9,

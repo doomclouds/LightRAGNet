@@ -134,6 +134,20 @@ describe("graphStore", () => {
     expect(graph.edges[0]?.source).toBe("ALPHA");
   });
 
+  test("renameNode synchronizes selectedEdge endpoints and rawGraph edges", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectEdge("ALPHA-BETA");
+    store.renameNode("ALPHA", "OMEGA");
+
+    const state = store.getState();
+    expect(state.selectedEdge?.source).toBe("OMEGA");
+    expect(state.selectedEdge?.target).toBe("BETA");
+    expect(state.rawGraph?.edges[0]?.source).toBe("OMEGA");
+    expect(state.rawGraph?.edges[0]?.target).toBe("BETA");
+    expect(graph.edges[0]?.source).toBe("ALPHA");
+  });
+
   test("updateEdgeProperty immutably updates rawGraph and selectedEdge", () => {
     const store = createGraphStoreState({ rawGraph: graph });
 
