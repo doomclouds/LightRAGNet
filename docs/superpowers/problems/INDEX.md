@@ -3,6 +3,7 @@
 ## 2026-05
 
 - [2026-05-21-di-constructor-activation-boundary-problem.md](./2026-05/2026-05-21-di-constructor-activation-boundary-problem.md): internal 构造器、`InternalsVisibleTo` 和默认 DI 类型激活不是同一件事；迁移 coordinator 依赖时不要用 `object` 桥接隐藏编译期遗漏，应使用强类型构造器、Hosting factory 和 ServiceProvider 回归测试。
+- [2026-05-21-document-task-recovery-state-drift-problem.md](./2026-05/2026-05-21-document-task-recovery-state-drift-problem.md): 文档 task 的 shutdown/restart 恢复、terminal snapshot 和 document-id active lookup 必须区分历史终态与当前活跃任务，避免中断任务回到 `Pending` 或过期终态污染状态判断。
 - [2026-05-20-mudtable-reload-cancellation-snackbar-problem.md](./2026-05/2026-05-20-mudtable-reload-cancellation-snackbar-problem.md): MudTable 主动取消旧的 ServerData reload 不应弹成文档加载失败；取消路径要单独处理并保留真实失败日志。
 - [2026-05-20-server-tests-real-rag-storage-isolation-problem.md](./2026-05/2026-05-20-server-tests-real-rag-storage-isolation-problem.md): Server/API 测试必须隔离真实 Qdrant/Neo4j 和后台任务；clear-all 这类清库接口只能走可替换的测试清理器，不能继承本机开发库。
 - [2026-05-19-markdown-documents-debounce-race-problem.md](./2026-05/2026-05-19-markdown-documents-debounce-race-problem.md): Blazor 页面里的任务状态通知 debounce 必须把 CTS 所有权收进可测试 helper，避免并发回调在 await 后释放已被替换的共享 CTS。
