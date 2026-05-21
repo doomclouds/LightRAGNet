@@ -300,6 +300,45 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task UploadMarkdownDocumentsBatch_UsesUploadSourceUriForFileUrlAndQueuePath()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent("alpha"), "files", "alpha.md");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
+        body.Should().NotBeNull();
+        var document = body!.Documents.Should().ContainSingle().Subject;
+        document.FileUrl.Should().StartWith($"upload://{body.TrackId}/");
+        document.FileUrl.Should().NotStartWith("text://");
+        queue.EnqueueCalls.Should().ContainSingle().Which.FilePath.Should().Be(document.FileUrl);
+    }
+
+    [Fact]
+    public async Task UploadMarkdownDocumentsBatch_WhenFileExceedsLimit_ReturnsBadRequest()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        var oversizedBytes = new byte[(10 * 1024 * 1024) + 1];
+        using var fileContent = new ByteArrayContent(oversizedBytes);
+        content.Add(fileContent, "files", "large.md");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task GetMarkdownDocuments_WhenQueuedDocumentHasActiveTask_RefreshesTaskProgressAndKeepsQueuedStatus()
     {
         var queue = new StatusReportingRagTaskQueueService(new RagTask
@@ -335,6 +374,97 @@ public sealed class DocumentIntakePipelineApiTests
         document.RagStatus.Should().Be("Queued");
         document.RagProgress.Should().Be(42);
         document.RagCurrentStage.Should().Be(TaskStage.ProcessingChunks.ToString());
+    }
+
+    [Fact]
+    public async Task GetMarkdownDocuments_WithQueuedStatusFilter_ExcludesQueuedDbRowWhenTaskIsProcessing()
+    {
+        var queue = new StatusReportingRagTaskQueueService(new RagTask
+        {
+            DocumentId = 304,
+            TaskId = "task-processing",
+            Status = RagTaskStatus.Processing
+        });
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 304,
+            FileName = "queued-processing.md",
+            Content = "queued processing",
+            TrackId = "track-status-filter",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-processing"
+        });
+        using var client = factory.CreateClient();
+
+        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+            "/api/MarkdownDocuments?page=1&pageSize=10&status=Queued");
+
+        result.Should().NotBeNull();
+        result!.Items.Should().NotContain(d => d.Id == 304);
+        result.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetMarkdownDocuments_WithProcessingStatusFilter_ReturnsQueuedDbRowWhenTaskIsProcessing()
+    {
+        var queue = new StatusReportingRagTaskQueueService(new RagTask
+        {
+            DocumentId = 305,
+            TaskId = "task-processing",
+            Status = RagTaskStatus.Processing
+        });
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 305,
+            FileName = "queued-processing.md",
+            Content = "queued processing",
+            TrackId = "track-status-filter",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-processing"
+        });
+        using var client = factory.CreateClient();
+
+        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+            "/api/MarkdownDocuments?page=1&pageSize=10&status=Processing");
+
+        result.Should().NotBeNull();
+        var document = result!.Items.Should().ContainSingle(d => d.Id == 305).Subject;
+        document.RagStatus.Should().Be("Processing");
+        result.TotalCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AddToRagSystem_WhenDocumentIsQueued_ReturnsBadRequestAndDoesNotEnqueue()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 306,
+            FileName = "queued.md",
+            Content = "queued",
+            RagStatus = "Queued"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/306/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        queue.EnqueueCalls.Should().BeEmpty();
     }
 
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)

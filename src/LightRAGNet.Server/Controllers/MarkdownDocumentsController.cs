@@ -70,6 +70,16 @@ public class MarkdownDocumentsController(
         if (page < 1)
             page = 1;
 
+        if (IsActiveStatusFilter(status))
+        {
+            return Ok(await GetMarkdownDocumentsByFinalActiveStatusAsync(
+                page,
+                pageSize,
+                status!,
+                trackId,
+                cancellationToken));
+        }
+
         var query = context.MarkdownDocuments.AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -97,49 +107,7 @@ public class MarkdownDocumentsController(
             .Select(d => d.ToDto())
             .ToListAsync(cancellationToken: cancellationToken);
 
-        // Batch query task status to improve performance
-        var pendingOrProcessingDocuments = documents
-            .Where(d => d.RagStatus is DocumentIntakeStatus.Queued or "Pending" or DocumentIntakeStatus.Processing)
-            .ToList();
-        
-        if (pendingOrProcessingDocuments.Count > 0)
-        {
-            try
-            {
-                var documentIds = pendingOrProcessingDocuments.Select(d => d.Id).ToList();
-                var tasks = await taskQueueService.GetTasksByDocumentIdsAsync(documentIds, cancellationToken);
-                
-                // Update task status information for documents
-                foreach (var document in pendingOrProcessingDocuments)
-                {
-                    if (tasks.TryGetValue(document.Id, out var task))
-                    {
-                        document.RagStatus = task.Status == RagTaskStatus.Pending
-                            ? DocumentIntakeStatus.Queued
-                            : task.Status.ToString();
-                        document.RagCurrentStage = task.CurrentStage?.ToString();
-                        document.RagProgress = task.Progress;
-                        
-                        // If task is completed, update related status
-                        if (task.Status == RagTaskStatus.Completed)
-                        {
-                            document.IsInRagSystem = true;
-                            document.RagAddedTime = task.CompletedAt ?? DateTime.UtcNow;
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Request was cancelled (e.g., client disconnected), handle silently without logging warning
-                // Document keeps original status
-            }
-            catch (Exception ex)
-            {
-                // Task status query failure does not affect document list display, only log
-                logger.LogWarning(ex, "Failed to batch query task status");
-            }
-        }
+        await RefreshActiveDocumentTaskStatusesAsync(documents, cancellationToken);
 
         var result = new PagedResult<MarkdownDocumentDto>
         {
@@ -151,6 +119,122 @@ public class MarkdownDocumentsController(
         };
 
         return Ok(result);
+    }
+
+    private async Task<PagedResult<MarkdownDocumentDto>> GetMarkdownDocumentsByFinalActiveStatusAsync(
+        int page,
+        int pageSize,
+        string status,
+        string? trackId,
+        CancellationToken cancellationToken)
+    {
+        var query = context.MarkdownDocuments
+            .Where(d => d.RagStatus == DocumentIntakeStatus.Queued ||
+                        d.RagStatus == "Pending" ||
+                        d.RagStatus == DocumentIntakeStatus.Processing);
+
+        if (!string.IsNullOrWhiteSpace(trackId))
+        {
+            query = query.Where(d => d.TrackId == trackId);
+        }
+
+        var candidates = await query
+            .Select(d => d.ToDto())
+            .ToListAsync(cancellationToken);
+
+        await RefreshActiveDocumentTaskStatusesAsync(candidates, cancellationToken);
+
+        var matchingDocuments = candidates
+            .Where(d => d.RagStatus == status)
+            .OrderBy(GetDocumentStatusSortKey)
+            .ThenByDescending(d => d.UploadTime)
+            .ToList();
+
+        var totalCount = matchingDocuments.Count;
+        var documents = matchingDocuments
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return new PagedResult<MarkdownDocumentDto>
+        {
+            Items = documents,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
+    }
+
+    private async Task RefreshActiveDocumentTaskStatusesAsync(
+        List<MarkdownDocumentDto> documents,
+        CancellationToken cancellationToken)
+    {
+        var activeDocuments = documents
+            .Where(d => d.RagStatus is DocumentIntakeStatus.Queued or "Pending" or DocumentIntakeStatus.Processing)
+            .ToList();
+
+        if (activeDocuments.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var documentIds = activeDocuments.Select(d => d.Id).ToList();
+            var tasks = await taskQueueService.GetTasksByDocumentIdsAsync(documentIds, cancellationToken);
+
+            foreach (var document in activeDocuments)
+            {
+                if (tasks.TryGetValue(document.Id, out var task))
+                {
+                    document.RagStatus = ToPublicRagStatus(task.Status);
+                    document.RagCurrentStage = task.CurrentStage?.ToString();
+                    document.RagProgress = task.Progress;
+
+                    if (task.Status == RagTaskStatus.Completed)
+                    {
+                        document.IsInRagSystem = true;
+                        document.RagAddedTime = task.CompletedAt ?? DateTime.UtcNow;
+                    }
+                }
+                else if (document.RagStatus == "Pending")
+                {
+                    document.RagStatus = DocumentIntakeStatus.Queued;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Request was cancelled (e.g., client disconnected), handle silently without logging warning.
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to batch query task status");
+        }
+    }
+
+    private static bool IsActiveStatusFilter(string? status)
+    {
+        return status is DocumentIntakeStatus.Queued or DocumentIntakeStatus.Processing;
+    }
+
+    private static string ToPublicRagStatus(RagTaskStatus status)
+    {
+        return status == RagTaskStatus.Pending
+            ? DocumentIntakeStatus.Queued
+            : status.ToString();
+    }
+
+    private static int GetDocumentStatusSortKey(MarkdownDocumentDto document)
+    {
+        return document.RagStatus switch
+        {
+            DocumentIntakeStatus.Processing => 0,
+            DocumentIntakeStatus.Queued or "Pending" => 1,
+            DocumentIntakeStatus.Failed => 2,
+            _ => 3
+        };
     }
 
     [HttpPost("text")]
@@ -475,7 +559,7 @@ public class MarkdownDocumentsController(
         }
 
         // Check if document is currently being processed
-        if (document.RagStatus == "Processing" || document.RagStatus == "Pending")
+        if (DocumentIntakeStatus.IsActive(document.RagStatus))
         {
             return BadRequest(new { error = "Document is being processed", message = "This document is currently in the RAG processing queue, please wait for processing to complete." });
         }

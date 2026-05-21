@@ -14,8 +14,18 @@ public sealed class DocumentIntakeService(
     IRagTaskQueueService taskQueueService,
     ILogger<DocumentIntakeService> logger)
 {
+    private const long MaxUploadFileSize = 10 * 1024 * 1024;
+
     public async Task<DocumentSubmissionResponse> SubmitTextDocumentsAsync(
         SubmitTextDocumentsRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await SubmitDocumentsAsync(request, "text", cancellationToken);
+    }
+
+    private async Task<DocumentSubmissionResponse> SubmitDocumentsAsync(
+        SubmitTextDocumentsRequest request,
+        string sourceScheme,
         CancellationToken cancellationToken)
     {
         if (request.Documents.Count == 0)
@@ -42,7 +52,7 @@ public sealed class DocumentIntakeService(
                     Content = input.Content,
                     FileSize = bytes.LongLength,
                     UploadTime = now,
-                    FileUrl = CreateTextSourceUri(trackId, input.FileName),
+                    FileUrl = CreateSourceUri(sourceScheme, trackId, input.FileName),
                     TrackId = trackId,
                     RagStatus = DocumentIntakeStatus.Queued,
                     RagCurrentStage = "Accepted",
@@ -113,6 +123,11 @@ public sealed class DocumentIntakeService(
                 throw new ArgumentException("File cannot be empty.", nameof(files));
             }
 
+            if (file.Length > MaxUploadFileSize)
+            {
+                throw new ArgumentException("File size cannot exceed 10MB.", nameof(files));
+            }
+
             var extension = Path.GetExtension(file.FileName);
             if (!IsSupportedUploadExtension(extension))
             {
@@ -132,8 +147,9 @@ public sealed class DocumentIntakeService(
             });
         }
 
-        return await SubmitTextDocumentsAsync(
+        return await SubmitDocumentsAsync(
             new SubmitTextDocumentsRequest { Documents = documents },
+            "upload",
             cancellationToken);
     }
 
@@ -170,9 +186,9 @@ public sealed class DocumentIntakeService(
         return $"track-{Guid.NewGuid():N}";
     }
 
-    private static string CreateTextSourceUri(string trackId, string fileName)
+    private static string CreateSourceUri(string sourceScheme, string trackId, string fileName)
     {
-        return $"text://{trackId}/{Uri.EscapeDataString(fileName)}";
+        return $"{sourceScheme}://{trackId}/{Uri.EscapeDataString(fileName)}";
     }
 
     private static bool IsQueuedStatus(string? status)
