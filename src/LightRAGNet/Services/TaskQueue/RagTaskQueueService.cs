@@ -80,7 +80,16 @@ public class RagTaskQueueService(
             }
 
             _tasks.TryAdd(taskId, task);
-            await stateStore.SaveTaskStateAsync(task, cancellationToken);
+            try
+            {
+                await stateStore.SaveTaskStateAsync(task, cancellationToken);
+            }
+            catch
+            {
+                _tasks.TryRemove(taskId, out _);
+                throw;
+            }
+
             logger.LogInformation("Task added to queue: {TaskId}, DocumentId: {DocumentId}", taskId, documentId);
         }
         finally
@@ -132,7 +141,15 @@ public class RagTaskQueueService(
             };
 
             _tasks.TryAdd(taskId, task);
-            await stateStore.SaveTaskStateAsync(task, cancellationToken);
+            try
+            {
+                await stateStore.SaveTaskStateAsync(task, cancellationToken);
+            }
+            catch
+            {
+                _tasks.TryRemove(taskId, out _);
+                throw;
+            }
         }
         finally
         {

@@ -121,6 +121,40 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task SubmitTextDocuments_WhenQueueCancels_MarksDocumentFailedWithError()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(new CancellingRagTaskQueueService());
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/MarkdownDocuments/text", new SubmitTextDocumentsRequest
+        {
+            Documents =
+            [
+                new TextDocumentInput { FileName = "cancel.md", Content = "cancel" }
+            ]
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
+        body.Should().NotBeNull();
+        var document = body!.Documents.Should().ContainSingle().Subject;
+        document.RagStatus.Should().Be("Failed");
+        document.RagErrorMessage.Should().NotBeNullOrWhiteSpace();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await context.MarkdownDocuments.FindAsync(document.Id);
+        persisted.Should().NotBeNull();
+        persisted!.RagStatus.Should().Be("Failed");
+        persisted.RagErrorMessage.Should().NotBeNullOrWhiteSpace();
+        persisted.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetTrackStatus_ReturnsAllDocumentsAndAggregatesCounts()
     {
         using var factory = new LightRagServerFactory();
@@ -335,6 +369,18 @@ public sealed class DocumentIntakePipelineApiTests
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("queue unavailable");
+        }
+    }
+
+    private sealed class CancellingRagTaskQueueService : RecordingRagTaskQueueService
+    {
+        public override Task<string?> EnqueueTaskAsync(
+            int documentId,
+            string content,
+            string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            throw new OperationCanceledException("queue cancelled");
         }
     }
 

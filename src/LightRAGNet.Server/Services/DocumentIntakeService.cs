@@ -56,6 +56,7 @@ public sealed class DocumentIntakeService(
         context.MarkdownDocuments.AddRange(documents);
         await context.SaveChangesAsync(cancellationToken);
 
+        var hasQueueFailure = false;
         foreach (var document in documents)
         {
             try
@@ -71,20 +72,22 @@ public sealed class DocumentIntakeService(
                     MarkQueueFailed(
                         document,
                         "Document could not be queued because an active task already exists.");
+                    hasQueueFailure = true;
                     logger.LogWarning("Document intake queue rejected document {DocumentId}", document.Id);
                     continue;
                 }
 
                 document.ActiveRagTaskId = taskId;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 MarkQueueFailed(document, ex.Message);
+                hasQueueFailure = true;
                 logger.LogWarning(ex, "Document intake queue failed for document {DocumentId}", document.Id);
             }
         }
 
-        await context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(hasQueueFailure ? CancellationToken.None : cancellationToken);
 
         return new DocumentSubmissionResponse
         {

@@ -57,6 +57,28 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task EnqueueTaskAsync_WhenStateSaveFails_DoesNotLeavePendingTaskInMemoryOrPublish()
+    {
+        var store = new ThrowingSaveTaskStateStore();
+        var mediator = Substitute.For<IMediator>();
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+
+        var act = () => service.EnqueueTaskAsync(7, "content", "file.md");
+
+        await act.Should().ThrowAsync<IOException>()
+            .WithMessage("save failed");
+        var tasks = await service.GetAllTasksAsync();
+        tasks.Should().BeEmpty();
+        await mediator.DidNotReceive().Publish(
+            Arg.Any<RagTaskStatusChangedEvent>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task EnqueueDeletionTaskAsync_WhenIndexTaskPendingForDocument_ReturnsNullAndDoesNotCreateTask()
     {
         var (service, _, _, _) = CreateService();
@@ -93,6 +115,32 @@ public sealed class RagTaskQueueServiceTests
         task.DeleteLlmCache.Should().BeTrue();
         task.DeleteFilePath.Should().Be("alpha.md");
         task.Status.Should().Be(RagTaskStatus.Pending);
+    }
+
+    [Fact]
+    public async Task EnqueueDeletionTaskAsync_WhenStateSaveFails_DoesNotLeavePendingTaskInMemoryOrPublish()
+    {
+        var store = new ThrowingSaveTaskStateStore();
+        var mediator = Substitute.For<IMediator>();
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+
+        var act = () => service.EnqueueDeletionTaskAsync(
+            42,
+            "doc-alpha",
+            "alpha.md",
+            deleteLlmCache: false);
+
+        await act.Should().ThrowAsync<IOException>()
+            .WithMessage("save failed");
+        var tasks = await service.GetAllTasksAsync();
+        tasks.Should().BeEmpty();
+        await mediator.DidNotReceive().Publish(
+            Arg.Any<RagTaskStatusChangedEvent>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -908,6 +956,39 @@ public sealed class RagTaskQueueServiceTests
         public Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
         {
             tasksById.Clear();
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingSaveTaskStateStore : IRagTaskStateStore
+    {
+        public Task SaveTaskStateAsync(RagTask task, CancellationToken cancellationToken = default)
+        {
+            throw new IOException("save failed");
+        }
+
+        public Task<List<RagTask>> LoadAllTasksAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new List<RagTask>());
+        }
+
+        public Task<RagTask?> LoadTaskStateAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<RagTask?>(null);
+        }
+
+        public Task DeleteTaskStateAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task SaveAllTasksAsync(List<RagTask> tasks, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAllTasksAsync(CancellationToken cancellationToken = default)
+        {
             return Task.CompletedTask;
         }
     }
