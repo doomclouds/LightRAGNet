@@ -77,4 +77,104 @@ public sealed class KgQueryContextBuilderTests
         result.Chunks.Select(chunk => chunk.ReferenceId).Should().Equal("1", "2");
         result.References.Select(reference => reference.ReferenceId).Should().Equal("1", "2");
     }
+
+    [Fact]
+    public void Build_LimitsEntitiesUsingJsonContextShape()
+    {
+        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var searchResult = new KGSearchResult
+        {
+            Entities =
+            [
+                new EntityData { Name = "ALPHA", Type = "concept", Description = "short" },
+                new EntityData { Name = "BETA", Type = "concept", Description = "second" }
+            ]
+        };
+
+        var result = builder.Build(
+            searchResult,
+            new QueryParam
+            {
+                MaxEntityTokens = 4,
+                MaxRelationTokens = 1000,
+                MaxTotalTokens = 30000
+            },
+            query: "alpha");
+
+        result.Entities.Should().ContainSingle(entity => entity.Name == "ALPHA");
+        result.Context.Should().Contain("""{"entity":"ALPHA","type":"concept","description":"short"}""");
+        result.Context.Should().NotContain("BETA");
+    }
+
+    [Fact]
+    public void Build_LimitsRelationshipsUsingJsonContextShape()
+    {
+        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var searchResult = new KGSearchResult
+        {
+            Relations =
+            [
+                new RelationData
+                {
+                    SourceId = "ALPHA",
+                    TargetId = "BETA",
+                    Keywords = "depends",
+                    Description = "short"
+                },
+                new RelationData
+                {
+                    SourceId = "BETA",
+                    TargetId = "GAMMA",
+                    Keywords = "blocks",
+                    Description = "second"
+                }
+            ]
+        };
+
+        var result = builder.Build(
+            searchResult,
+            new QueryParam
+            {
+                MaxEntityTokens = 1000,
+                MaxRelationTokens = 5,
+                MaxTotalTokens = 30000
+            },
+            query: "alpha");
+
+        result.Relations.Should().ContainSingle(relation => relation.SourceId == "ALPHA");
+        result.Context.Should().Contain("""{"entity1":"ALPHA","entity2":"BETA","keywords":"depends","description":"short"}""");
+        result.Context.Should().NotContain("GAMMA");
+    }
+
+    [Fact]
+    public void Build_WhenChunkBudgetCannotFitReferenceList_DropsChunks()
+    {
+        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var searchResult = new KGSearchResult
+        {
+            Chunks =
+            [
+                new ChunkData
+                {
+                    ChunkId = "chunk-a",
+                    Content = "alpha beta gamma delta epsilon",
+                    FilePath = "docs/a.md"
+                }
+            ]
+        };
+
+        var result = builder.Build(
+            searchResult,
+            new QueryParam
+            {
+                MaxEntityTokens = 1000,
+                MaxRelationTokens = 1000,
+                MaxTotalTokens = 205
+            },
+            query: "alpha");
+
+        result.Chunks.Should().BeEmpty();
+        result.References.Should().BeEmpty();
+        result.Context.Should().NotContain("Document Chunks");
+    }
 }

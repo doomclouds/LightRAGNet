@@ -30,42 +30,54 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
 
     private List<EntityData> LimitEntities(IEnumerable<EntityData> entities, int maxTokens)
     {
-        var result = new List<EntityData>();
-        var currentTokens = 0;
-
-        foreach (var entity in entities)
-        {
-            var tokens = tokenizer.CountTokens(SerializeEntity(entity));
-            if (currentTokens + tokens > maxTokens)
-            {
-                break;
-            }
-
-            result.Add(entity);
-            currentTokens += tokens;
-        }
-
-        return result;
+        return LimitBySection(
+            entities,
+            maxTokens,
+            item => BuildEntitySection([item]),
+            items => BuildEntitySection(items));
     }
 
     private List<RelationData> LimitRelations(IEnumerable<RelationData> relations, int maxTokens)
     {
-        var result = new List<RelationData>();
-        var currentTokens = 0;
+        return LimitBySection(
+            relations,
+            maxTokens,
+            item => BuildRelationSection([item]),
+            items => BuildRelationSection(items));
+    }
 
-        foreach (var relation in relations)
+    private List<T> LimitBySection<T>(
+        IEnumerable<T> items,
+        int maxTokens,
+        Func<T, string> singleItemSectionFactory,
+        Func<IReadOnlyCollection<T>, string> sectionFactory)
+    {
+        var accepted = new List<T>();
+
+        foreach (var item in items)
         {
-            var tokens = tokenizer.CountTokens(SerializeRelation(relation));
-            if (currentTokens + tokens > maxTokens)
+            var candidate = accepted.Concat([item]).ToList();
+            var candidateTokens = CountSectionTokens(sectionFactory(candidate), candidate.Count);
+            if (candidateTokens > maxTokens)
             {
+                if (accepted.Count == 0 && CountSectionTokens(singleItemSectionFactory(item), 1) <= maxTokens)
+                {
+                    accepted.Add(item);
+                }
+
                 break;
             }
 
-            result.Add(relation);
-            currentTokens += tokens;
+            accepted.Add(item);
         }
 
-        return result;
+        return accepted;
+    }
+
+    private int CountSectionTokens(string section, int itemCount)
+    {
+        // Keep newline-delimited JSON items from being treated as free by delimiter-insensitive tokenizers.
+        return tokenizer.CountTokens(section) + Math.Max(0, itemCount - 1) * 2;
     }
 
     private List<ChunkData> LimitChunksByFinalContext(
@@ -116,26 +128,16 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
     {
         var parts = new List<string>();
 
-        if (entities.Count > 0)
+        var entitySection = BuildEntitySection(entities);
+        if (!string.IsNullOrWhiteSpace(entitySection))
         {
-            parts.Add($"""
-                       Knowledge Graph Data (Entity):
-
-                       ```json
-                       {string.Join('\n', entities.Select(SerializeEntity))}
-                       ```
-                       """);
+            parts.Add(entitySection);
         }
 
-        if (relations.Count > 0)
+        var relationSection = BuildRelationSection(relations);
+        if (!string.IsNullOrWhiteSpace(relationSection))
         {
-            parts.Add($"""
-                       Knowledge Graph Data (Relationship):
-
-                       ```json
-                       {string.Join('\n', relations.Select(SerializeRelation))}
-                       ```
-                       """);
+            parts.Add(relationSection);
         }
 
         var chunkContext = BuildChunkAndReferenceContext(chunks, references);
@@ -145,6 +147,38 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
         }
 
         return string.Join("\n\n", parts);
+    }
+
+    private static string BuildEntitySection(IReadOnlyCollection<EntityData> entities)
+    {
+        if (entities.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"""
+                Knowledge Graph Data (Entity):
+
+                ```json
+                {string.Join('\n', entities.Select(SerializeEntity))}
+                ```
+                """;
+    }
+
+    private static string BuildRelationSection(IReadOnlyCollection<RelationData> relations)
+    {
+        if (relations.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"""
+                Knowledge Graph Data (Relationship):
+
+                ```json
+                {string.Join('\n', relations.Select(SerializeRelation))}
+                ```
+                """;
     }
 
     private static string BuildChunkAndReferenceContext(
