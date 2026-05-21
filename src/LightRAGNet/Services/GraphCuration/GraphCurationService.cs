@@ -30,6 +30,7 @@ public sealed class GraphCurationService
     private readonly Func<Task> bumpQueryRevisionAsync;
     private readonly ILogger<GraphCurationService> logger;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> entityLocks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> relationLocks = new(StringComparer.Ordinal);
 
     public GraphCurationService(
         IGraphStore graphStore,
@@ -286,6 +287,196 @@ public sealed class GraphCurationService
                 Renamed: false)));
     }
 
+    public async Task<GraphCurationOperationResult> CreateRelationAsync(
+        GraphRelationCreateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var sourceEntity = request.SourceEntity.Trim();
+        var targetEntity = request.TargetEntity.Trim();
+        if (string.IsNullOrWhiteSpace(sourceEntity) || string.IsNullOrWhiteSpace(targetEntity))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation source and target are required.",
+                "validation",
+                "validation_error");
+        }
+
+        var description = GetString(request.RelationData, "description");
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation description is required.",
+                "validation",
+                "validation_error");
+        }
+
+        if (!await graphStore.HasNodeAsync(sourceEntity, cancellationToken) ||
+            !await graphStore.HasNodeAsync(targetEntity, cancellationToken))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation endpoints must exist before creating an edge.",
+                "graph",
+                "validation_error");
+        }
+
+        var normalizedPair = GraphCurationVectorIds.NormalizePair(sourceEntity, targetEntity);
+        if (await graphStore.HasEdgeAsync(normalizedPair.Source, normalizedPair.Target, cancellationToken))
+        {
+            return GraphCurationOperationResult.Failure(
+                $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' already exists.",
+                "graph",
+                "conflict");
+        }
+
+        var edgeData = BuildRelationData(request.RelationData);
+        var edge = new RewiredEdge(
+            normalizedPair.Source,
+            normalizedPair.Target,
+            normalizedPair.Source,
+            normalizedPair.Target,
+            edgeData);
+        var relationVector = await CreateRelationVectorDocumentAsync(edge, cancellationToken);
+
+        return await ExecuteWithRelationLockAsync(
+            normalizedPair.Source,
+            normalizedPair.Target,
+            async () =>
+            {
+                if (!await graphStore.HasNodeAsync(normalizedPair.Source, cancellationToken) ||
+                    !await graphStore.HasNodeAsync(normalizedPair.Target, cancellationToken))
+                {
+                    return GraphCurationOperationResult.Failure(
+                        "Relation endpoints must exist before creating an edge.",
+                        "graph",
+                        "validation_error");
+                }
+
+                if (await graphStore.HasEdgeAsync(normalizedPair.Source, normalizedPair.Target, cancellationToken))
+                {
+                    return GraphCurationOperationResult.Failure(
+                        $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' already exists.",
+                        "graph",
+                        "conflict");
+                }
+
+                await graphStore.UpsertEdgeAsync(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    edgeData,
+                    cancellationToken);
+                await UpsertRelationTrackingAsync([edge], cancellationToken);
+                await UpsertFullRelationIndexesAsync([edge], cancellationToken);
+                await UpsertRelationVectorsAsync([relationVector], cancellationToken);
+                await bumpQueryRevisionAsync();
+
+                return GraphCurationOperationResult.Success(
+                    $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' created.",
+                    edgeData,
+                    new GraphCurationOperationSummary(
+                        Merged: false,
+                        MergeStatus: "not_required",
+                        MergeError: null,
+                        OperationStatus: "created",
+                        TargetEntity: normalizedPair.Source,
+                        FinalEntity: GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target),
+                        Renamed: false));
+            },
+            cancellationToken);
+    }
+
+    public async Task<GraphCurationOperationResult> EditRelationAsync(
+        GraphRelationEditRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.HasBlankDescription())
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation description cannot be blank.",
+                "validation",
+                "validation_error");
+        }
+
+        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableEntityFields.Contains);
+        if (immutableField is not null)
+        {
+            return GraphCurationOperationResult.Failure(
+                $"Relation field '{immutableField}' cannot be edited.",
+                "validation",
+                "validation_error");
+        }
+
+        var sourceEntity = request.SourceEntity.Trim();
+        var targetEntity = request.TargetEntity.Trim();
+        if (string.IsNullOrWhiteSpace(sourceEntity) || string.IsNullOrWhiteSpace(targetEntity))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation source and target are required.",
+                "validation",
+                "validation_error");
+        }
+
+        var normalizedPair = GraphCurationVectorIds.NormalizePair(sourceEntity, targetEntity);
+        return await ExecuteWithRelationLockAsync(
+            normalizedPair.Source,
+            normalizedPair.Target,
+            async () =>
+            {
+                var currentEdge = await graphStore.GetEdgeAsync(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    cancellationToken);
+                if (currentEdge is null)
+                {
+                    return GraphCurationOperationResult.Failure(
+                        $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' was not found.",
+                        "graph",
+                        "not_found");
+                }
+
+                var updatedData = currentEdge.Properties.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.Ordinal);
+
+                foreach (var (key, value) in request.UpdatedData)
+                {
+                    updatedData[key] = value;
+                }
+
+                var edge = new RewiredEdge(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    updatedData);
+                var relationVector = await CreateRelationVectorDocumentAsync(edge, cancellationToken);
+
+                await graphStore.UpsertEdgeAsync(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    updatedData,
+                    cancellationToken);
+                await UpsertRelationTrackingAsync([edge], cancellationToken);
+                await UpsertFullRelationIndexesAsync([edge], cancellationToken);
+                await DeleteOldRelationVectorsAsync([edge], cancellationToken);
+                await UpsertRelationVectorsAsync([relationVector], cancellationToken);
+                await bumpQueryRevisionAsync();
+
+                return GraphCurationOperationResult.Success(
+                    $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' updated.",
+                    updatedData,
+                    new GraphCurationOperationSummary(
+                        Merged: false,
+                        MergeStatus: "not_required",
+                        MergeError: null,
+                        OperationStatus: "updated",
+                        TargetEntity: normalizedPair.Source,
+                        FinalEntity: GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target),
+                        Renamed: false));
+            },
+            cancellationToken);
+    }
+
     private async Task<VectorDocument> BuildEntityVectorDocumentAsync(
         string entityName,
         Dictionary<string, object> entityData,
@@ -449,6 +640,24 @@ public sealed class GraphCurationService
         entityData["created_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
 
         return entityData;
+    }
+
+    private static Dictionary<string, object> BuildRelationData(Dictionary<string, object> sourceData)
+    {
+        var relationData = sourceData.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
+
+        relationData["description"] = GetString(sourceData, "description") ?? string.Empty;
+        relationData["keywords"] = GetString(sourceData, "keywords") ?? string.Empty;
+        relationData["source_id"] = GetString(sourceData, "source_id") ?? string.Empty;
+        relationData["file_path"] = GetString(sourceData, "file_path") ?? string.Empty;
+        relationData["weight"] = sourceData.TryGetValue("weight", out var weight) ? weight : 0.0;
+        relationData["created_at"] = GetString(sourceData, "created_at")
+            ?? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+
+        return relationData;
     }
 
     private static List<string> ExtractChunkIds(Dictionary<string, object> entityData)
@@ -648,9 +857,22 @@ public sealed class GraphCurationService
         RewiredEdge edge,
         CancellationToken cancellationToken)
     {
-        var normalizedPair = GraphCurationVectorIds.NormalizePair(edge.SourceId, edge.TargetId);
-        var description = GetString(edge.Properties, "description") ?? string.Empty;
-        var keywords = GetString(edge.Properties, "keywords") ?? string.Empty;
+        return await CreateRelationVectorDocumentAsync(
+            edge.SourceId,
+            edge.TargetId,
+            edge.Properties,
+            cancellationToken);
+    }
+
+    private async Task<VectorDocument> CreateRelationVectorDocumentAsync(
+        string sourceId,
+        string targetId,
+        Dictionary<string, object> properties,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPair = GraphCurationVectorIds.NormalizePair(sourceId, targetId);
+        var description = GetString(properties, "description") ?? string.Empty;
+        var keywords = GetString(properties, "keywords") ?? string.Empty;
         var content = $"{normalizedPair.Source}\n{normalizedPair.Target}\n{keywords}\n{description}";
         var vectorId = GraphCurationVectorIds.Relation(normalizedPair.Source, normalizedPair.Target);
         var embedding = await embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
@@ -666,11 +888,11 @@ public sealed class GraphCurationService
                 ["content"] = content,
                 ["src_id"] = normalizedPair.Source,
                 ["tgt_id"] = normalizedPair.Target,
-                ["source_id"] = GetString(edge.Properties, "source_id") ?? string.Empty,
+                ["source_id"] = GetString(properties, "source_id") ?? string.Empty,
                 ["description"] = description,
                 ["keywords"] = keywords,
-                ["weight"] = GetDouble(edge.Properties, "weight"),
-                ["file_path"] = GetString(edge.Properties, "file_path") ?? string.Empty
+                ["weight"] = GetDouble(properties, "weight"),
+                ["file_path"] = GetString(properties, "file_path") ?? string.Empty
             }
         };
     }
@@ -855,6 +1077,26 @@ public sealed class GraphCurationService
             {
                 locks[i].Release();
             }
+        }
+    }
+
+    private async Task<T> ExecuteWithRelationLockAsync<T>(
+        string sourceEntity,
+        string targetEntity,
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var relationKey = "relation:" + GraphSourceReferenceParser.MakeRelationKey(sourceEntity, targetEntity);
+        var semaphore = relationLocks.GetOrAdd(relationKey, _ => new SemaphoreSlim(1, 1));
+
+        await semaphore.WaitAsync(cancellationToken);
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 

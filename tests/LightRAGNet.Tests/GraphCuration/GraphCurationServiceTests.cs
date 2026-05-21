@@ -309,8 +309,196 @@ public sealed class GraphCurationServiceTests
         fixture.QueryRevisionBumps.Should().Be(0);
     }
 
+    [Fact]
+    public async Task CreateRelationAsync_WhenEndpointsExist_WritesGraphVectorAndTracking()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "doc-1" });
+
+        var result = await fixture.Service.CreateRelationAsync(new GraphRelationCreateRequest(
+            "BETA",
+            "ALPHA",
+            new Dictionary<string, object>
+            {
+                ["description"] = "Alpha relates to beta",
+                ["keywords"] = "related",
+                ["weight"] = 2.5,
+                ["source_id"] = "chunk-a",
+                ["file_path"] = "doc.md"
+            }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties["description"].Should().Be("Alpha relates to beta");
+        var vector = fixture.VectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA"));
+        vector.Should().NotBeNull();
+        vector!.Vector.Should().Equal(GraphCurationFixture.Embedding);
+        vector.Content.Should().Contain("related");
+        fixture.RelationChunks.Items["ALPHA<SEP>BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
+        ReadRelationPairs(fixture.FullRelations.Items["doc-1"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "ALPHA", "BETA" } });
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EditRelationAsync_WhenDescriptionChanges_UpdatesGraphAndRelationVector()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "doc-1" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "old",
+            ["keywords"] = "old-keyword",
+            ["source_id"] = "chunk-a",
+            ["weight"] = 1.0
+        });
+
+        var result = await fixture.Service.EditRelationAsync(new GraphRelationEditRequest(
+            "BETA",
+            "ALPHA",
+            new Dictionary<string, object> { ["description"] = "new", ["keywords"] = "new-keyword" }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties["description"].Should().Be("new");
+        fixture.VectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA"))!.Content
+            .Should().Contain("new-keyword");
+        ReadRelationPairs(fixture.FullRelations.Items["doc-1"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "ALPHA", "BETA" } });
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateRelationAsync_WhenEndpointMissing_ReturnsValidationError()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+
+        var result = await fixture.Service.CreateRelationAsync(new GraphRelationCreateRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object> { ["description"] = "rel" }));
+
+        result.Succeeded.Should().BeFalse();
+        result.Status.Should().Be("validation_error");
+        fixture.QueryRevisionBumps.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task EditRelationAsync_WhenDescriptionIsBlank_ReturnsValidationErrorWithoutMutation()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "old",
+            ["keywords"] = "old-keyword",
+            ["source_id"] = "chunk-a",
+            ["file_path"] = "doc.md",
+            ["created_at"] = "created"
+        });
+
+        var result = await fixture.Service.EditRelationAsync(new GraphRelationEditRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object> { ["description"] = " " }));
+
+        result.Succeeded.Should().BeFalse();
+        result.Status.Should().Be("validation_error");
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties["description"].Should().Be("old");
+        fixture.VectorStore.UpsertCalls.Should().BeEmpty();
+        fixture.VectorStore.DeleteCalls.Should().BeEmpty();
+        fixture.FullRelations.UpsertCalls.Should().BeEmpty();
+        fixture.RelationChunks.UpsertCalls.Should().BeEmpty();
+        fixture.QueryRevisionBumps.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("source_id", "chunk-b")]
+    [InlineData("file_path", "other.md")]
+    [InlineData("created_at", "later")]
+    public async Task EditRelationAsync_WhenProvenanceFieldChanges_ReturnsValidationErrorWithoutMutation(
+        string fieldName,
+        string value)
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "old",
+            ["keywords"] = "old-keyword",
+            ["source_id"] = "chunk-a",
+            ["file_path"] = "doc.md",
+            ["created_at"] = "created"
+        });
+
+        var result = await fixture.Service.EditRelationAsync(new GraphRelationEditRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object> { [fieldName] = value }));
+
+        result.Succeeded.Should().BeFalse();
+        result.Status.Should().Be("validation_error");
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties[fieldName].Should().NotBe(value);
+        fixture.VectorStore.UpsertCalls.Should().BeEmpty();
+        fixture.VectorStore.DeleteCalls.Should().BeEmpty();
+        fixture.FullRelations.UpsertCalls.Should().BeEmpty();
+        fixture.RelationChunks.UpsertCalls.Should().BeEmpty();
+        fixture.QueryRevisionBumps.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateRelationAsync_WhenSourceHasNoDocumentId_DoesNotWriteRelationKeyAsDocumentKey()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+
+        var result = await fixture.Service.CreateRelationAsync(new GraphRelationCreateRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object>
+            {
+                ["description"] = "manual relation",
+                ["source_id"] = "manual_creation"
+            }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.FullRelations.Items.Should().NotContainKey("ALPHA<SEP>BETA");
+        fixture.FullRelations.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EditRelationAsync_WhenSourceHasNoDocumentId_DoesNotWriteRelationKeyAsDocumentKey()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "old",
+            ["keywords"] = "old-keyword",
+            ["source_id"] = "manual_creation"
+        });
+
+        var result = await fixture.Service.EditRelationAsync(new GraphRelationEditRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object> { ["description"] = "new" }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.FullRelations.Items.Should().NotContainKey("ALPHA<SEP>BETA");
+        fixture.FullRelations.Items.Should().BeEmpty();
+    }
+
     private sealed class GraphCurationFixture
     {
+        public static readonly float[] Embedding = FakeEmbeddingService.Embedding;
+
         public InMemoryGraphStore Graph { get; } = new();
         public InMemoryVectorStore VectorStore { get; } = new();
         public FakeEmbeddingService EmbeddingService { get; } = new();
