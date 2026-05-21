@@ -9,6 +9,14 @@ namespace LightRAGNet.Tests.Query;
 public sealed class RerankDocumentChunkerTests
 {
     [Fact]
+    public void Types_AreNotPublic()
+    {
+        typeof(RerankChunkingOptions).IsPublic.Should().BeFalse();
+        typeof(RerankChunkingResult).IsPublic.Should().BeFalse();
+        typeof(RerankDocumentChunker).IsPublic.Should().BeFalse();
+    }
+
+    [Fact]
     public void Chunk_WhenDocumentsAreShort_PreservesOneToOneMapping()
     {
         var chunker = CreateChunker(maxTokensPerDocument: 10, overlapTokens: 2);

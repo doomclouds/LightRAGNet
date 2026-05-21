@@ -3,12 +3,12 @@ using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Services.Query;
 
-public sealed record RerankChunkingResult(
+internal sealed record RerankChunkingResult(
     List<string> Documents,
     List<int> DocumentIndices,
     bool WasChunked);
 
-public sealed class RerankDocumentChunker(
+internal sealed class RerankDocumentChunker(
     ITokenizer tokenizer,
     IOptions<RerankChunkingOptions> options)
 {

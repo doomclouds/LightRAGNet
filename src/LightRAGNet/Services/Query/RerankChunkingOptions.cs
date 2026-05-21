@@ -1,6 +1,6 @@
 namespace LightRAGNet.Services.Query;
 
-public sealed class RerankChunkingOptions
+internal sealed class RerankChunkingOptions
 {
     public bool EnableChunking { get; set; } = true;
 
