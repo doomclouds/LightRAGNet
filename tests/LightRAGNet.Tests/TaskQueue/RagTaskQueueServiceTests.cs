@@ -307,6 +307,54 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task GetTaskByDocumentIdAsync_WhenTerminalSnapshotAndPendingTaskExist_ReturnsActiveTask()
+    {
+        var (service, store, _, _) = CreateService();
+        await store.SaveTaskStateAsync(new RagTask
+        {
+            TaskId = "task-active",
+            DocumentId = 7,
+            Content = "content",
+            FilePath = "file.md",
+            Status = RagTaskStatus.Pending
+        });
+        await store.SaveTaskStateAsync(new RagTask
+        {
+            TaskId = "task-terminal-snapshot",
+            DocumentId = 7,
+            Content = "content",
+            FilePath = "file.md",
+            Status = RagTaskStatus.Completed,
+            CompletedAt = DateTime.UtcNow
+        });
+
+        var task = await service.GetTaskByDocumentIdAsync(7);
+
+        task.Should().NotBeNull();
+        task!.TaskId.Should().Be("task-active");
+        task.Status.Should().Be(RagTaskStatus.Pending);
+    }
+
+    [Fact]
+    public async Task GetTaskByDocumentIdAsync_WhenOnlyTerminalSnapshotExists_ReturnsNull()
+    {
+        var (service, store, _, _) = CreateService();
+        await store.SaveTaskStateAsync(new RagTask
+        {
+            TaskId = "task-terminal-snapshot",
+            DocumentId = 7,
+            Content = "content",
+            FilePath = "file.md",
+            Status = RagTaskStatus.Completed,
+            CompletedAt = DateTime.UtcNow
+        });
+
+        var task = await service.GetTaskByDocumentIdAsync(7);
+
+        task.Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateTaskProgressAsync_WhenTerminalStatusWinsDuringSave_DoesNotRepublishOrPersistProgress()
     {
         var store = new BlockingProgressSaveTaskStateStore();

@@ -198,28 +198,21 @@ public class RagTaskProcessorService(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Cancellation due to service shutdown, reset task to Pending so it can be retried after service restart
-            logger.LogWarning("Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
+            const string errorMessage = "Task processing was interrupted by service shutdown or restart.";
+            logger.LogWarning(
+                "Task {TaskId} was cancelled due to service shutdown, marking as Failed to require explicit retry",
+                task.TaskId);
 
-            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
-            
+            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Failed.ToString());
+
+            task.Status = RagTaskStatus.Failed;
+            task.ErrorMessage = errorMessage;
+            task.CompletedAt = DateTime.UtcNow;
+
             await taskQueue.UpdateTaskStatusAsync(
                 task.TaskId,
-                RagTaskStatus.Pending,
-                null,
-                CancellationToken.None); // Use CancellationToken.None because service may be shutting down
-        }
-        catch (TaskCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            // Cancellation due to service shutdown, reset task to Pending
-            logger.LogWarning(ex, "Task {TaskId} was cancelled due to service shutdown, reset to Pending status for retry after restart", task.TaskId);
-
-            await DrainBeforeTerminalStatusAsync(RagTaskStatus.Pending.ToString());
-            
-            await taskQueue.UpdateTaskStatusAsync(
-                task.TaskId,
-                RagTaskStatus.Pending,
-                null,
+                RagTaskStatus.Failed,
+                errorMessage,
                 CancellationToken.None);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

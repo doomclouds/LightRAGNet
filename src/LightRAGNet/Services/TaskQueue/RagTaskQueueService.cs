@@ -239,7 +239,8 @@ public class RagTaskQueueService(
             var documentIdSet = documentIdList.ToHashSet();
             foreach (var task in _tasks.Values)
             {
-                if (documentIdSet.Contains(task.DocumentId))
+                if (documentIdSet.Contains(task.DocumentId) &&
+                    !IsTerminalStatus(task.Status))
                 {
                     result[task.DocumentId] = task;
                 }

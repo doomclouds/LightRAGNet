@@ -52,6 +52,45 @@ public sealed class RagTaskProcessorServiceTests
     }
 
     [Fact]
+    public async Task ProcessTaskAsync_WhenHostShutdownInterruptsProcessing_MarksFailedInsteadOfPending()
+    {
+        var task = new RagTask
+        {
+            TaskId = "task-shutdown-interrupted",
+            DocumentId = 101,
+            RagDocumentId = "doc-shutdown-interrupted",
+            Content = "alpha beta gamma delta epsilon zeta eta theta",
+            FilePath = "shutdown-interrupted.md",
+            Status = RagTaskStatus.Pending
+        };
+        var taskQueue = new RecordingRagTaskQueueService(task);
+        var statusStore = await CreateProcessedStatusStoreAsync(
+            task.RagDocumentId!,
+            task.Content,
+            task.FilePath);
+        var processor = new RagTaskProcessorService(
+            taskQueue,
+            new RagTaskCancellationRegistry(),
+            new SingleServiceScopeFactory(CreateLightRag(statusStore)),
+            NullLogger<RagTaskProcessorService>.Instance);
+        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        processor.AfterProgressHandlerSubscribedForTesting = (_, _, _) =>
+        {
+            stopCts.Cancel();
+            return Task.CompletedTask;
+        };
+
+        await processor.StartAsync(stopCts.Token);
+        var failed = await taskQueue.WaitForStatusAsync(RagTaskStatus.Failed, TimeSpan.FromSeconds(2));
+        await processor.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+
+        failed.Should().BeTrue();
+        task.Status.Should().Be(RagTaskStatus.Failed);
+        task.ErrorMessage.Should().ContainEquivalentOf("interrupted");
+        taskQueue.Events.Should().NotContain("status:Pending");
+    }
+
+    [Fact]
     public async Task ProcessTaskAsync_WhenProgressArrivesQuickly_SerializesProgressBeforeCompleted()
     {
         var task = new RagTask
@@ -429,6 +468,8 @@ public sealed class RagTaskProcessorServiceTests
         private readonly object gate = new();
         private readonly TaskCompletionSource completedStatus =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource failedStatus =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource progressWriteStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource progressWritesReleased =
@@ -500,6 +541,10 @@ public sealed class RagTaskProcessorServiceTests
             {
                 completedStatus.TrySetResult();
             }
+            else if (status == RagTaskStatus.Failed)
+            {
+                failedStatus.TrySetResult();
+            }
 
             return Task.CompletedTask;
         }
@@ -564,6 +609,7 @@ public sealed class RagTaskProcessorServiceTests
             var statusTask = status switch
             {
                 RagTaskStatus.Completed => completedStatus.Task,
+                RagTaskStatus.Failed => failedStatus.Task,
                 _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unsupported status wait.")
             };
 
