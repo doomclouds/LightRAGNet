@@ -686,6 +686,89 @@ public sealed class RagTaskQueueServiceTests
     }
 
     [Fact]
+    public async Task CancelTaskAsync_WhenProcessingAndProgressPublishIsInFlight_CancelsRegisteredTokenBeforePublishLockReleases()
+    {
+        var store = new InMemoryRagTaskStateStore();
+        var progressPublishStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProgressPublish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var notification = call.Arg<RagTaskStatusChangedEvent>().Task;
+                if (notification.Status == RagTaskStatus.Processing &&
+                    notification.CurrentStage == TaskStage.DocumentChunking)
+                {
+                    progressPublishStarted.TrySetResult();
+                    await releaseProgressPublish.Task.WaitAsync(call.Arg<CancellationToken>());
+                }
+            });
+        var cancellationRegistry = new RagTaskCancellationRegistry();
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            cancellationRegistry,
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        using var hostCancellation = new CancellationTokenSource();
+        var processingToken = cancellationRegistry.RegisterProcessingTask(taskId!, hostCancellation.Token);
+
+        var progressTask = service.UpdateTaskProgressAsync(
+            taskId!,
+            TaskStage.DocumentChunking,
+            50);
+        await progressPublishStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var cancelTask = service.CancelTaskAsync(taskId!);
+        var cancelledBeforePublishReleased = await WaitUntilAsync(
+            () => processingToken.IsCancellationRequested,
+            TimeSpan.FromMilliseconds(200));
+        releaseProgressPublish.TrySetResult();
+        await Task.WhenAll(progressTask, cancelTask).WaitAsync(TimeSpan.FromSeconds(2));
+
+        cancelledBeforePublishReleased.Should().BeTrue(
+            "processing cancellation must not wait behind terminal publication ordering");
+        processingToken.IsCancellationRequested.Should().BeTrue();
+        hostCancellation.IsCancellationRequested.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CancelTaskAsync_WhenTerminalDeleteFails_SavesTerminalSnapshotBeforeCleanup()
+    {
+        var store = new ThrowingDeleteTaskStateStore();
+        var notifications = new List<RagTask>();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Publish(Arg.Any<RagTaskStatusChangedEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                notifications.Add(CloneTask(call.Arg<RagTaskStatusChangedEvent>().Task));
+                return Task.CompletedTask;
+            });
+        var service = new RagTaskQueueService(
+            store,
+            mediator,
+            new RagTaskCancellationRegistry(),
+            NullLogger<RagTaskQueueService>.Instance);
+        var taskId = await service.EnqueueTaskAsync(7, "content", "file.md");
+        await service.UpdateTaskStatusAsync(taskId!, RagTaskStatus.Processing);
+        store.ThrowDeleteFor(taskId!);
+        notifications.Clear();
+
+        var cancelled = await service.CancelTaskAsync(taskId!);
+
+        cancelled.Should().BeTrue();
+        IsTaskActiveInMemory(service, taskId!).Should().BeFalse();
+        var persistedTask = await store.LoadTaskStateAsync(taskId!);
+        persistedTask.Should().NotBeNull();
+        persistedTask!.Status.Should().Be(RagTaskStatus.Cancelled);
+        notifications.Should().ContainSingle(task => task.Status == RagTaskStatus.Cancelled);
+        GetTerminalTombstoneCount(service).Should().Be(0);
+        GetTaskLifecycleCount(service).Should().Be(0);
+        GetPublishLockEntryCount(service).Should().Be(0);
+    }
+
+    [Fact]
     public async Task StopAllTasksAsync_FailsPendingAndProcessingTasks()
     {
         var (service, _, mediator, _) = CreateService();
@@ -843,6 +926,38 @@ public sealed class RagTaskQueueServiceTests
         var countProperty = entries!.GetType().GetProperty("Count");
         countProperty.Should().NotBeNull();
         return (int)countProperty!.GetValue(entries)!;
+    }
+
+    private static bool IsTaskActiveInMemory(RagTaskQueueService service, string taskId)
+    {
+        var field = typeof(RagTaskQueueService).GetField(
+            "_tasks",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        field.Should().NotBeNull();
+        var tasks = field!.GetValue(service);
+        tasks.Should().NotBeNull();
+
+        var containsKeyMethod = tasks!.GetType().GetMethod("ContainsKey");
+        containsKeyMethod.Should().NotBeNull();
+        return (bool)containsKeyMethod!.Invoke(tasks, [taskId])!;
+    }
+
+    private static async Task<bool> WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+
+        while (!cts.IsCancellationRequested)
+        {
+            if (predicate())
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), CancellationToken.None);
+        }
+
+        return predicate();
     }
 
     private sealed class BlockingProgressSaveTaskStateStore : IRagTaskStateStore

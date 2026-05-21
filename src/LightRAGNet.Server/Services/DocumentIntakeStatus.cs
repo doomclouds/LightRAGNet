@@ -17,7 +17,7 @@ public static class DocumentIntakeStatus
 
     public static bool IsCancellable(string? status)
     {
-        return status is Queued or Processing;
+        return status is Queued or Processing or "Pending";
     }
 
     public static bool IsActive(string? status)

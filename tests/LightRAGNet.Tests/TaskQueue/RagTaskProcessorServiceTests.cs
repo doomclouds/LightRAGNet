@@ -165,6 +165,22 @@ public sealed class RagTaskProcessorServiceTests
         (await stateStore.LoadTaskStateAsync(taskId!)).Should().BeNull();
     }
 
+    [Fact]
+    public async Task ProgressHandler_TerminalStatusGuard_IncludesCancelled()
+    {
+        var source = await File.ReadAllTextAsync(
+            Path.Combine(
+                GetRepositoryRoot(),
+                "src",
+                "LightRAGNet",
+                "Services",
+                "TaskQueue",
+                "RagTaskProcessorService.cs"));
+
+        source.Should().Contain(
+            "task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled");
+    }
+
     private static RagTaskQueueService CreateTaskQueue(
         InMemoryRagTaskStateStore stateStore,
         List<RagTask> notifications)
@@ -363,6 +379,20 @@ public sealed class RagTaskProcessorServiceTests
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         var handler = eventField?.GetValue(lightRag) as EventHandler<TaskState>;
         handler?.Invoke(lightRag, state);
+    }
+
+    private static string GetRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "LightRAGNet.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull();
+        return directory!.FullName;
     }
 
     private sealed class RecordingRagTaskQueueService(RagTask pendingTask) : IRagTaskQueueService

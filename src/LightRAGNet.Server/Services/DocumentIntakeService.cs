@@ -242,7 +242,12 @@ public sealed class DocumentIntakeService(
             throw new InvalidOperationException("Document is not cancellable.");
         }
 
-        await CancelDocumentCoreAsync(document, cancellationToken);
+        var cancelled = await CancelDocumentCoreAsync(document, cancellationToken);
+        if (!cancelled)
+        {
+            throw new InvalidOperationException("Document could not be cancelled because the active queue task was not cancelled.");
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         return new DocumentPipelineActionResult
@@ -263,13 +268,17 @@ public sealed class DocumentIntakeService(
                          d.RagStatus == "Pending"))
             .ToListAsync(cancellationToken);
 
+        var cancelledCount = 0;
         foreach (var document in documents)
         {
-            await CancelDocumentCoreAsync(document, cancellationToken);
+            if (await CancelDocumentCoreAsync(document, cancellationToken))
+            {
+                cancelledCount++;
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
-        return documents.Count;
+        return cancelledCount;
     }
 
     private static string CreateTrackId()
@@ -287,17 +296,22 @@ public sealed class DocumentIntakeService(
         return status is DocumentIntakeStatus.Queued or "Pending";
     }
 
-    private async Task CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
+    private async Task<bool> CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
         {
-            await taskQueueService.CancelTaskAsync(document.ActiveRagTaskId, cancellationToken);
+            var queueCancelled = await taskQueueService.CancelTaskAsync(document.ActiveRagTaskId, cancellationToken);
+            if (!queueCancelled)
+            {
+                return false;
+            }
         }
 
         document.RagStatus = DocumentIntakeStatus.Cancelled;
         document.RagCurrentStage = DocumentIntakeStatus.Cancelled;
         document.PipelineCancelledAt = DateTime.UtcNow;
         document.ActiveRagTaskId = null;
+        return true;
     }
 
     private static bool IsSupportedUploadExtension(string? extension)

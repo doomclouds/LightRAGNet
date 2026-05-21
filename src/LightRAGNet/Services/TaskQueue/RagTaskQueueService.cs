@@ -541,9 +541,13 @@ public class RagTaskQueueService(
     public async Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
         await EnsureTasksLoadedAsync(cancellationToken);
+        await CancelProcessingTaskTokenIfNeededAsync(taskId, cancellationToken);
+
+        using var lifecycleLease = RetainTaskLifecycle(taskId);
         await using var publishLease = await _publishLocks.LockAsync(taskId, cancellationToken);
 
         RagTask taskToPublish;
+        var canCleanupTerminalTombstone = false;
         await _lock.WaitAsync(cancellationToken);
         try
         {
@@ -564,17 +568,13 @@ public class RagTaskQueueService(
                 return false;
             }
 
-            if (task.Status == RagTaskStatus.Processing)
-            {
-                cancellationRegistry.CancelTask(taskId);
-            }
-
             task.Status = RagTaskStatus.Cancelled;
             task.ErrorMessage = null;
             task.CompletedAt = DateTime.UtcNow;
             _terminalTaskIds.TryAdd(taskId, 0);
             _tasks.TryRemove(taskId, out _);
             taskToPublish = CloneTaskForPublication(task);
+            canCleanupTerminalTombstone = true;
             logger.LogInformation("Task cancelled and removed from active queue: {TaskId}", taskId);
         }
         finally
@@ -582,10 +582,60 @@ public class RagTaskQueueService(
             _lock.Release();
         }
 
-        await stateStore.DeleteTaskStateAsync(taskId, cancellationToken);
-        await PublishStatusChangedAsync(taskToPublish, cancellationToken);
-        _terminalTaskIds.TryRemove(taskId, out _);
-        return true;
+        try
+        {
+            await stateStore.DeleteTaskStateAsync(taskId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to delete cancelled task state; saving terminal snapshot instead: {TaskId}",
+                taskId);
+            await stateStore.SaveTaskStateAsync(taskToPublish, CancellationToken.None);
+        }
+
+        try
+        {
+            await PublishStatusChangedAsync(taskToPublish, cancellationToken);
+            return true;
+        }
+        finally
+        {
+            if (canCleanupTerminalTombstone)
+            {
+                lifecycleLease.RequestTerminalCleanup();
+            }
+        }
+    }
+
+    private async Task CancelProcessingTaskTokenIfNeededAsync(string taskId, CancellationToken cancellationToken)
+    {
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_tasks.TryGetValue(taskId, out var task))
+            {
+                task = await stateStore.LoadTaskStateAsync(taskId, cancellationToken);
+                if (task is null)
+                {
+                    return;
+                }
+
+                _tasks.TryAdd(taskId, task);
+            }
+
+            if (task.Status == RagTaskStatus.Processing)
+            {
+                cancellationRegistry.CancelTask(taskId);
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return;
     }
 
     public async Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default)

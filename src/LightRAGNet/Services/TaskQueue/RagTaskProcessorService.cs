@@ -78,7 +78,7 @@ public class RagTaskProcessorService(
         await using var progressQueue = new AsyncEventDispatcher<TaskState>(
             async (state, token) =>
             {
-                if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed)
+                if (task.Status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled)
                 {
                     logger.LogDebug(
                         "Discarding late progress update for terminal task {TaskId}: Stage={Stage}, Current={Current}, Total={Total}",

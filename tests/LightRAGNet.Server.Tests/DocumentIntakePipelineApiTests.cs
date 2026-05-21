@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using LightRAGNet.Hosting;
 using LightRAGNet.Models;
@@ -314,9 +315,32 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
-    public async Task CancelDocument_WhenQueued_MarksCancelledAndDoesNotProcess()
+    public async Task RetryDocument_WhenCompleted_ReturnsConflict()
     {
         using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 405,
+            FileName = "completed.md",
+            Content = "completed content",
+            TrackId = "track-retry-completed",
+            RagStatus = "Completed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/405/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenQueued_MarksCancelledAndDoesNotProcess()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(new RecordingRagTaskQueueService());
+        });
         await SeedDocumentAsync(factory, new MarkdownDocument
         {
             Id = 402,
@@ -336,6 +360,79 @@ public sealed class DocumentIntakePipelineApiTests
         var document = await context.MarkdownDocuments.FindAsync(402);
         document!.RagStatus.Should().Be("Cancelled");
         document.PipelineCancelledAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenCompleted_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 406,
+            FileName = "completed.md",
+            Content = "completed content",
+            TrackId = "track-cancel-completed",
+            RagStatus = "Completed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/406/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenPending_MarksCancelled()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 407,
+            FileName = "pending.md",
+            Content = "pending content",
+            TrackId = "track-cancel-pending",
+            RagStatus = "Pending"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/407/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(407);
+        document!.RagStatus.Should().Be("Cancelled");
+        document.PipelineCancelledAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenQueueRejectsCancel_ReturnsConflictAndKeepsOriginalStatus()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(new RejectingCancelRagTaskQueueService());
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 408,
+            FileName = "stale.md",
+            Content = "stale content",
+            TrackId = "track-cancel-stale",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-stale"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/408/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(408);
+        document!.RagStatus.Should().Be("Queued");
+        document.ActiveRagTaskId.Should().Be("task-stale");
+        document.PipelineCancelledAt.Should().BeNull();
     }
 
     [Fact]
@@ -367,6 +464,54 @@ public sealed class DocumentIntakePipelineApiTests
             "/api/MarkdownDocuments/tracks/track-batch-cancel");
         track!.CancelledCount.Should().Be(1);
         track.CompletedCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CancelTrack_WhenOneQueueCancelFails_CountsOnlyActuallyCancelledDocuments()
+    {
+        var queue = new SelectiveCancelRagTaskQueueService("task-cancel-ok");
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 409,
+            FileName = "one.md",
+            Content = "one",
+            TrackId = "track-partial-cancel",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-cancel-ok"
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 410,
+            FileName = "two.md",
+            Content = "two",
+            TrackId = "track-partial-cancel",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-cancel-fail"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/tracks/track-partial-cancel/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<CancelTrackResult>();
+        body.Should().NotBeNull();
+        body!.CancelledCount.Should().Be(1);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var first = await context.MarkdownDocuments.FindAsync(409);
+        var second = await context.MarkdownDocuments.FindAsync(410);
+        first!.RagStatus.Should().Be("Cancelled");
+        first.ActiveRagTaskId.Should().BeNull();
+        first.PipelineCancelledAt.Should().NotBeNull();
+        second!.RagStatus.Should().Be("Queued");
+        second.ActiveRagTaskId.Should().Be("task-cancel-fail");
+        second.PipelineCancelledAt.Should().BeNull();
     }
 
     [Fact]
@@ -645,7 +790,7 @@ public sealed class DocumentIntakePipelineApiTests
             return Task.FromResult(false);
         }
 
-        public Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        public virtual Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(true);
         }
@@ -706,6 +851,26 @@ public sealed class DocumentIntakePipelineApiTests
                 : new Dictionary<int, RagTask>());
         }
     }
+
+    private sealed class RejectingCancelRagTaskQueueService : RecordingRagTaskQueueService
+    {
+        public override Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
+    private sealed class SelectiveCancelRagTaskQueueService(string acceptedTaskId) : RecordingRagTaskQueueService
+    {
+        public override Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(string.Equals(taskId, acceptedTaskId, StringComparison.Ordinal));
+        }
+    }
+
+    private sealed record CancelTrackResult(
+        [property: JsonPropertyName("trackId")] string TrackId,
+        [property: JsonPropertyName("cancelledCount")] int CancelledCount);
 
     private sealed record EnqueueCall(int DocumentId, string Content, string FilePath);
 }
