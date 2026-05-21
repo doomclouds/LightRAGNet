@@ -70,7 +70,8 @@ public class RagTaskStatusChangedHandler(
                 return;
             }
 
-            document.RagStatus = task.Status.ToString();
+            document.RagStatus = MapIndexStatus(task.Status);
+            document.RagCurrentStage = task.CurrentStage?.ToString();
             document.RagErrorMessage = task.ErrorMessage;
             document.RagDocumentId = task.RagDocumentId;
 
@@ -88,7 +89,30 @@ public class RagTaskStatusChangedHandler(
             {
                 document.IsInRagSystem = true;
                 document.RagAddedTime = DateTime.UtcNow;
+                document.PipelineCompletedAt = DateTime.UtcNow;
                 // Don't clear progress on completion, but frontend will judge whether to display based on stage
+            }
+            else if (task.Status == RagTaskStatus.Failed)
+            {
+                document.PipelineCompletedAt = DateTime.UtcNow;
+            }
+            else if (task.Status == RagTaskStatus.Cancelled)
+            {
+                document.PipelineCancelledAt = DateTime.UtcNow;
+            }
+
+            if (IsTerminalStatus(task.Status))
+            {
+                document.ActiveRagTaskId = null;
+            }
+            else
+            {
+                document.ActiveRagTaskId = task.TaskId;
+            }
+
+            if (task.Status == RagTaskStatus.Processing && document.PipelineStartedAt == null)
+            {
+                document.PipelineStartedAt = DateTime.UtcNow;
             }
 
             await context.SaveChangesAsync(cancellationToken);
@@ -100,6 +124,24 @@ public class RagTaskStatusChangedHandler(
         {
             logger.LogError(ex, "Failed to update document status: DocumentId={DocumentId}", task.DocumentId);
         }
+    }
+
+    private static string MapIndexStatus(RagTaskStatus status)
+    {
+        return status switch
+        {
+            RagTaskStatus.Pending => DocumentIntakeStatus.Queued,
+            RagTaskStatus.Processing => DocumentIntakeStatus.Processing,
+            RagTaskStatus.Completed => DocumentIntakeStatus.Completed,
+            RagTaskStatus.Failed => DocumentIntakeStatus.Failed,
+            RagTaskStatus.Cancelled => DocumentIntakeStatus.Cancelled,
+            _ => status.ToString()
+        };
+    }
+
+    private static bool IsTerminalStatus(RagTaskStatus status)
+    {
+        return status is RagTaskStatus.Completed or RagTaskStatus.Failed or RagTaskStatus.Cancelled;
     }
 
     private async Task NotifyFrontendAsync(RagTask task, CancellationToken cancellationToken)

@@ -6,8 +6,10 @@ using LightRAGNet.Hosting;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
+using MediatR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -219,6 +221,138 @@ public sealed class DocumentIntakePipelineApiTests
         var response = await client.GetAsync("/api/MarkdownDocuments/tracks/missing-track");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task RagTaskStatusChangedHandler_WhenPendingIndexTask_SetsQueuedStatusAndActiveTask()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 701,
+            FileName = "handler-pending.md",
+            Content = "handler pending",
+            RagStatus = "Pending"
+        });
+        using var scope = factory.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            TaskId = "task-handler-pending",
+            DocumentId = 701,
+            RagDocumentId = "rag-handler-pending",
+            Status = RagTaskStatus.Pending,
+            CurrentStage = TaskStage.DocumentChunking,
+            OperationType = RagTaskOperationType.IndexDocument
+        }), CancellationToken.None);
+
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.ChangeTracker.Clear();
+        var document = await context.MarkdownDocuments.FindAsync(701);
+        document.Should().NotBeNull();
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.ActiveRagTaskId.Should().Be("task-handler-pending");
+        document.RagCurrentStage.Should().Be(TaskStage.DocumentChunking.ToString());
+        document.RagDocumentId.Should().Be("rag-handler-pending");
+    }
+
+    [Fact]
+    public async Task RagTaskStatusChangedHandler_WhenProcessingIndexTask_SetsPipelineStartedAtOnce()
+    {
+        using var factory = new LightRagServerFactory();
+        var existingStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 702,
+            FileName = "handler-processing.md",
+            Content = "handler processing",
+            RagStatus = DocumentIntakeStatus.Queued,
+            PipelineStartedAt = existingStartedAt
+        });
+        using var scope = factory.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            TaskId = "task-handler-processing",
+            DocumentId = 702,
+            RagDocumentId = "rag-handler-processing",
+            Status = RagTaskStatus.Processing,
+            CurrentStage = TaskStage.ProcessingChunks,
+            Progress = 25,
+            OperationType = RagTaskOperationType.IndexDocument
+        }), CancellationToken.None);
+
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.ChangeTracker.Clear();
+        var document = await context.MarkdownDocuments.FindAsync(702);
+        document.Should().NotBeNull();
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Processing);
+        document.ActiveRagTaskId.Should().Be("task-handler-processing");
+        document.PipelineStartedAt.Should().Be(existingStartedAt);
+        document.RagProgress.Should().Be(25);
+    }
+
+    [Theory]
+    [InlineData(RagTaskStatus.Completed)]
+    [InlineData(RagTaskStatus.Failed)]
+    [InlineData(RagTaskStatus.Cancelled)]
+    public async Task RagTaskStatusChangedHandler_WhenTerminalIndexTask_ClearsActiveTaskAndSetsPipelineTimestamp(
+        RagTaskStatus status)
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 703,
+            FileName = "handler-terminal.md",
+            Content = "handler terminal",
+            RagStatus = DocumentIntakeStatus.Processing,
+            ActiveRagTaskId = "task-stale",
+            PipelineStartedAt = DateTime.UtcNow.AddMinutes(-5)
+        });
+        using var scope = factory.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            TaskId = $"task-handler-{status}",
+            DocumentId = 703,
+            RagDocumentId = "rag-handler-terminal",
+            Status = status,
+            CurrentStage = status == RagTaskStatus.Completed ? TaskStage.Completed : TaskStage.DocumentChunking,
+            ErrorMessage = status == RagTaskStatus.Failed ? "handler failed" : null,
+            OperationType = RagTaskOperationType.IndexDocument
+        }), CancellationToken.None);
+
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.ChangeTracker.Clear();
+        var document = await context.MarkdownDocuments.FindAsync(703);
+        document.Should().NotBeNull();
+        document!.RagStatus.Should().Be(status.ToString());
+        document.ActiveRagTaskId.Should().BeNull();
+        document.RagDocumentId.Should().Be("rag-handler-terminal");
+
+        switch (status)
+        {
+            case RagTaskStatus.Completed:
+                document.IsInRagSystem.Should().BeTrue();
+                document.RagAddedTime.Should().NotBeNull();
+                document.PipelineCompletedAt.Should().NotBeNull();
+                document.PipelineCancelledAt.Should().BeNull();
+                break;
+            case RagTaskStatus.Failed:
+                document.RagErrorMessage.Should().Be("handler failed");
+                document.PipelineCompletedAt.Should().NotBeNull();
+                document.PipelineCancelledAt.Should().BeNull();
+                break;
+            case RagTaskStatus.Cancelled:
+                document.PipelineCompletedAt.Should().BeNull();
+                document.PipelineCancelledAt.Should().NotBeNull();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status), status, null);
+        }
     }
 
     [Fact]

@@ -382,16 +382,25 @@ public class RagTaskProcessorService(
         {
             var tasks = await taskQueue.GetAllTasksAsync(cancellationToken);
 
-            foreach (var task in tasks)
+            var interruptedTasks = tasks
+                .Where(task => task.Status == RagTaskStatus.Processing)
+                .ToList();
+
+            foreach (var task in interruptedTasks)
             {
-                if (task.Status != RagTaskStatus.Processing) continue;
-                
-                // When service restarts, reset tasks being processed to Pending
-                logger.LogInformation("Restoring task {TaskId}, status reset from Processing to Pending", task.TaskId);
-                await taskQueue.UpdateTaskStatusAsync(task.TaskId, RagTaskStatus.Pending, cancellationToken: cancellationToken);
+                const string errorMessage = "Task processing was interrupted by service shutdown or restart.";
+
+                logger.LogWarning(
+                    "Restoring task {TaskId}, status changed from Processing to Failed because processing was interrupted",
+                    task.TaskId);
+                await taskQueue.UpdateTaskStatusAsync(
+                    task.TaskId,
+                    RagTaskStatus.Failed,
+                    errorMessage,
+                    cancellationToken);
             }
 
-            logger.LogInformation("Task restoration completed, restored {Count} tasks", tasks.Count(t => t.Status == RagTaskStatus.Processing));
+            logger.LogInformation("Task restoration completed, restored {Count} tasks", interruptedTasks.Count);
         }
         catch (Exception ex)
         {

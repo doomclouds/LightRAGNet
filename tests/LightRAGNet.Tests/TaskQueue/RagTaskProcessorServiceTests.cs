@@ -23,6 +23,35 @@ namespace LightRAGNet.Tests.TaskQueue;
 public sealed class RagTaskProcessorServiceTests
 {
     [Fact]
+    public async Task RestoreTasksAsync_WhenTaskWasProcessing_MarksFailedInsteadOfPending()
+    {
+        var task = new RagTask
+        {
+            TaskId = "task-interrupted",
+            DocumentId = 100,
+            Status = RagTaskStatus.Processing
+        };
+        var taskQueue = new RestoreOnlyRagTaskQueueService(task);
+        var processor = new RagTaskProcessorService(
+            taskQueue,
+            new RagTaskCancellationRegistry(),
+            Substitute.For<IServiceScopeFactory>(),
+            NullLogger<RagTaskProcessorService>.Instance);
+
+        await processor.StartAsync(CancellationToken.None);
+        await taskQueue.WaitForRestoredAsync(TimeSpan.FromSeconds(2));
+        await processor.StopAsync(CancellationToken.None);
+
+        taskQueue.StatusUpdates.Should().ContainSingle();
+        var update = taskQueue.StatusUpdates[0];
+        update.TaskId.Should().Be("task-interrupted");
+        update.Status.Should().Be(RagTaskStatus.Failed);
+        update.ErrorMessage.Should().ContainEquivalentOf("interrupted");
+        task.Status.Should().Be(RagTaskStatus.Failed);
+        task.ErrorMessage.Should().ContainEquivalentOf("interrupted");
+    }
+
+    [Fact]
     public async Task ProcessTaskAsync_WhenProgressArrivesQuickly_SerializesProgressBeforeCompleted()
     {
         var task = new RagTask
@@ -555,6 +584,94 @@ public sealed class RagTaskProcessorServiceTests
             }
 
             await progressWritesCompleted.Task.WaitAsync(timeout);
+        }
+    }
+
+    private sealed class RestoreOnlyRagTaskQueueService(RagTask task) : IRagTaskQueueService
+    {
+        private readonly TaskCompletionSource restored =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<(string TaskId, RagTaskStatus Status, string? ErrorMessage)> StatusUpdates { get; } = [];
+
+        public Task<string?> EnqueueTaskAsync(
+            int documentId,
+            string content,
+            string filePath,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<string?> EnqueueDeletionTaskAsync(
+            int documentId,
+            string ragDocumentId,
+            string filePath,
+            bool deleteLlmCache,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<RagTask?> GetNextTaskAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<RagTask?>(null);
+
+        public Task<List<RagTask>> GetAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new List<RagTask> { task });
+
+        public Task<RagTask?> GetTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(string.Equals(taskId, task.TaskId, StringComparison.Ordinal) ? task : null);
+
+        public Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(documentId == task.DocumentId ? task : null);
+
+        public Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(
+            IEnumerable<int> documentIds,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(documentIds.Contains(task.DocumentId)
+                ? new Dictionary<int, RagTask> { [task.DocumentId] = task }
+                : []);
+
+        public Task UpdateTaskStatusAsync(
+            string taskId,
+            RagTaskStatus status,
+            string? errorMessage = null,
+            CancellationToken cancellationToken = default)
+        {
+            StatusUpdates.Add((taskId, status, errorMessage));
+            task.Status = status;
+            task.ErrorMessage = errorMessage;
+            restored.TrySetResult();
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateTaskProgressAsync(
+            string taskId,
+            TaskStage? stage,
+            int? progress,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task ReorderTaskAsync(string taskId, int newPriority, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> RetryTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task ClearAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> HasProcessingTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<int> StopAllTasksAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
+
+        public async Task WaitForRestoredAsync(TimeSpan timeout)
+        {
+            await restored.Task.WaitAsync(timeout);
         }
     }
 
