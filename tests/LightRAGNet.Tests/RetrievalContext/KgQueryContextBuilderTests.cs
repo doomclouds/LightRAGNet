@@ -178,7 +178,7 @@ public sealed class KgQueryContextBuilderTests
     [Fact]
     public void Build_WhenChunkBudgetCannotFitReferenceList_DropsChunks()
     {
-        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var builder = new KgQueryContextBuilder(new ReferenceListSensitiveTokenizer());
         var searchResult = new KGSearchResult
         {
             Chunks =
@@ -192,14 +192,15 @@ public sealed class KgQueryContextBuilderTests
             ]
         };
 
-        // Budget is intentionally above the payload-only cost but below the final chunk section plus reference list cost.
+        // This tokenizer isolates reference-list overhead: the chunk JSON section alone fits the
+        // remaining budget, but the final section including the reference list does not.
         var result = builder.Build(
             searchResult,
             new QueryParam
             {
                 MaxEntityTokens = 1000,
                 MaxRelationTokens = 1000,
-                MaxTotalTokens = 205
+                MaxTotalTokens = 211
             },
             query: "alpha");
 
@@ -232,6 +233,45 @@ public sealed class KgQueryContextBuilderTests
         public int CountTokens(string text)
         {
             return Encode(text).Count;
+        }
+    }
+
+    private sealed class ReferenceListSensitiveTokenizer : ITokenizer
+    {
+        public List<int> Encode(string text)
+        {
+            return Enumerable.Range(1, CountTokens(text)).ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return string.Join(" ", tokens.Select(token => $"t{token}"));
+        }
+
+        public int CountTokens(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return 0;
+            }
+
+            if (HasReferenceListHeader(text)
+                || text.Contains("[1] docs/a.md", StringComparison.Ordinal))
+            {
+                return 11;
+            }
+
+            return text.Contains("Document Chunks", StringComparison.Ordinal)
+                ? 10
+                : 1;
+        }
+
+        private static bool HasReferenceListHeader(string text)
+        {
+            // The chunk heading mentions this inline; only a line-start heading is the actual list.
+            return text
+                .Split(["\r\n", "\n"], StringSplitOptions.None)
+                .Any(line => line.StartsWith("Reference Document List", StringComparison.Ordinal));
         }
     }
 }
