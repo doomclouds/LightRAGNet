@@ -3,6 +3,7 @@ param(
     [string]$ServerUrl = "http://localhost:5261",
     [string]$WebUrl = "http://localhost:5241",
     [string]$ApiBaseUrl = $ServerUrl,
+    [int]$ReadyTimeoutSeconds = 60,
     [switch]$SkipNpmInstall,
     [switch]$SkipClientBuild,
     [switch]$OpenBrowser
@@ -34,6 +35,48 @@ function Test-RunningProcess {
     }
 
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Wait-HttpReady {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastError = $null
+
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+            if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 500) {
+                Write-Step "$Name is ready at $Url."
+                return
+            }
+        } catch {
+            $statusCode = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+
+            if ($null -ne $statusCode -and $statusCode -ge 200 -and $statusCode -lt 500) {
+                Write-Step "$Name is ready at $Url (HTTP $statusCode)."
+                return
+            }
+
+            $lastError = $_.Exception.Message
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    $message = "$Name did not become ready at $Url within $TimeoutSeconds seconds."
+    if ($lastError) {
+        $message = "$message Last error: $lastError"
+    }
+
+    throw $message
 }
 
 function Read-State {
@@ -169,16 +212,19 @@ if (-not ($services | Where-Object { $_.name -eq "web" })) {
         -RepoRoot $repoRoot
 }
 
-[pscustomobject]@{
+$state = [pscustomobject]@{
     repoRoot = $repoRoot
     stateFile = $stateFile
     services = $services
-} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
+}
 
-Start-Sleep -Seconds 2
+$state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
+
+Wait-HttpReady "Server" $ServerUrl $ReadyTimeoutSeconds
+Wait-HttpReady "Web" "$WebUrl/graph-view" $ReadyTimeoutSeconds
 
 Write-Host ""
-Write-Step "Development services are starting."
+Write-Step "Development services are ready."
 Write-Host "  Server: $ServerUrl"
 Write-Host "  Web:    $WebUrl"
 Write-Host "  Graph:  $WebUrl/graph-view"

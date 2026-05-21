@@ -73,3 +73,9 @@
 
 - React graph workbench 保持独立于 Blazor 组件内部状态，便于后续从 island 平滑迁移为主 React 前端模块。
 - README 中的 `npm install` / `npm run build` 是显式开发步骤；`dotnet build` 仍不强制触发 Node 构建，避免没有 Node 的后端测试环境被前端工具链阻断。
+
+## Post-Archive Fixes
+
+- `2026-05-22`: 修复真实图谱数据中 `node.type = "concept"` / `edge.type = "related"` 被直接传给 Sigma renderer `type` 后导致 Knowledge Graph tab 空白的问题；业务类型改存为 Graphology `domainType`，Sigma 的视觉 renderer type 保持默认。
+- 同步修复 `scripts/dev-start.ps1` 的 ready 等待逻辑：启动脚本现在会轮询 Server/Web URL，并接受 Server 根路径 `404` 作为“进程已可响应”的 ready 信号，避免过早打印可访问地址。
+- 追加验证：`npm test` (`23/23`)、`npm run build`、`dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore --verbosity minimal` (`27/27`)、Playwright 访问 `http://localhost:5241/graph-view` 后无 Sigma console error，且 `graph-workbench` / Sigma container / canvas 已挂载。
