@@ -9,10 +9,12 @@ export default defineConfig({
     manifest: false,
     sourcemap: false,
     rollupOptions: {
+      preserveEntrySignatures: "strict",
       input: {
         graphWorkbench: "src/graph-workbench/main.tsx"
       },
       output: {
+        format: "es",
         entryFileNames: "assets/graph-workbench.js",
         chunkFileNames: "assets/[name].js",
         assetFileNames: (assetInfo) => {

@@ -1,4 +1,7 @@
 @page "/graph-view"
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Knowledge Graph Workbench</PageTitle>
 
@@ -6,4 +9,43 @@
 
 <div id="graph-workbench-root" data-api-base=""></div>
 
-<script type="module" src="graph-workbench/assets/graph-workbench.js"></script>
+@code {
+    private const string RootElementId = "graph-workbench-root";
+    private const string ApiBase = "";
+    private IJSObjectReference? graphWorkbenchModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        graphWorkbenchModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./graph-workbench/assets/graph-workbench.js");
+        await graphWorkbenchModule.InvokeVoidAsync("mountGraphWorkbench", RootElementId, ApiBase);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (graphWorkbenchModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await graphWorkbenchModule.InvokeVoidAsync("unmountGraphWorkbench", RootElementId);
+            await graphWorkbenchModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit can be gone while Blazor is tearing down the page.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The JS runtime may already be disposed during host shutdown.
+        }
+    }
+}
