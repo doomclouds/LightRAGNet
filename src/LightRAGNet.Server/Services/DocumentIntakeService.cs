@@ -42,6 +42,7 @@ public sealed class DocumentIntakeService(
                     Content = input.Content,
                     FileSize = bytes.LongLength,
                     UploadTime = now,
+                    FileUrl = CreateTextSourceUri(trackId, input.FileName),
                     TrackId = trackId,
                     RagStatus = DocumentIntakeStatus.Queued,
                     RagCurrentStage = "Accepted",
@@ -57,21 +58,30 @@ public sealed class DocumentIntakeService(
 
         foreach (var document in documents)
         {
-            var taskId = await taskQueueService.EnqueueTaskAsync(
-                document.Id,
-                document.Content,
-                document.FileUrl ?? string.Empty,
-                cancellationToken);
-
-            if (taskId is null)
+            try
             {
-                document.RagStatus = DocumentIntakeStatus.Failed;
-                document.RagErrorMessage = "Document could not be queued because an active task already exists.";
-                logger.LogWarning("Document intake queue rejected document {DocumentId}", document.Id);
-                continue;
-            }
+                var taskId = await taskQueueService.EnqueueTaskAsync(
+                    document.Id,
+                    document.Content,
+                    document.FileUrl ?? document.FileName,
+                    cancellationToken);
 
-            document.ActiveRagTaskId = taskId;
+                if (taskId is null)
+                {
+                    MarkQueueFailed(
+                        document,
+                        "Document could not be queued because an active task already exists.");
+                    logger.LogWarning("Document intake queue rejected document {DocumentId}", document.Id);
+                    continue;
+                }
+
+                document.ActiveRagTaskId = taskId;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                MarkQueueFailed(document, ex.Message);
+                logger.LogWarning(ex, "Document intake queue failed for document {DocumentId}", document.Id);
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -102,7 +112,7 @@ public sealed class DocumentIntakeService(
         {
             TrackId = trackId,
             TotalCount = documents.Count,
-            QueuedCount = documents.Count(d => d.RagStatus == DocumentIntakeStatus.Queued),
+            QueuedCount = documents.Count(d => IsQueuedStatus(d.RagStatus)),
             ProcessingCount = documents.Count(d => d.RagStatus == DocumentIntakeStatus.Processing),
             CompletedCount = documents.Count(d => d.RagStatus == DocumentIntakeStatus.Completed),
             FailedCount = documents.Count(d => d.RagStatus == DocumentIntakeStatus.Failed),
@@ -114,5 +124,23 @@ public sealed class DocumentIntakeService(
     private static string CreateTrackId()
     {
         return $"track-{Guid.NewGuid():N}";
+    }
+
+    private static string CreateTextSourceUri(string trackId, string fileName)
+    {
+        return $"text://{trackId}/{Uri.EscapeDataString(fileName)}";
+    }
+
+    private static bool IsQueuedStatus(string? status)
+    {
+        return status is DocumentIntakeStatus.Queued or "Pending";
+    }
+
+    private static void MarkQueueFailed(MarkdownDocument document, string errorMessage)
+    {
+        document.RagStatus = DocumentIntakeStatus.Failed;
+        document.RagErrorMessage = string.IsNullOrWhiteSpace(errorMessage)
+            ? "Document could not be queued."
+            : errorMessage;
     }
 }

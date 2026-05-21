@@ -200,19 +200,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRagTaskCancellationRegistry, RagTaskCancellationRegistry>();
         services.AddSingleton<IRagTaskQueueService, RagTaskQueueService>();
         services.AddHostedService<RagTaskProcessorService>();
-        RegisterServerScopedServiceIfAvailable(services, "LightRAGNet.Server.Services.DocumentIntakeService, LightRAGNet.Server");
 
         #endregion
 
         return services;
-    }
-
-    private static void RegisterServerScopedServiceIfAvailable(IServiceCollection services, string typeName)
-    {
-        var serviceType = Type.GetType(typeName, throwOnError: false);
-        if (serviceType is not null)
-        {
-            services.AddScoped(serviceType);
-        }
     }
 }
