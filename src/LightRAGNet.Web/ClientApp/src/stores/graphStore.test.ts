@@ -161,6 +161,35 @@ describe("graphStore", () => {
     expect(state.rawGraph?.edges[0]).not.toBe(graph.edges[0]);
     expect(graph.edges[0]?.properties?.description).toBe("old relation");
   });
+
+  test("removeNode deletes the node, connected edges, and matching selection", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectNode("ALPHA");
+    store.removeNode("ALPHA");
+
+    const state = store.getState();
+    expect(state.rawGraph?.nodes.map((node) => node.id)).toEqual(["BETA"]);
+    expect(state.rawGraph?.edges).toEqual([]);
+    expect(state.selectedNode).toBeNull();
+    expect(state.selectedEdge).toBeNull();
+    expect(graph.nodes).toHaveLength(2);
+    expect(graph.edges).toHaveLength(1);
+  });
+
+  test("removeEdge deletes the edge and clears matching selection", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectEdge("ALPHA-BETA");
+    store.removeEdge("ALPHA-BETA");
+
+    const state = store.getState();
+    expect(state.rawGraph?.nodes).toHaveLength(2);
+    expect(state.rawGraph?.edges).toEqual([]);
+    expect(state.selectedNode).toBeNull();
+    expect(state.selectedEdge).toBeNull();
+    expect(graph.edges).toHaveLength(1);
+  });
 });
 
 describe("graphSettingsStore", () => {

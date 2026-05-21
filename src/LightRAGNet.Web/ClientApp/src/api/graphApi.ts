@@ -28,7 +28,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-function jsonRequest(method: "PATCH", body: unknown): RequestInit {
+function writeJsonRequest(method: "PATCH" | "POST", body: unknown): RequestInit {
   return {
     method,
     headers: { "content-type": "application/json" },
@@ -73,7 +73,7 @@ export async function editEntity(
   const encodedName = encodeURIComponent(entityName);
   const response = await fetch(
     buildUrl(apiBase, `/api/graph/entity/${encodedName}`),
-    jsonRequest("PATCH", { updatedData, allowRename, allowMerge })
+    writeJsonRequest("PATCH", { updatedData, allowRename, allowMerge })
   );
   return readJson<GraphCurationResponse>(response);
 }
@@ -86,7 +86,63 @@ export async function editRelation(
 ): Promise<GraphCurationResponse> {
   const response = await fetch(
     buildUrl(apiBase, "/api/graph/relation"),
-    jsonRequest("PATCH", { sourceEntity, targetEntity, updatedData })
+    writeJsonRequest("PATCH", { sourceEntity, targetEntity, updatedData })
   );
+  return readJson<GraphCurationResponse>(response);
+}
+
+export async function createEntity(
+  apiBase: string,
+  entityName: string,
+  entityData: GraphNodeProperties
+): Promise<GraphCurationResponse> {
+  const response = await fetch(
+    buildUrl(apiBase, "/api/graph/entity"),
+    writeJsonRequest("POST", { entityName, entityData })
+  );
+  return readJson<GraphCurationResponse>(response);
+}
+
+export async function createRelation(
+  apiBase: string,
+  sourceEntity: string,
+  targetEntity: string,
+  relationData: GraphNodeProperties
+): Promise<GraphCurationResponse> {
+  const response = await fetch(
+    buildUrl(apiBase, "/api/graph/relation"),
+    writeJsonRequest("POST", { sourceEntity, targetEntity, relationData })
+  );
+  return readJson<GraphCurationResponse>(response);
+}
+
+export async function mergeEntities(
+  apiBase: string,
+  sourceEntities: string[],
+  targetEntity: string
+): Promise<GraphCurationResponse> {
+  const response = await fetch(
+    buildUrl(apiBase, "/api/graph/entities/merge"),
+    writeJsonRequest("POST", { sourceEntities, targetEntity })
+  );
+  return readJson<GraphCurationResponse>(response);
+}
+
+export async function deleteEntity(apiBase: string, entityName: string): Promise<GraphCurationResponse> {
+  const encodedName = encodeURIComponent(entityName);
+  const response = await fetch(buildUrl(apiBase, `/api/graph/entity/${encodedName}`), { method: "DELETE" });
+  return readJson<GraphCurationResponse>(response);
+}
+
+export async function deleteRelation(
+  apiBase: string,
+  sourceEntity: string,
+  targetEntity: string
+): Promise<GraphCurationResponse> {
+  const query = new URLSearchParams({
+    source: sourceEntity,
+    target: targetEntity
+  });
+  const response = await fetch(buildUrl(apiBase, `/api/graph/relation?${query.toString()}`), { method: "DELETE" });
   return readJson<GraphCurationResponse>(response);
 }

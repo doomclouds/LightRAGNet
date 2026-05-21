@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   checkEntityNameExists,
+  deleteEntity,
+  deleteRelation,
   editEntity,
   editRelation,
+  mergeEntities,
   getGraphLabels,
   queryGraph
 } from "./graphApi";
@@ -133,6 +136,62 @@ describe("graphApi", () => {
           updatedData: { description: "knows" }
         })
       })
+    );
+  });
+
+  test("mergeEntities posts source entities and target entity", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        succeeded: true,
+        status: "ok",
+        message: "Entities merged.",
+        data: null,
+        operationSummary: {
+          merged: true,
+          mergeStatus: "completed",
+          operationStatus: "completed",
+          targetEntity: "OMEGA",
+          finalEntity: "OMEGA",
+          renamed: false
+        },
+        failureStage: null
+      })
+    );
+
+    await mergeEntities("/api-root/", ["ALPHA", "BETA"], "OMEGA");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api-root/api/graph/entities/merge",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceEntities: ["ALPHA", "BETA"],
+          targetEntity: "OMEGA"
+        })
+      })
+    );
+  });
+
+  test("deleteEntity encodes entity name as a path segment", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ succeeded: true }));
+
+    await deleteEntity("/api-root/", "Alpha/Beta?#");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api-root/api/graph/entity/Alpha%2FBeta%3F%23",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  test("deleteRelation serializes source and target query parameters", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ succeeded: true }));
+
+    await deleteRelation("", "ALPHA/BETA", "OMEGA ?#");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/graph/relation?source=ALPHA%2FBETA&target=OMEGA+%3F%23",
+      expect.objectContaining({ method: "DELETE" })
     );
   });
 

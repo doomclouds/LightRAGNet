@@ -18,7 +18,9 @@ export type GraphStoreApi = {
   setIsFetching: (isFetching: boolean) => void;
   updateNodeProperty: (nodeId: string, key: string, value: JsonValue) => void;
   renameNode: (oldId: string, newId: string) => void;
+  removeNode: (nodeId: string) => void;
   updateEdgeProperty: (edgeId: string, key: string, value: JsonValue) => void;
+  removeEdge: (edgeId: string) => void;
   resetSelection: () => void;
 };
 
@@ -169,6 +171,27 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         selectedEdge
       });
     },
+    removeNode: (nodeId) => {
+      if (!state.rawGraph) {
+        return;
+      }
+
+      const nodes = state.rawGraph.nodes.filter((node) => node.id !== nodeId);
+      if (nodes.length === state.rawGraph.nodes.length) {
+        return;
+      }
+
+      const edges = state.rawGraph.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+      const selectedEdgeStillExists =
+        state.selectedEdge && edges.some((edge) => edge.id === state.selectedEdge?.id) ? state.selectedEdge : null;
+
+      setState({
+        ...state,
+        rawGraph: { ...state.rawGraph, nodes, edges },
+        selectedNode: state.selectedNode?.id === nodeId ? null : state.selectedNode,
+        selectedEdge: selectedEdgeStillExists
+      });
+    },
     updateEdgeProperty: (edgeId, key, value) => {
       if (!state.rawGraph) {
         return;
@@ -196,6 +219,22 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         ...state,
         rawGraph: { ...state.rawGraph, edges },
         selectedEdge: state.selectedEdge?.id === edgeId ? updatedEdge : state.selectedEdge
+      });
+    },
+    removeEdge: (edgeId) => {
+      if (!state.rawGraph) {
+        return;
+      }
+
+      const edges = state.rawGraph.edges.filter((edge) => edge.id !== edgeId);
+      if (edges.length === state.rawGraph.edges.length) {
+        return;
+      }
+
+      setState({
+        ...state,
+        rawGraph: { ...state.rawGraph, edges },
+        selectedEdge: state.selectedEdge?.id === edgeId ? null : state.selectedEdge
       });
     },
     resetSelection: () => {

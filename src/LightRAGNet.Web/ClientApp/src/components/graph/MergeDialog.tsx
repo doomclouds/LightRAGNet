@@ -2,6 +2,7 @@ type MergeDialogProps = {
   open: boolean;
   sourceEntity: string;
   targetEntity: string;
+  isWorking?: boolean;
   onCancel: () => void;
   onUseMergedStart: () => void;
   onKeepCurrentStart: () => void;
@@ -11,6 +12,7 @@ export function MergeDialog({
   open,
   sourceEntity,
   targetEntity,
+  isWorking = false,
   onCancel,
   onUseMergedStart,
   onKeepCurrentStart
@@ -24,7 +26,7 @@ export function MergeDialog({
       <section className="graph-workbench__dialog" role="dialog" aria-modal="true" aria-label="Entity merged">
         <header>
           <h3>Entity merged</h3>
-          <button aria-label="Close" onClick={onCancel} type="button">
+          <button aria-label="Close" disabled={isWorking} onClick={onCancel} type="button">
             ×
           </button>
         </header>
@@ -35,10 +37,10 @@ export function MergeDialog({
           </p>
         </div>
         <footer>
-          <button onClick={onKeepCurrentStart} type="button">
-            Refresh current graph
+          <button disabled={isWorking} onClick={onKeepCurrentStart} type="button">
+            {isWorking ? "Refreshing" : "Refresh current graph"}
           </button>
-          <button className="graph-workbench__primary-button" onClick={onUseMergedStart} type="button">
+          <button className="graph-workbench__primary-button" disabled={isWorking} onClick={onUseMergedStart} type="button">
             Use merged entity
           </button>
         </footer>

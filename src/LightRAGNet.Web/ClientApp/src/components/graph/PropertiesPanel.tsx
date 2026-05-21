@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 
-import { editEntity, editRelation } from "../../api/graphApi";
+import { deleteEntity, deleteRelation, editEntity, editRelation, queryGraph } from "../../api/graphApi";
+import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 import { useGraphStore } from "../../stores/graphStore";
 import type { GraphEdgeDto, GraphNodeDto, GraphNodeProperties, JsonValue } from "../../types/graph";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { MergeDialog } from "./MergeDialog";
 import {
   PropertyEditDialog,
   propertyValuesFromProperties,
@@ -55,10 +58,15 @@ function renderProperties(properties: GraphNodeProperties) {
 }
 
 export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
+  const settings = useGraphSettingsStore();
   const selectedNode = useGraphStore((state) => state.selectedNode);
   const selectedEdge = useGraphStore((state) => state.selectedEdge);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<PropertyEditTarget | null>(null);
+  const [mergeState, setMergeState] = useState<{ sourceEntity: string; targetEntity: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const target: PropertyEditTarget | null = selectedNode ? "node" : selectedEdge ? "edge" : null;
@@ -68,6 +76,27 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
     () => propertyValuesFromProperties(target ?? "node", properties, selectedNode?.id ?? ""),
     [properties, selectedNode?.id, target]
   );
+
+  async function reloadGraph(labelOverride?: string) {
+    setIsReloading(true);
+    setErrorMessage(null);
+
+    try {
+      const queryLabel = labelOverride ?? settings.queryLabel;
+      if (labelOverride) {
+        useGraphSettingsStore.setQueryLabel(labelOverride);
+      }
+
+      const graph = await queryGraph(apiBase, queryLabel, settings.maxDepth, settings.maxNodes);
+      useGraphStore.setRawGraph(graph);
+      useGraphStore.resetSelection();
+      setMergeState(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to refresh graph.");
+    } finally {
+      setIsReloading(false);
+    }
+  }
 
   async function saveProperties(values: PropertyEditValues) {
     if (isSaving) {
@@ -87,9 +116,21 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
       if (target === "node" && selectedNode) {
         const originalEntityName = selectedNode.id;
         const updatedEntityName = formatValue(updatedData.entity_name);
-        const response = await editEntity(apiBase, originalEntityName, updatedData, true, false);
+        const response = await editEntity(apiBase, originalEntityName, updatedData, true, true);
         if (!response.succeeded) {
           throw new Error(response.message || "Failed to edit entity.");
+        }
+
+        if (updatedEntityName !== originalEntityName && response.operationSummary?.merged === true) {
+          setIsDialogOpen(false);
+          setMergeState({
+            sourceEntity: originalEntityName,
+            targetEntity:
+              response.operationSummary.targetEntity ??
+              response.operationSummary.finalEntity ??
+              updatedEntityName
+          });
+          return;
         }
 
         if (updatedEntityName && updatedEntityName !== originalEntityName) {
@@ -123,6 +164,34 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
     }
   }
 
+  async function confirmDelete() {
+    if (isDeleting || !confirmTarget) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      if (confirmTarget === "node" && selectedNode) {
+        await deleteEntity(apiBase, selectedNode.id);
+        useGraphStore.removeNode(selectedNode.id);
+      }
+
+      if (confirmTarget === "edge" && selectedEdge) {
+        await deleteRelation(apiBase, selectedEdge.source, selectedEdge.target);
+        useGraphStore.removeEdge(selectedEdge.id);
+      }
+
+      useGraphStore.resetSelection();
+      setConfirmTarget(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to delete selection.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <aside className="graph-workbench__properties" aria-label="Selection properties">
       <div className="graph-workbench__panel-heading">
@@ -140,13 +209,20 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
 
           {renderProperties(properties)}
 
-          <button className="graph-workbench__primary-button graph-workbench__panel-action" type="button" onClick={() => setIsDialogOpen(true)}>
-            Edit properties
-          </button>
+          <div className="graph-workbench__panel-actions">
+            <button className="graph-workbench__primary-button" type="button" onClick={() => setIsDialogOpen(true)}>
+              Edit properties
+            </button>
+            <button className="graph-workbench__danger-button" type="button" onClick={() => setConfirmTarget(target)}>
+              {target === "node" ? "Delete entity" : "Delete relation"}
+            </button>
+          </div>
         </>
       ) : (
         <p className="graph-workbench__muted">Click a node or edge in the graph to inspect and edit its properties.</p>
       )}
+
+      {errorMessage ? <p className="graph-workbench__dialog-error graph-workbench__panel-error">{errorMessage}</p> : null}
 
       <PropertyEditDialog
         open={isDialogOpen}
@@ -161,6 +237,34 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
           }
         }}
         onSave={(values) => void saveProperties(values)}
+      />
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        title={confirmTarget === "node" ? "Delete entity" : "Delete relation"}
+        message={
+          confirmTarget === "node" && selectedNode
+            ? `Delete entity ${getNodeTitle(selectedNode)} from the graph? This action cannot be undone.`
+            : selectedEdge
+              ? `Delete relation ${getEdgeTitle(selectedEdge)} from the graph? This action cannot be undone.`
+              : "Delete this graph item? This action cannot be undone."
+        }
+        confirmText={confirmTarget === "node" ? "Delete entity" : "Delete relation"}
+        isConfirming={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) {
+            setConfirmTarget(null);
+          }
+        }}
+        onConfirm={() => void confirmDelete()}
+      />
+      <MergeDialog
+        open={mergeState !== null}
+        sourceEntity={mergeState?.sourceEntity ?? ""}
+        targetEntity={mergeState?.targetEntity ?? ""}
+        onCancel={() => setMergeState(null)}
+        onKeepCurrentStart={() => void reloadGraph()}
+        onUseMergedStart={() => void reloadGraph(mergeState?.targetEntity)}
+        isWorking={isReloading}
       />
     </aside>
   );

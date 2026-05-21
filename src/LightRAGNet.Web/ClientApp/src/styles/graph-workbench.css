@@ -170,8 +170,15 @@
   line-height: 1.45;
 }
 
-.graph-workbench__panel-action {
+.graph-workbench__panel-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
   margin-top: 16px;
+}
+
+.graph-workbench__panel-error {
+  margin: 12px 0 0;
 }
 
 .graph-workbench__field {
@@ -203,6 +210,7 @@
 }
 
 .graph-workbench__primary-button,
+.graph-workbench__danger-button,
 .graph-workbench__dialog button {
   border: 1px solid #cbd5d1;
   border-radius: 6px;
@@ -215,6 +223,13 @@
 .graph-workbench__primary-button {
   border-color: #0f766e;
   background: #0f766e;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.graph-workbench__danger-button {
+  border-color: #dc2626;
+  background: #dc2626;
   color: #ffffff;
   font-weight: 800;
 }
@@ -270,6 +285,16 @@
   min-height: 0;
   overflow: auto;
   padding: 16px;
+}
+
+.graph-workbench__confirm-dialog {
+  width: min(440px, 100%);
+}
+
+.graph-workbench__confirm-dialog p {
+  margin: 0;
+  color: #33423c;
+  line-height: 1.55;
 }
 
 .graph-workbench__dialog-error {
