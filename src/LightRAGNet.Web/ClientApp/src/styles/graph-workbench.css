@@ -1,0 +1,211 @@
+:root {
+  color: #172026;
+  background: #f4f6f5;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.graph-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(360px, 1fr) minmax(240px, 320px);
+  min-height: calc(100vh - 64px);
+  background: #f4f6f5;
+}
+
+.graph-workbench__sidebar,
+.graph-workbench__details {
+  border-color: #d8dfdc;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.graph-workbench__sidebar {
+  border-right: 1px solid #d8dfdc;
+}
+
+.graph-workbench__details {
+  border-left: 1px solid #d8dfdc;
+}
+
+.graph-workbench__eyebrow {
+  margin: 0 0 6px;
+  color: #60716a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.graph-workbench h1,
+.graph-workbench h2 {
+  margin: 0;
+  color: #172026;
+}
+
+.graph-workbench h1 {
+  font-size: 1.5rem;
+}
+
+.graph-workbench h2 {
+  font-size: 1.1rem;
+}
+
+.graph-workbench__nav {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.graph-workbench__nav-item,
+.graph-workbench__toolbar button {
+  border: 1px solid #c8d1cd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #26332e;
+  cursor: pointer;
+  font: inherit;
+}
+
+.graph-workbench__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.graph-workbench__nav-item span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e7ece9;
+  color: #4c5d56;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.graph-workbench__nav-item.is-active {
+  border-color: #147b64;
+  background: #eef7f3;
+  color: #0d5f4c;
+  font-weight: 700;
+}
+
+.graph-workbench__canvas {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+.graph-workbench__toolbar {
+  display: flex;
+  gap: 8px;
+  min-height: 56px;
+  align-items: center;
+  border-bottom: 1px solid #d8dfdc;
+  background: #ffffff;
+  padding: 10px 16px;
+}
+
+.graph-workbench__toolbar button {
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.graph-workbench__stage {
+  position: relative;
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(#dbe3df 1px, transparent 1px),
+    linear-gradient(90deg, #dbe3df 1px, transparent 1px),
+    #f4f6f5;
+  background-size: 32px 32px;
+}
+
+.graph-workbench__node {
+  position: absolute;
+  display: grid;
+  width: 118px;
+  height: 118px;
+  place-items: center;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  font-weight: 800;
+  box-shadow: 0 16px 40px rgb(23 32 38 / 16%);
+}
+
+.graph-workbench__node--primary {
+  transform: translate(-86px, -42px);
+  background: #147b64;
+}
+
+.graph-workbench__node--secondary {
+  transform: translate(92px, 58px);
+  background: #c4572d;
+}
+
+.graph-workbench__edge {
+  width: 220px;
+  height: 3px;
+  transform: rotate(28deg);
+  background: #60716a;
+}
+
+.graph-workbench__details p {
+  color: #53645d;
+  line-height: 1.5;
+}
+
+.graph-workbench__details dl {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0 0;
+}
+
+.graph-workbench__details dl div {
+  border: 1px solid #d8dfdc;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.graph-workbench__details dt {
+  color: #60716a;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.graph-workbench__details dd {
+  margin: 4px 0 0;
+  color: #172026;
+}
+
+@media (max-width: 960px) {
+  .graph-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-workbench__sidebar,
+  .graph-workbench__details {
+    border: 0;
+    border-bottom: 1px solid #d8dfdc;
+  }
+
+  .graph-workbench__stage {
+    min-height: 360px;
+  }
+}
