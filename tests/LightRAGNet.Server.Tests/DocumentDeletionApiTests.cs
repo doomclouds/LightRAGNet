@@ -298,6 +298,28 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
+    public async Task DeleteMarkdownDocument_Queued_ReturnsConflict()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 18,
+            FileName = "queued.md",
+            Content = "content",
+            RagStatus = "Queued"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/18");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(18);
+        document.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task DeleteMarkdownDocument_Deleting_ReturnsConflict()
     {
         using var factory = new LightRagServerFactory();

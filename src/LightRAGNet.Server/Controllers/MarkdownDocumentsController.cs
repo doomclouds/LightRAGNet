@@ -324,7 +324,7 @@ public class MarkdownDocumentsController(
             return NotFound();
         }
 
-        if (document.RagStatus is "Pending" or "Processing" or "Deleting")
+        if (DocumentIntakeStatus.IsActive(document.RagStatus))
         {
             return Conflict(new { error = "Document has active RAG task" });
         }
