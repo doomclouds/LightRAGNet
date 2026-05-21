@@ -68,15 +68,19 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
       });
     },
     selectNode: (nodeId) => {
+      const selectedNode = findNode(state.rawGraph, nodeId);
       setState({
         ...state,
-        selectedNode: findNode(state.rawGraph, nodeId)
+        selectedNode,
+        selectedEdge: selectedNode ? null : state.selectedEdge
       });
     },
     selectEdge: (edgeId) => {
+      const selectedEdge = findEdge(state.rawGraph, edgeId);
       setState({
         ...state,
-        selectedEdge: findEdge(state.rawGraph, edgeId)
+        selectedNode: selectedEdge ? null : state.selectedNode,
+        selectedEdge
       });
     },
     setIsFetching: (isFetching) => {

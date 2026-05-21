@@ -48,20 +48,56 @@ describe("graphStore", () => {
     });
   });
 
-  test("setRawGraph, selectNode, and selectEdge update state and notify subscribers", () => {
+  test("setRawGraph, selectNode, and selectEdge update exclusive selection state and notify subscribers", () => {
     const store = createGraphStoreState();
     const listener = vi.fn();
 
     store.subscribe(listener);
     store.setRawGraph(graph);
     store.selectNode("ALPHA");
+    expect(store.getState().selectedNode?.id).toBe("ALPHA");
+    expect(store.getState().selectedEdge).toBeNull();
+
     store.selectEdge("ALPHA-BETA");
     store.setIsFetching(true);
 
-    expect(store.getState().selectedNode?.id).toBe("ALPHA");
+    expect(store.getState().selectedNode).toBeNull();
     expect(store.getState().selectedEdge?.id).toBe("ALPHA-BETA");
     expect(store.getState().isFetching).toBe(true);
     expect(listener).toHaveBeenCalledTimes(4);
+  });
+
+  test("selecting a node after an edge clears edge selection", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectEdge("ALPHA-BETA");
+    store.selectNode("BETA");
+
+    expect(store.getState().selectedNode?.id).toBe("BETA");
+    expect(store.getState().selectedEdge).toBeNull();
+  });
+
+  test("clearing node or edge selection only clears the requested selection", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectNode("ALPHA");
+    store.selectEdge(null);
+    expect(store.getState().selectedNode?.id).toBe("ALPHA");
+    expect(store.getState().selectedEdge).toBeNull();
+
+    store.selectEdge("ALPHA-BETA");
+    store.selectNode(null);
+    expect(store.getState().selectedNode).toBeNull();
+    expect(store.getState().selectedEdge?.id).toBe("ALPHA-BETA");
+
+    store.resetSelection();
+    expect(store.getState().selectedNode).toBeNull();
+    expect(store.getState().selectedEdge).toBeNull();
+
+    store.selectEdge("ALPHA-BETA");
+    store.selectEdge(null);
+    expect(store.getState().selectedNode).toBeNull();
+    expect(store.getState().selectedEdge).toBeNull();
   });
 
   test("updateNodeProperty immutably updates rawGraph and selectedNode", () => {
