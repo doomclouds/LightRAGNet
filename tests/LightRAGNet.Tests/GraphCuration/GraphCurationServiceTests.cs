@@ -207,6 +207,64 @@ public sealed class GraphCurationServiceTests
     }
 
     [Fact]
+    public async Task EditEntityAsync_WhenDocumentIdMatchesOldEntityName_DoesNotDeleteDocumentEntityIndex()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("chunk-a", new() { ["full_doc_id"] = "ALPHA" });
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["description"] = "alpha",
+            ["source_id"] = "chunk-a"
+        });
+        fixture.FullEntities.Seed("ALPHA", new()
+        {
+            ["entity_names"] = new List<string> { "ALPHA", "OMEGA" },
+            ["count"] = 2
+        });
+
+        var result = await fixture.Service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["entity_name"] = "BETA_RENAMED" },
+            AllowRename: true,
+            AllowMerge: false));
+
+        result.Succeeded.Should().BeTrue();
+        ReadStrings(fixture.FullEntities.Items["ALPHA"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "BETA_RENAMED", "OMEGA" });
+        fixture.FullEntities.Items["ALPHA"]["count"].Should().Be(2);
+    }
+
+    [Fact]
+    public async Task EditEntityAsync_WhenSourceIdChanges_ReturnsValidationErrorWithoutMutation()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["description"] = "alpha",
+            ["source_id"] = "chunk-a",
+            ["file_path"] = "doc.md",
+            ["created_at"] = "created"
+        });
+
+        var result = await fixture.Service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["source_id"] = "chunk-b" },
+            AllowRename: true,
+            AllowMerge: false));
+
+        result.Succeeded.Should().BeFalse();
+        result.Status.Should().Be("validation_error");
+        fixture.Graph.GetSeededNode("ALPHA")!.Properties["source_id"].Should().Be("chunk-a");
+        fixture.VectorStore.UpsertCalls.Should().BeEmpty();
+        fixture.VectorStore.DeleteCalls.Should().BeEmpty();
+        fixture.FullEntities.UpsertCalls.Should().BeEmpty();
+        fixture.EntityChunks.UpsertCalls.Should().BeEmpty();
+        fixture.QueryRevisionBumps.Should().Be(0);
+    }
+
+    [Fact]
     public async Task CreateEntityAsync_WhenSourceHasNoDocumentId_DoesNotWriteEntityNameKey()
     {
         var fixture = GraphCurationFixture.Create();

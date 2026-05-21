@@ -12,6 +12,12 @@ public sealed class GraphCurationService
     private const string EntitiesCollection = "entities";
     private const string RelationshipsCollection = "relationships";
     private const string SourceSeparator = "<SEP>";
+    private static readonly HashSet<string> ImmutableEntityFields = new(StringComparer.Ordinal)
+    {
+        "source_id",
+        "file_path",
+        "created_at"
+    };
 
     private readonly IGraphStore graphStore;
     private readonly IVectorStore vectorStore;
@@ -129,6 +135,15 @@ public sealed class GraphCurationService
                 "validation_error");
         }
 
+        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableEntityFields.Contains);
+        if (immutableField is not null)
+        {
+            return GraphCurationOperationResult.Failure(
+                $"Entity field '{immutableField}' cannot be edited.",
+                "validation",
+                "validation_error");
+        }
+
         var currentName = request.EntityName.Trim();
         if (string.IsNullOrWhiteSpace(currentName))
         {
@@ -213,7 +228,6 @@ public sealed class GraphCurationService
             await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
             await UpsertRewiredEdgesAsync(connectedEdges, cancellationToken);
             await graphStore.DeleteNodeAsync(currentName, cancellationToken);
-            await fullEntitiesStore.DeleteAsync([currentName], cancellationToken);
             await entityChunksStore.DeleteAsync([currentName], cancellationToken);
             await DeleteOldRelationTrackingAsync(connectedEdges, cancellationToken);
             await UpsertRelationTrackingAsync(connectedEdges, cancellationToken);
@@ -823,18 +837,21 @@ public sealed class GraphCurationService
             .Select(name => entityLocks.GetOrAdd(name, _ => new SemaphoreSlim(1, 1)))
             .ToList();
 
-        foreach (var semaphore in locks)
-        {
-            await semaphore.WaitAsync(cancellationToken);
-        }
+        var acquiredLocks = 0;
 
         try
         {
+            foreach (var semaphore in locks)
+            {
+                await semaphore.WaitAsync(cancellationToken);
+                acquiredLocks++;
+            }
+
             return await operation();
         }
         finally
         {
-            for (var i = locks.Count - 1; i >= 0; i--)
+            for (var i = acquiredLocks - 1; i >= 0; i--)
             {
                 locks[i].Release();
             }
