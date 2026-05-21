@@ -24,22 +24,22 @@
         {
             <MudTabs Rounded="true" Border="true" Elevation="0">
                 <MudTabPanel Text="Entities">
-                    <pre class="mud-typography-body2">@SerializeSection("entities")</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeSection("entities")</pre>
                 </MudTabPanel>
                 <MudTabPanel Text="Relationships">
-                    <pre class="mud-typography-body2">@SerializeSection("relationships")</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeSection("relationships")</pre>
                 </MudTabPanel>
                 <MudTabPanel Text="Chunks">
-                    <pre class="mud-typography-body2">@SerializeSection("chunks")</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeSection("chunks")</pre>
                 </MudTabPanel>
                 <MudTabPanel Text="References">
-                    <pre class="mud-typography-body2">@SerializeSection("references")</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeSection("references")</pre>
                 </MudTabPanel>
                 <MudTabPanel Text="Metadata">
-                    <pre class="mud-typography-body2">@SerializeObject(RetrievalData.Metadata)</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeObject(RetrievalData.Metadata)</pre>
                 </MudTabPanel>
                 <MudTabPanel Text="Raw JSON">
-                    <pre class="mud-typography-body2">@SerializeObject(RetrievalData)</pre>
+                    <pre class="mud-typography-body2 retrieval-data-json">@SerializeObject(RetrievalData)</pre>
                 </MudTabPanel>
             </MudTabs>
         }
@@ -48,6 +48,17 @@
         <MudButton OnClick="Close">Close</MudButton>
     </DialogActions>
 </MudDialog>
+
+<style>
+    .retrieval-data-json {
+        box-sizing: border-box;
+        margin: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+    }
+</style>
 
 @code {
     [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;

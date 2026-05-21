@@ -91,6 +91,13 @@ public sealed class RagChatSourceTests
         source.Should().Contain("Metadata");
         source.Should().Contain("Raw JSON");
         source.Should().Contain("SerializeSection");
+        source.Should().Contain("LightRAGJsonOptions.HumanReadableIndented");
+        source.Should().Contain("<pre");
+        source.Should().Contain("retrieval-data-json");
+        source.Should().Contain("ErrorMessage");
+        source.Should().Contain("No retrieval data returned for this response.");
+        source.Should().Contain("Query");
+        source.Should().Contain("MudDialog.Close()");
     }
 
     private static string ReadRepositoryFile(params string[] relativeParts)
