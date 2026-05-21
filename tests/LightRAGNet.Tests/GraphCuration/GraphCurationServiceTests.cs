@@ -554,6 +554,103 @@ public sealed class GraphCurationServiceTests
         bumps.Should().Be(1);
     }
 
+    [Fact]
+    public async Task EditEntityAsync_WhenBothRelationEndpointsRenameConcurrently_RewritesOnlyFinalRelation()
+    {
+        var graph = new PausingGraphStore("ALPHA2");
+        graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "related",
+            ["keywords"] = "uses",
+            ["source_id"] = "chunk-r",
+            ["weight"] = 1.0
+        });
+        var vectorStore = new InMemoryVectorStore();
+        var textChunks = new InMemoryKvStore();
+        var fullEntities = new InMemoryKvStore();
+        var fullRelations = new InMemoryKvStore();
+        var entityChunks = new InMemoryKvStore();
+        var relationChunks = new InMemoryKvStore();
+        textChunks.Seed("chunk-r", new() { ["full_doc_id"] = "doc-1" });
+        fullRelations.Seed("doc-1", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "ALPHA", "BETA" } },
+            ["count"] = 1
+        });
+        relationChunks.Seed("ALPHA<SEP>BETA", new()
+        {
+            ["chunk_ids"] = new List<string> { "chunk-r" },
+            ["count"] = 1
+        });
+        vectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = GraphCurationVectorIds.Relation("ALPHA", "BETA"),
+            Content = "ALPHA\nBETA\nuses\nrelated",
+            Vector = [1.0f],
+            Metadata = new Dictionary<string, object>()
+        });
+        var bumps = 0;
+        var service = new GraphCurationService(
+            graph,
+            vectorStore,
+            new FakeEmbeddingService(),
+            textChunks,
+            fullEntities,
+            fullRelations,
+            entityChunks,
+            relationChunks,
+            () =>
+            {
+                bumps++;
+                return Task.CompletedTask;
+            },
+            NullLogger<GraphCurationService>.Instance);
+
+        var alphaRenameTask = service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["entity_name"] = "ALPHA2" },
+            AllowRename: true,
+            AllowMerge: false));
+        await graph.BlockedOnUpsert.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var betaRenameTask = service.EditEntityAsync(new GraphEntityEditRequest(
+            "BETA",
+            new Dictionary<string, object> { ["entity_name"] = "BETA2" },
+            AllowRename: true,
+            AllowMerge: false));
+
+        await Task.Delay(100);
+        betaRenameTask.IsCompleted.Should().BeFalse();
+
+        graph.ResumeUpsert.SetResult();
+        var alphaResult = await alphaRenameTask.WaitAsync(TimeSpan.FromSeconds(3));
+        var betaResult = await betaRenameTask.WaitAsync(TimeSpan.FromSeconds(3));
+
+        alphaResult.Succeeded.Should().BeTrue();
+        betaResult.Succeeded.Should().BeTrue();
+        graph.GetSeededNode("ALPHA").Should().BeNull();
+        graph.GetSeededNode("BETA").Should().BeNull();
+        graph.GetSeededNode("ALPHA2").Should().NotBeNull();
+        graph.GetSeededNode("BETA2").Should().NotBeNull();
+        graph.GetSeededEdge("ALPHA", "BETA").Should().BeNull();
+        graph.GetSeededEdge("ALPHA", "BETA2").Should().BeNull();
+        graph.GetSeededEdge("ALPHA2", "BETA").Should().BeNull();
+        graph.GetSeededEdge("ALPHA2", "BETA2")!.Properties["description"].Should().Be("related");
+        relationChunks.Items.Should().NotContainKey("ALPHA<SEP>BETA");
+        relationChunks.Items.Should().NotContainKey("ALPHA<SEP>BETA2");
+        relationChunks.Items.Should().NotContainKey("ALPHA2<SEP>BETA");
+        relationChunks.Items["ALPHA2<SEP>BETA2"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-r" });
+        ReadRelationPairs(fullRelations.Items["doc-1"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "ALPHA2", "BETA2" } });
+        vectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA")).Should().BeNull();
+        vectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA2")).Should().BeNull();
+        vectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA2", "BETA")).Should().BeNull();
+        vectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA2", "BETA2")).Should().NotBeNull();
+        bumps.Should().Be(2);
+    }
+
     private sealed class GraphCurationFixture
     {
         public static readonly float[] Embedding = FakeEmbeddingService.Embedding;
@@ -603,6 +700,9 @@ public sealed class GraphCurationServiceTests
 
         public void SeedNode(string nodeId, Dictionary<string, object> properties) =>
             inner.SeedNode(nodeId, properties);
+
+        public void SeedEdge(string sourceId, string targetId, Dictionary<string, object> properties) =>
+            inner.SeedEdge(sourceId, targetId, properties);
 
         public GraphNode? GetSeededNode(string nodeId) =>
             inner.GetSeededNode(nodeId);

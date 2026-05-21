@@ -165,10 +165,90 @@ public sealed class GraphCurationService
                 "rename_not_allowed");
         }
 
+        if (renamed)
+        {
+            return await EditEntityWithRenameLocksAsync(
+                request,
+                currentName,
+                finalName,
+                cancellationToken);
+        }
+
         return await ExecuteWithEntityLocksAsync(
-            renamed ? [currentName, finalName] : [currentName],
-            () => EditEntityCoreAsync(request, currentName, finalName, renamed, cancellationToken),
+            [currentName],
+            () => EditEntityCoreAsync(request, currentName, finalName, renamed: false, cancellationToken),
             cancellationToken);
+    }
+
+    private async Task<GraphCurationOperationResult> EditEntityWithRenameLocksAsync(
+        GraphEntityEditRequest request,
+        string currentName,
+        string finalName,
+        CancellationToken cancellationToken)
+    {
+        var lockKeys = new HashSet<string>(
+            [EntityLockKey(currentName), EntityLockKey(finalName)],
+            StringComparer.Ordinal);
+
+        const int maxAttempts = 3;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var attemptResult = await ExecuteWithGraphMutationLocksAsync(
+                lockKeys,
+                async () =>
+                {
+                    var currentNode = await graphStore.GetNodeAsync(currentName, cancellationToken);
+                    if (currentNode is null)
+                    {
+                        return EntityRenameLockAttempt.Completed(GraphCurationOperationResult.Failure(
+                            $"Entity '{currentName}' was not found.",
+                            "graph",
+                            "not_found"));
+                    }
+
+                    if (await graphStore.HasNodeAsync(finalName, cancellationToken))
+                    {
+                        if (!request.AllowMerge)
+                        {
+                            return EntityRenameLockAttempt.Completed(GraphCurationOperationResult.Failure(
+                                $"Entity '{finalName}' already exists.",
+                                "graph",
+                                "conflict"));
+                        }
+
+                        return EntityRenameLockAttempt.Completed(await MergeEntitiesAsync(
+                            new GraphEntityMergeRequest([currentName], finalName),
+                            cancellationToken));
+                    }
+
+                    var connectedEdges = await GetConnectedEdgesAsync(currentName, finalName, cancellationToken);
+                    var requiredLockKeys = BuildEntityRenameLockKeys(currentName, finalName, connectedEdges);
+                    if (!requiredLockKeys.SetEquals(lockKeys))
+                    {
+                        return EntityRenameLockAttempt.Retry(requiredLockKeys);
+                    }
+
+                    return EntityRenameLockAttempt.Completed(await EditEntityCoreAsync(
+                        request,
+                        currentName,
+                        finalName,
+                        renamed: true,
+                        cancellationToken));
+                },
+                cancellationToken);
+
+            if (attemptResult.Result is not null)
+            {
+                return attemptResult.Result;
+            }
+
+            lockKeys = attemptResult.RequiredLockKeys;
+        }
+
+        return GraphCurationOperationResult.Failure(
+            $"Entity '{currentName}' rename lock set changed repeatedly; retry the operation.",
+            "graph",
+            "retry_failed");
     }
 
     private async Task<GraphCurationOperationResult> EditEntityCoreAsync(
@@ -1072,6 +1152,24 @@ public sealed class GraphCurationService
             cancellationToken);
     }
 
+    private static HashSet<string> BuildEntityRenameLockKeys(
+        string currentName,
+        string finalName,
+        IReadOnlyList<RewiredEdge> connectedEdges)
+    {
+        var lockKeys = new HashSet<string>(
+            [EntityLockKey(currentName), EntityLockKey(finalName)],
+            StringComparer.Ordinal);
+
+        foreach (var edge in connectedEdges)
+        {
+            lockKeys.Add(RelationLockKey(edge.OriginalSourceId, edge.OriginalTargetId));
+            lockKeys.Add(RelationLockKey(edge.SourceId, edge.TargetId));
+        }
+
+        return lockKeys;
+    }
+
     private async Task<T> ExecuteWithGraphMutationLocksAsync<T>(
         IEnumerable<string> lockKeys,
         Func<Task<T>> operation,
@@ -1111,6 +1209,17 @@ public sealed class GraphCurationService
 
     private static string RelationLockKey(string sourceEntity, string targetEntity) =>
         "relation:" + GraphSourceReferenceParser.MakeRelationKey(sourceEntity, targetEntity);
+
+    private sealed record EntityRenameLockAttempt(
+        GraphCurationOperationResult? Result,
+        HashSet<string> RequiredLockKeys)
+    {
+        public static EntityRenameLockAttempt Completed(GraphCurationOperationResult result) =>
+            new(result, []);
+
+        public static EntityRenameLockAttempt Retry(HashSet<string> requiredLockKeys) =>
+            new(null, requiredLockKeys);
+    }
 
     private sealed record RewiredEdge(
         string OriginalSourceId,
