@@ -51,4 +51,15 @@ public sealed class ChatMessageModelTests
         message.LowLevelKeywords.Should().Equal("cache");
         message.Diagnostics.Should().ContainKey("source").WhoseValue.Should().Be("test");
     }
+
+    [Fact]
+    public void ChatMessageModel_DefaultsRetrievalDataState()
+    {
+        var message = new ChatMessageModel();
+
+        message.RetrievalDataRequest.Should().BeNull();
+        message.RetrievalData.Should().BeNull();
+        message.IsLoadingRetrievalData.Should().BeFalse();
+        message.RetrievalDataError.Should().BeNull();
+    }
 }

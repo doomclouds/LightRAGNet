@@ -59,6 +59,26 @@ public class ChatMessageModel
     public Dictionary<string, string> Diagnostics { get; set; } = [];
 
     /// <summary>
+    /// Original request snapshot used to produce this assistant response.
+    /// </summary>
+    public RagQueryRequest? RetrievalDataRequest { get; set; }
+
+    /// <summary>
+    /// Structured retrieval data loaded on demand for this assistant response.
+    /// </summary>
+    public RagQueryDataResponse? RetrievalData { get; set; }
+
+    /// <summary>
+    /// Indicates whether retrieval data is currently loading.
+    /// </summary>
+    public bool IsLoadingRetrievalData { get; set; }
+
+    /// <summary>
+    /// Retrieval data loading error.
+    /// </summary>
+    public string? RetrievalDataError { get; set; }
+
+    /// <summary>
     /// Error message associated with the chat message
     /// </summary>
     public string? ErrorMessage { get; set; }
