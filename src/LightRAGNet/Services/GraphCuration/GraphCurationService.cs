@@ -216,8 +216,30 @@ public sealed class GraphCurationService
                                 "conflict"));
                         }
 
-                        return EntityRenameLockAttempt.Completed(await MergeEntitiesAsync(
-                            new GraphEntityMergeRequest([currentName], finalName),
+                        var mergePlanResult = await BuildMergePlanAsync([currentName], finalName, cancellationToken);
+                        if (mergePlanResult.Failure is not null)
+                        {
+                            return EntityRenameLockAttempt.Completed(mergePlanResult.Failure);
+                        }
+
+                        if (!mergePlanResult.RequiredLockKeys.SetEquals(lockKeys))
+                        {
+                            return EntityRenameLockAttempt.Retry(mergePlanResult.RequiredLockKeys);
+                        }
+
+                        var mergePlan = mergePlanResult.Plan!;
+                        var entityVector = await BuildEntityVectorDocumentAsync(
+                            mergePlan.TargetEntity,
+                            mergePlan.TargetData,
+                            cancellationToken);
+                        var relationVectors = await CreateRelationVectorDocumentsAsync(
+                            mergePlan.NewRelationEdges,
+                            cancellationToken);
+
+                        return EntityRenameLockAttempt.Completed(await ApplyMergePlanAsync(
+                            mergePlan,
+                            entityVector,
+                            relationVectors,
                             cancellationToken));
                     }
 
@@ -277,9 +299,10 @@ public sealed class GraphCurationService
                     "conflict");
             }
 
-            return await MergeEntitiesAsync(
-                new GraphEntityMergeRequest([currentName], finalName),
-                cancellationToken);
+            return GraphCurationOperationResult.Failure(
+                $"Entity '{finalName}' appeared during rename; retry the operation.",
+                "graph",
+                "retry_failed");
         }
 
         var updatedData = currentNode.Properties.ToDictionary(
@@ -348,22 +371,254 @@ public sealed class GraphCurationService
                 Renamed: renamed));
     }
 
-    public Task<GraphCurationOperationResult> MergeEntitiesAsync(
+    public async Task<GraphCurationOperationResult> MergeEntitiesAsync(
         GraphEntityMergeRequest request,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(GraphCurationOperationResult.Failure(
-            "Entity merge is required but is not implemented in this task.",
-            "merge",
-            "merge_required",
+        var normalizedRequest = NormalizeMergeRequest(request);
+        if (normalizedRequest.Failure is not null)
+        {
+            return normalizedRequest.Failure;
+        }
+
+        var targetEntity = normalizedRequest.TargetEntity!;
+        var sourceEntities = normalizedRequest.SourceEntities!;
+        var lockKeys = BuildEntityMergeInitialLockKeys(sourceEntities, targetEntity);
+
+        const int maxAttempts = 3;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var attemptResult = await ExecuteWithGraphMutationLocksAsync(
+                lockKeys,
+                async () =>
+                {
+                    var planResult = await BuildMergePlanAsync(sourceEntities, targetEntity, cancellationToken);
+                    if (planResult.Failure is not null)
+                    {
+                        return EntityRenameLockAttempt.Completed(planResult.Failure);
+                    }
+
+                    if (!planResult.RequiredLockKeys.SetEquals(lockKeys))
+                    {
+                        return EntityRenameLockAttempt.Retry(planResult.RequiredLockKeys);
+                    }
+
+                    var plan = planResult.Plan!;
+                    var entityVector = await BuildEntityVectorDocumentAsync(
+                        plan.TargetEntity,
+                        plan.TargetData,
+                        cancellationToken);
+                    var relationVectors = await CreateRelationVectorDocumentsAsync(
+                        plan.NewRelationEdges,
+                        cancellationToken);
+
+                    return EntityRenameLockAttempt.Completed(await ApplyMergePlanAsync(
+                        plan,
+                        entityVector,
+                        relationVectors,
+                        cancellationToken));
+                },
+                cancellationToken);
+
+            if (attemptResult.Result is not null)
+            {
+                return attemptResult.Result;
+            }
+
+            lockKeys = attemptResult.RequiredLockKeys;
+        }
+
+        return GraphCurationOperationResult.Failure(
+            $"Entity merge into '{targetEntity}' lock set changed repeatedly; retry the operation.",
+            "graph",
+            "retry_failed",
             new GraphCurationOperationSummary(
                 Merged: false,
-                MergeStatus: "merge_required",
-                MergeError: "not_implemented",
-                OperationStatus: "merge_required",
-                TargetEntity: request.TargetEntity,
-                FinalEntity: request.TargetEntity,
-                Renamed: false)));
+                MergeStatus: "retry_failed",
+                MergeError: "lock_set_changed",
+                OperationStatus: "retry_failed",
+                TargetEntity: targetEntity,
+                FinalEntity: targetEntity,
+                Renamed: false));
+    }
+
+    public async Task<GraphCurationOperationResult> DeleteRelationAsync(
+        string sourceEntity,
+        string targetEntity,
+        CancellationToken cancellationToken = default)
+    {
+        sourceEntity = sourceEntity.Trim();
+        targetEntity = targetEntity.Trim();
+        if (string.IsNullOrWhiteSpace(sourceEntity) || string.IsNullOrWhiteSpace(targetEntity))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Relation source and target are required.",
+                "validation",
+                "validation_error");
+        }
+
+        var normalizedPair = GraphCurationVectorIds.NormalizePair(sourceEntity, targetEntity);
+        return await ExecuteWithRelationAndEndpointLocksAsync(
+            normalizedPair.Source,
+            normalizedPair.Target,
+            async () =>
+            {
+                var currentEdge = await graphStore.GetEdgeAsync(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    cancellationToken);
+                if (currentEdge is null)
+                {
+                    return GraphCurationOperationResult.Failure(
+                        $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' was not found.",
+                        "graph",
+                        "not_found");
+                }
+
+                var edge = new RewiredEdge(
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    normalizedPair.Source,
+                    normalizedPair.Target,
+                    currentEdge.Properties.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.Ordinal));
+                var chunkIds = await CollectRelationChunkIdsAsync(edge, cancellationToken);
+
+                await graphStore.RemoveEdgesAsync([(normalizedPair.Source, normalizedPair.Target)], cancellationToken);
+                await DeleteOldRelationVectorsAsync([edge], cancellationToken);
+                await relationChunksStore.DeleteAsync(
+                    [GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)],
+                    cancellationToken);
+                await RemoveFullRelationIndexesAsync(
+                    GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target),
+                    chunkIds,
+                    cancellationToken);
+                await bumpQueryRevisionAsync();
+
+                return GraphCurationOperationResult.Success(
+                    $"Relation '{GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target)}' deleted.",
+                    new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        ["source_entity"] = normalizedPair.Source,
+                        ["target_entity"] = normalizedPair.Target
+                    },
+                    new GraphCurationOperationSummary(
+                        Merged: false,
+                        MergeStatus: "not_required",
+                        MergeError: null,
+                        OperationStatus: "deleted",
+                        TargetEntity: normalizedPair.Source,
+                        FinalEntity: GraphSourceReferenceParser.MakeRelationKey(normalizedPair.Source, normalizedPair.Target),
+                        Renamed: false));
+            },
+            cancellationToken);
+    }
+
+    public async Task<GraphCurationOperationResult> DeleteEntityAsync(
+        string entityName,
+        CancellationToken cancellationToken = default)
+    {
+        entityName = entityName.Trim();
+        if (string.IsNullOrWhiteSpace(entityName))
+        {
+            return GraphCurationOperationResult.Failure(
+                "Entity name is required.",
+                "validation",
+                "validation_error");
+        }
+
+        var lockKeys = new HashSet<string>([EntityLockKey(entityName)], StringComparer.Ordinal);
+
+        const int maxAttempts = 3;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var attemptResult = await ExecuteWithGraphMutationLocksAsync(
+                lockKeys,
+                async () =>
+                {
+                    var currentNode = await graphStore.GetNodeAsync(entityName, cancellationToken);
+                    if (currentNode is null)
+                    {
+                        return EntityRenameLockAttempt.Completed(GraphCurationOperationResult.Failure(
+                            $"Entity '{entityName}' was not found.",
+                            "graph",
+                            "not_found"));
+                    }
+
+                    var connectedEdges = await GetConnectedEdgesAsync(entityName, entityName, cancellationToken);
+                    var requiredLockKeys = BuildEntityDeleteLockKeys(entityName, connectedEdges);
+                    if (!requiredLockKeys.SetEquals(lockKeys))
+                    {
+                        return EntityRenameLockAttempt.Retry(requiredLockKeys);
+                    }
+
+                    var relationChunkIds = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+                    foreach (var edge in connectedEdges)
+                    {
+                        relationChunkIds[GraphSourceReferenceParser.MakeRelationKey(
+                            edge.OriginalSourceId,
+                            edge.OriginalTargetId)] = await CollectRelationChunkIdsAsync(edge, cancellationToken);
+                    }
+
+                    var entityChunkIds = await CollectEntityChunkIdsAsync(
+                        entityName,
+                        currentNode.Properties,
+                        cancellationToken);
+
+                    await graphStore.RemoveEdgesAsync(
+                        connectedEdges
+                            .Select(edge => (edge.OriginalSourceId, edge.OriginalTargetId))
+                            .Distinct()
+                            .ToList(),
+                        cancellationToken);
+                    await graphStore.DeleteNodeAsync(entityName, cancellationToken);
+                    await DeleteOldRelationVectorsAsync(connectedEdges, cancellationToken);
+                    await DeleteOldRelationTrackingAsync(connectedEdges, cancellationToken);
+                    foreach (var (relationKey, chunkIds) in relationChunkIds)
+                    {
+                        await RemoveFullRelationIndexesAsync(relationKey, chunkIds, cancellationToken);
+                    }
+
+                    await vectorStore.DeleteAsync(
+                        EntitiesCollection,
+                        [GraphCurationVectorIds.Entity(entityName)],
+                        cancellationToken);
+                    await entityChunksStore.DeleteAsync([entityName], cancellationToken);
+                    await RemoveFullEntityIndexAsync(entityName, entityChunkIds, cancellationToken);
+                    await bumpQueryRevisionAsync();
+
+                    return EntityRenameLockAttempt.Completed(GraphCurationOperationResult.Success(
+                        $"Entity '{entityName}' deleted.",
+                        new Dictionary<string, object>(StringComparer.Ordinal)
+                        {
+                            ["deleted_entity"] = entityName,
+                            ["deleted_relations"] = connectedEdges.Count
+                        },
+                        new GraphCurationOperationSummary(
+                            Merged: false,
+                            MergeStatus: "not_required",
+                            MergeError: null,
+                            OperationStatus: "deleted",
+                            TargetEntity: null,
+                            FinalEntity: entityName,
+                            Renamed: false)));
+                },
+                cancellationToken);
+
+            if (attemptResult.Result is not null)
+            {
+                return attemptResult.Result;
+            }
+
+            lockKeys = attemptResult.RequiredLockKeys;
+        }
+
+        return GraphCurationOperationResult.Failure(
+            $"Entity '{entityName}' delete lock set changed repeatedly; retry the operation.",
+            "graph",
+            "retry_failed");
     }
 
     public async Task<GraphCurationOperationResult> CreateRelationAsync(
@@ -701,6 +956,469 @@ public sealed class GraphCurationService
         await fullRelationsStore.UpsertAsync(updates, cancellationToken);
     }
 
+    private async Task RemoveFullEntityIndexAsync(
+        string entityName,
+        IEnumerable<string> chunkIds,
+        CancellationToken cancellationToken)
+    {
+        var docIds = await ResolveFullDocIdsAsync(chunkIds, cancellationToken);
+        if (docIds.Count == 0)
+        {
+            return;
+        }
+
+        var updates = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+        foreach (var docId in docIds)
+        {
+            var existing = await fullEntitiesStore.GetByIdAsync(docId, cancellationToken);
+            if (existing is null)
+            {
+                continue;
+            }
+
+            var entityNames = ReadStringList(existing, "entity_names").ToList();
+            var removed = entityNames.RemoveAll(name => string.Equals(name, entityName, StringComparison.Ordinal));
+            if (removed == 0)
+            {
+                continue;
+            }
+
+            var updated = existing.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.Ordinal);
+            updated["entity_names"] = entityNames;
+            updated["count"] = entityNames.Count;
+            updates[docId] = updated;
+        }
+
+        if (updates.Count == 0)
+        {
+            return;
+        }
+
+        await fullEntitiesStore.UpsertAsync(updates, cancellationToken);
+    }
+
+    private async Task RemoveFullRelationIndexesAsync(
+        string relationKey,
+        IEnumerable<string> chunkIds,
+        CancellationToken cancellationToken)
+    {
+        var docIds = await ResolveFullDocIdsAsync(chunkIds, cancellationToken);
+        if (docIds.Count == 0)
+        {
+            return;
+        }
+
+        var updates = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+        foreach (var docId in docIds)
+        {
+            var existing = await fullRelationsStore.GetByIdAsync(docId, cancellationToken);
+            if (existing is null)
+            {
+                continue;
+            }
+
+            var relationKeys = ReadRelationPairKeys(existing, "relation_pairs").ToList();
+            var removed = relationKeys.RemoveAll(key => string.Equals(key, relationKey, StringComparison.Ordinal));
+            if (removed == 0)
+            {
+                continue;
+            }
+
+            var updated = existing.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.Ordinal);
+            updated["relation_pairs"] = relationKeys
+                .Select(key => key.Split(GraphSourceReferenceParser.GraphFieldSep, StringSplitOptions.None))
+                .ToList();
+            updated["count"] = relationKeys.Count;
+            updates[docId] = updated;
+        }
+
+        if (updates.Count == 0)
+        {
+            return;
+        }
+
+        await fullRelationsStore.UpsertAsync(updates, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<string>> CollectEntityChunkIdsAsync(
+        string entityName,
+        Dictionary<string, object> entityData,
+        CancellationToken cancellationToken)
+    {
+        var chunkIds = new List<string>();
+        AddUnique(chunkIds, ExtractChunkIds(entityData));
+
+        var tracking = await entityChunksStore.GetByIdAsync(entityName, cancellationToken);
+        if (tracking is not null)
+        {
+            AddUnique(chunkIds, ReadStringList(tracking, "chunk_ids"));
+        }
+
+        return chunkIds;
+    }
+
+    private async Task<IReadOnlyList<string>> CollectRelationChunkIdsAsync(
+        RewiredEdge edge,
+        CancellationToken cancellationToken)
+    {
+        var chunkIds = new List<string>();
+        AddUnique(chunkIds, ExtractChunkIds(edge.Properties));
+
+        var tracking = await relationChunksStore.GetByIdAsync(
+            GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId),
+            cancellationToken);
+        if (tracking is not null)
+        {
+            AddUnique(chunkIds, ReadStringList(tracking, "chunk_ids"));
+        }
+
+        return chunkIds;
+    }
+
+    private static void AddUnique(List<string> target, IEnumerable<string> values)
+    {
+        foreach (var value in values)
+        {
+            if (!target.Contains(value, StringComparer.Ordinal))
+            {
+                target.Add(value);
+            }
+        }
+    }
+
+    private static NormalizedMergeRequest NormalizeMergeRequest(GraphEntityMergeRequest request)
+    {
+        var targetEntity = request.TargetEntity.Trim();
+        if (string.IsNullOrWhiteSpace(targetEntity))
+        {
+            return NormalizedMergeRequest.Invalid(GraphCurationOperationResult.Failure(
+                "Target entity is required.",
+                "validation",
+                "validation_error"));
+        }
+
+        var sourceEntities = request.SourceEntities
+            .Select(entity => entity.Trim())
+            .Where(entity => entity.Length > 0)
+            .ToList();
+        if (sourceEntities.Count == 0)
+        {
+            return NormalizedMergeRequest.Invalid(GraphCurationOperationResult.Failure(
+                "At least one source entity is required.",
+                "validation",
+                "validation_error"));
+        }
+
+        if (sourceEntities.Distinct(StringComparer.Ordinal).Count() != sourceEntities.Count)
+        {
+            return NormalizedMergeRequest.Invalid(GraphCurationOperationResult.Failure(
+                "Source entities must be distinct.",
+                "validation",
+                "validation_error"));
+        }
+
+        if (sourceEntities.Contains(targetEntity, StringComparer.Ordinal))
+        {
+            return NormalizedMergeRequest.Invalid(GraphCurationOperationResult.Failure(
+                "Source entities cannot include the target entity.",
+                "validation",
+                "validation_error"));
+        }
+
+        return new NormalizedMergeRequest(sourceEntities, targetEntity, null);
+    }
+
+    private async Task<MergePlanResult> BuildMergePlanAsync(
+        IReadOnlyList<string> sourceEntities,
+        string targetEntity,
+        CancellationToken cancellationToken)
+    {
+        var targetNode = await graphStore.GetNodeAsync(targetEntity, cancellationToken);
+        if (targetNode is null)
+        {
+            return MergePlanResult.Invalid(GraphCurationOperationResult.Failure(
+                $"Target entity '{targetEntity}' was not found.",
+                "graph",
+                "not_found",
+                new GraphCurationOperationSummary(
+                    Merged: false,
+                    MergeStatus: "not_found",
+                    MergeError: "target_not_found",
+                    OperationStatus: "not_found",
+                    TargetEntity: targetEntity,
+                    FinalEntity: targetEntity,
+                    Renamed: false)));
+        }
+
+        var sourceNodes = new Dictionary<string, GraphNode>(StringComparer.Ordinal);
+        foreach (var sourceEntity in sourceEntities)
+        {
+            var sourceNode = await graphStore.GetNodeAsync(sourceEntity, cancellationToken);
+            if (sourceNode is null)
+            {
+                return MergePlanResult.Invalid(GraphCurationOperationResult.Failure(
+                    $"Source entity '{sourceEntity}' was not found.",
+                    "graph",
+                    "not_found",
+                    new GraphCurationOperationSummary(
+                        Merged: false,
+                        MergeStatus: "not_found",
+                        MergeError: "source_not_found",
+                        OperationStatus: "not_found",
+                        TargetEntity: targetEntity,
+                        FinalEntity: targetEntity,
+                        Renamed: false)));
+            }
+
+            sourceNodes[sourceEntity] = sourceNode;
+        }
+
+        var sourceSet = sourceEntities.ToHashSet(StringComparer.Ordinal);
+        var targetData = MergeEntityData(targetEntity, targetNode.Properties, sourceNodes.Values.Select(node => node.Properties));
+        var oldRelationEdges = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
+        var transferredEdgesByNewKey = new Dictionary<string, RewiredEdge>(StringComparer.Ordinal);
+        var fullRelationReplacements = new List<RewiredEdge>();
+        var skippedRelationEdges = new List<RewiredEdge>();
+
+        foreach (var sourceEntity in sourceEntities)
+        {
+            var edgePairs = await graphStore.GetNodeEdgesAsync(sourceEntity, cancellationToken);
+            foreach (var edgePair in edgePairs)
+            {
+                var oldPair = GraphCurationVectorIds.NormalizePair(edgePair.SourceId, edgePair.TargetId);
+                var oldKey = GraphSourceReferenceParser.MakeRelationKey(oldPair.Source, oldPair.Target);
+                if (oldRelationEdges.ContainsKey(oldKey))
+                {
+                    continue;
+                }
+
+                var currentEdge = await graphStore.GetEdgeAsync(oldPair.Source, oldPair.Target, cancellationToken);
+                if (currentEdge is null)
+                {
+                    logger.LogWarning(
+                        "Connected edge {SourceId}->{TargetId} was listed but could not be loaded during entity merge.",
+                        edgePair.SourceId,
+                        edgePair.TargetId);
+                    continue;
+                }
+
+                var oldEdge = new RewiredEdge(
+                    oldPair.Source,
+                    oldPair.Target,
+                    oldPair.Source,
+                    oldPair.Target,
+                    currentEdge.Properties.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.Ordinal));
+                oldRelationEdges[oldKey] = oldEdge;
+
+                var otherEntity = string.Equals(oldPair.Source, sourceEntity, StringComparison.Ordinal)
+                    ? oldPair.Target
+                    : oldPair.Source;
+                if (string.Equals(otherEntity, targetEntity, StringComparison.Ordinal) ||
+                    sourceSet.Contains(otherEntity))
+                {
+                    skippedRelationEdges.Add(oldEdge);
+                    continue;
+                }
+
+                var newPair = GraphCurationVectorIds.NormalizePair(targetEntity, otherEntity);
+                var newKey = GraphSourceReferenceParser.MakeRelationKey(newPair.Source, newPair.Target);
+                Dictionary<string, object> newProperties;
+                if (transferredEdgesByNewKey.TryGetValue(newKey, out var plannedEdge))
+                {
+                    newProperties = MergeRelationData(plannedEdge.Properties, oldEdge.Properties);
+                }
+                else
+                {
+                    var existingEdge = await graphStore.GetEdgeAsync(newPair.Source, newPair.Target, cancellationToken);
+                    newProperties = existingEdge is null
+                        ? oldEdge.Properties.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+                        : MergeRelationData(existingEdge.Properties, oldEdge.Properties);
+                }
+
+                var transferredEdge = new RewiredEdge(
+                    oldPair.Source,
+                    oldPair.Target,
+                    newPair.Source,
+                    newPair.Target,
+                    newProperties);
+                transferredEdgesByNewKey[newKey] = transferredEdge;
+                fullRelationReplacements.Add(transferredEdge);
+            }
+        }
+
+        var requiredLockKeys = BuildEntityMergeLockKeys(
+            sourceEntities,
+            targetEntity,
+            oldRelationEdges.Values,
+            transferredEdgesByNewKey.Values);
+        var plan = new MergePlan(
+            targetEntity,
+            sourceEntities,
+            targetData,
+            oldRelationEdges.Values.ToList(),
+            transferredEdgesByNewKey.Values.ToList(),
+            fullRelationReplacements,
+            skippedRelationEdges);
+
+        return new MergePlanResult(plan, requiredLockKeys, null);
+    }
+
+    private async Task<GraphCurationOperationResult> ApplyMergePlanAsync(
+        MergePlan plan,
+        VectorDocument entityVector,
+        IReadOnlyList<VectorDocument> relationVectors,
+        CancellationToken cancellationToken)
+    {
+        await graphStore.UpsertNodeAsync(plan.TargetEntity, plan.TargetData, cancellationToken);
+        await UpsertRewiredEdgesAsync(plan.NewRelationEdges, cancellationToken);
+        await graphStore.RemoveEdgesAsync(
+            plan.OldRelationEdges
+                .Select(edge => (edge.OriginalSourceId, edge.OriginalTargetId))
+                .Distinct()
+                .ToList(),
+            cancellationToken);
+
+        foreach (var sourceEntity in plan.SourceEntities)
+        {
+            await graphStore.DeleteNodeAsync(sourceEntity, cancellationToken);
+        }
+
+        foreach (var sourceEntity in plan.SourceEntities)
+        {
+            await UpsertFullEntityIndexAsync(plan.TargetEntity, plan.TargetData, cancellationToken, sourceEntity);
+        }
+
+        await UpsertFullRelationIndexesAsync(plan.FullRelationReplacements, cancellationToken);
+        foreach (var skippedEdge in plan.SkippedRelationEdges)
+        {
+            var chunkIds = await CollectRelationChunkIdsAsync(skippedEdge, cancellationToken);
+            await RemoveFullRelationIndexesAsync(
+                GraphSourceReferenceParser.MakeRelationKey(
+                    skippedEdge.OriginalSourceId,
+                    skippedEdge.OriginalTargetId),
+                chunkIds,
+                cancellationToken);
+        }
+
+        await DeleteOldRelationTrackingAsync(plan.OldRelationEdges, cancellationToken);
+        await UpsertRelationTrackingAsync(plan.NewRelationEdges, cancellationToken);
+        await entityChunksStore.DeleteAsync(plan.SourceEntities, cancellationToken);
+        await UpsertEntityTrackingAsync(plan.TargetEntity, plan.TargetData, cancellationToken);
+        await DeleteOldRelationVectorsAsync(plan.OldRelationEdges, cancellationToken);
+        await vectorStore.DeleteAsync(
+            EntitiesCollection,
+            plan.SourceEntities.Select(GraphCurationVectorIds.Entity).ToList(),
+            cancellationToken);
+        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
+        await UpsertRelationVectorsAsync(relationVectors, cancellationToken);
+        await bumpQueryRevisionAsync();
+
+        var data = plan.TargetData.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
+        data["transferred_relations"] = plan.NewRelationEdges.Count;
+        data["deleted_entities"] = plan.SourceEntities.ToList();
+
+        return GraphCurationOperationResult.Success(
+            $"Merged {plan.SourceEntities.Count} entity/entities into '{plan.TargetEntity}'.",
+            data,
+            new GraphCurationOperationSummary(
+                Merged: true,
+                MergeStatus: "merged",
+                MergeError: null,
+                OperationStatus: "merged",
+                TargetEntity: plan.TargetEntity,
+                FinalEntity: plan.TargetEntity,
+                Renamed: false));
+    }
+
+    private static Dictionary<string, object> MergeEntityData(
+        string targetEntity,
+        Dictionary<string, object> targetData,
+        IEnumerable<Dictionary<string, object>> sourceEntities)
+    {
+        var merged = targetData.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
+
+        foreach (var sourceData in sourceEntities)
+        {
+            merged["description"] = JoinUnique(GetString(merged, "description"), GetString(sourceData, "description"));
+            merged["source_id"] = JoinUnique(GetString(merged, "source_id"), GetString(sourceData, "source_id"));
+            merged["file_path"] = JoinUnique(GetString(merged, "file_path"), GetString(sourceData, "file_path"));
+
+            if (string.IsNullOrWhiteSpace(GetString(merged, "entity_type")))
+            {
+                merged["entity_type"] = GetString(sourceData, "entity_type") ?? string.Empty;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(GetString(merged, "entity_id")))
+        {
+            merged["entity_id"] = targetEntity;
+        }
+
+        if (string.IsNullOrWhiteSpace(GetString(merged, "entity_name")))
+        {
+            merged["entity_name"] = targetEntity;
+        }
+
+        merged["description"] = GetString(merged, "description") ?? string.Empty;
+        merged["source_id"] = GetString(merged, "source_id") ?? string.Empty;
+        merged["file_path"] = GetString(merged, "file_path") ?? string.Empty;
+        merged["entity_type"] = GetString(merged, "entity_type") ?? string.Empty;
+        return merged;
+    }
+
+    private static Dictionary<string, object> MergeRelationData(
+        Dictionary<string, object> target,
+        Dictionary<string, object> source)
+    {
+        var merged = target.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
+        merged["description"] = JoinUnique(GetString(target, "description"), GetString(source, "description"));
+        merged["keywords"] = JoinUnique(GetString(target, "keywords"), GetString(source, "keywords"));
+        merged["source_id"] = JoinUnique(GetString(target, "source_id"), GetString(source, "source_id"));
+        merged["file_path"] = JoinUnique(GetString(target, "file_path"), GetString(source, "file_path"));
+        merged["weight"] = Math.Max(GetDouble(target, "weight"), GetDouble(source, "weight"));
+        merged["created_at"] = GetString(target, "created_at")
+            ?? GetString(source, "created_at")
+            ?? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        return BuildRelationData(merged);
+    }
+
+    private static string JoinUnique(string? left, string? right)
+    {
+        var values = new List<string>();
+        AddSplitValues(values, left);
+        AddSplitValues(values, right);
+        return GraphSourceReferenceParser.Join(values);
+    }
+
+    private static void AddSplitValues(List<string> values, string? source)
+    {
+        foreach (var value in GraphSourceReferenceParser.Split(source))
+        {
+            if (!values.Contains(value, StringComparer.Ordinal))
+            {
+                values.Add(value);
+            }
+        }
+    }
+
     private static Dictionary<string, object> BuildEntityData(
         string entityName,
         Dictionary<string, object> sourceData)
@@ -757,8 +1475,15 @@ public sealed class GraphCurationService
         Dictionary<string, object> sourceData,
         CancellationToken cancellationToken)
     {
+        return await ResolveFullDocIdsAsync(ExtractChunkIds(sourceData), cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<string>> ResolveFullDocIdsAsync(
+        IEnumerable<string> chunkIds,
+        CancellationToken cancellationToken)
+    {
         var docIds = new List<string>();
-        foreach (var chunkId in ExtractChunkIds(sourceData))
+        foreach (var chunkId in chunkIds.Distinct(StringComparer.Ordinal))
         {
             var chunk = await textChunksStore.GetByIdAsync(chunkId, cancellationToken);
             var docId = GetString(chunk, "full_doc_id");
@@ -1170,6 +1895,52 @@ public sealed class GraphCurationService
         return lockKeys;
     }
 
+    private static HashSet<string> BuildEntityMergeInitialLockKeys(
+        IReadOnlyList<string> sourceEntities,
+        string targetEntity)
+    {
+        var lockKeys = new HashSet<string>([EntityLockKey(targetEntity)], StringComparer.Ordinal);
+        foreach (var sourceEntity in sourceEntities)
+        {
+            lockKeys.Add(EntityLockKey(sourceEntity));
+        }
+
+        return lockKeys;
+    }
+
+    private static HashSet<string> BuildEntityMergeLockKeys(
+        IReadOnlyList<string> sourceEntities,
+        string targetEntity,
+        IEnumerable<RewiredEdge> oldRelationEdges,
+        IEnumerable<RewiredEdge> newRelationEdges)
+    {
+        var lockKeys = BuildEntityMergeInitialLockKeys(sourceEntities, targetEntity);
+        foreach (var edge in oldRelationEdges)
+        {
+            lockKeys.Add(RelationLockKey(edge.OriginalSourceId, edge.OriginalTargetId));
+        }
+
+        foreach (var edge in newRelationEdges)
+        {
+            lockKeys.Add(RelationLockKey(edge.SourceId, edge.TargetId));
+        }
+
+        return lockKeys;
+    }
+
+    private static HashSet<string> BuildEntityDeleteLockKeys(
+        string entityName,
+        IReadOnlyList<RewiredEdge> connectedEdges)
+    {
+        var lockKeys = new HashSet<string>([EntityLockKey(entityName)], StringComparer.Ordinal);
+        foreach (var edge in connectedEdges)
+        {
+            lockKeys.Add(RelationLockKey(edge.OriginalSourceId, edge.OriginalTargetId));
+        }
+
+        return lockKeys;
+    }
+
     private async Task<T> ExecuteWithGraphMutationLocksAsync<T>(
         IEnumerable<string> lockKeys,
         Func<Task<T>> operation,
@@ -1220,6 +1991,33 @@ public sealed class GraphCurationService
         public static EntityRenameLockAttempt Retry(HashSet<string> requiredLockKeys) =>
             new(null, requiredLockKeys);
     }
+
+    private sealed record NormalizedMergeRequest(
+        IReadOnlyList<string>? SourceEntities,
+        string? TargetEntity,
+        GraphCurationOperationResult? Failure)
+    {
+        public static NormalizedMergeRequest Invalid(GraphCurationOperationResult failure) =>
+            new(null, null, failure);
+    }
+
+    private sealed record MergePlanResult(
+        MergePlan? Plan,
+        HashSet<string> RequiredLockKeys,
+        GraphCurationOperationResult? Failure)
+    {
+        public static MergePlanResult Invalid(GraphCurationOperationResult failure) =>
+            new(null, [], failure);
+    }
+
+    private sealed record MergePlan(
+        string TargetEntity,
+        IReadOnlyList<string> SourceEntities,
+        Dictionary<string, object> TargetData,
+        IReadOnlyList<RewiredEdge> OldRelationEdges,
+        IReadOnlyList<RewiredEdge> NewRelationEdges,
+        IReadOnlyList<RewiredEdge> FullRelationReplacements,
+        IReadOnlyList<RewiredEdge> SkippedRelationEdges);
 
     private sealed record RewiredEdge(
         string OriginalSourceId,
