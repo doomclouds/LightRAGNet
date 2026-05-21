@@ -65,7 +65,7 @@ public class GraphViewController(
     /// <summary>
     /// Convert KnowledgeGraph to GraphViewDto for sigma.js
     /// </summary>
-    private static GraphViewDto ConvertToGraphViewDto(KnowledgeGraph graph)
+    internal static GraphViewDto ConvertToGraphViewDto(KnowledgeGraph graph)
     {
         // Color mapping for different entity types
         var typeColors = new Dictionary<string, string>
@@ -141,7 +141,8 @@ public class GraphViewController(
             Target = edge.Target,
             Type = edge.Type ?? "DIRECTED",
             Size = 1.0,
-            Color = "#cccccc"
+            Color = "#cccccc",
+            Properties = edge.Properties
         }).ToList();
 
         return new GraphViewDto

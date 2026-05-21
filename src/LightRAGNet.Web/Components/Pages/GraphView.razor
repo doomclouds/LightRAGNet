@@ -1,18 +1,19 @@
 @page "/graph-view"
 @using Microsoft.JSInterop
 @implements IAsyncDisposable
+@inject IConfiguration Configuration
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Knowledge Graph Workbench</PageTitle>
 
 <link rel="stylesheet" href="graph-workbench/assets/graph-workbench.css" />
 
-<div id="graph-workbench-root" data-api-base=""></div>
+<div id="graph-workbench-root" data-api-base="@ApiBase"></div>
 
 @code {
     private const string RootElementId = "graph-workbench-root";
-    private const string ApiBase = "";
     private IJSObjectReference? graphWorkbenchModule;
+    private string ApiBase => Configuration["ApiBaseUrl"] ?? "http://localhost:5261";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

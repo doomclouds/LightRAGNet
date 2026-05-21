@@ -210,12 +210,21 @@ For detailed architecture documentation, please refer to [LightRAGNet System Int
 
 ## Reference Implementation
 
-This implementation fully references the Python version of LightRAG:
+This implementation references the Python version of LightRAG:
 
 - `lightrag.py` - Main class implementation
 - `operate.py` - Core operation functions
 - `prompt.py` - Prompt templates
 - `kg/` - Storage implementations
+
+Graph curation workbench source declaration:
+
+- Source repository: `https://github.com/HKUDS/LightRAG`
+- Local reference copy: `LightRAG/`
+- Referenced frontend areas: `LightRAG/lightrag_webui/src/features/GraphViewer.tsx`, `LightRAG/lightrag_webui/src/hooks/useLightragGraph.tsx`, `LightRAG/lightrag_webui/src/stores/graph.ts`, `LightRAG/lightrag_webui/src/stores/settings.ts`, `LightRAG/lightrag_webui/src/components/graph/PropertiesView.tsx`, `LightRAG/lightrag_webui/src/components/graph/EditablePropertyRow.tsx`, `LightRAG/lightrag_webui/src/components/graph/MergeDialog.tsx`, `LightRAG/lightrag_webui/src/api/lightrag.ts`
+- Referenced backend areas: `LightRAG/lightrag/api/routers/graph_routes.py`, `LightRAG/lightrag/lightrag.py`, `LightRAG/lightrag/utils_graph.py`
+
+The React graph workbench ports product semantics and UI structure from Python LightRAG's WebUI rather than claiming the graph curation design as original to this repository.
 
 ## RAG Task Processing
 

@@ -10,6 +10,9 @@ public sealed class GraphWorkbenchHostSourceTests
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "GraphView.razor");
 
         source.Should().Contain("graph-workbench-root");
+        source.Should().Contain("IConfiguration");
+        source.Should().Contain("ApiBaseUrl");
+        source.Should().Contain("data-api-base=\"@ApiBase\"");
         source.Should().Contain("IJSRuntime");
         source.Should().Contain("mountGraphWorkbench");
         source.Should().Contain("unmountGraphWorkbench");

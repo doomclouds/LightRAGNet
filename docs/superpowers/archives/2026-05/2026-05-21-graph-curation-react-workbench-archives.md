@@ -13,7 +13,7 @@
 ## Delivered Scope
 
 - 新增 React/Vite graph workbench island，由 `LightRAGNet.Web` 的 Blazor 页面作为临时宿主加载构建产物。
-- 引入图谱搜索/加载、节点选择、边选择、布局/缩放控制和属性面板等工作台体验。
+- 引入图谱搜索/加载、节点选择、边选择和属性面板等工作台体验，图谱缩放使用 Sigma 画布原生交互能力。
 - 补齐实体与关系的 create/edit/delete/merge API 语义，并让前端可以通过属性面板、合并弹窗和确认弹窗完成治理操作。
 - 将图谱治理操作与 graph store、vector store、KV metadata、tracking KV 和 workspace query revision 的一致性边界纳入实现与测试。
 - 在 README 中声明 React graph workbench 的 Node/Vite 构建步骤和 Blazor Web 启动方式。
@@ -28,11 +28,11 @@
 ## Verification Snapshot
 
 - Focused core tests passed: `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphCuration" --verbosity minimal` (`34/34`).
-- Focused server tests passed: `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphController" --verbosity minimal` (`10/10`).
+- Focused server tests passed: `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphController" --verbosity minimal` (`11/11`).
 - Focused web host tests passed: `dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphWorkbenchHostSourceTests" --verbosity minimal` (`2/2`).
 - Frontend tests passed: `npm test` from `src/LightRAGNet.Web/ClientApp` (`22/22`).
 - Frontend build passed: `npm run build` from `src/LightRAGNet.Web/ClientApp`.
-- Solution tests passed: `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal` (`LightRAGNet.Tests 390/390`, `LightRAGNet.Server.Tests 76/76`, `LightRAGNet.Web.Tests 22/22`).
+- Solution tests passed: `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal` (`LightRAGNet.Tests 390/390`, `LightRAGNet.Server.Tests 77/77`, `LightRAGNet.Web.Tests 22/22`).
 - Solution build passed: `dotnet build .\LightRAGNet.slnx --no-restore --verbosity minimal` (`0` warning, `0` error).
 - Archive validation passed: `python C:\Users\10062\.codex\plugins\cache\local-home\superpowers-asset-compounding\0.1.4\skills\archive-superpowers-feature\scripts\validate_archive_asset.py docs/superpowers/archives/2026-05/2026-05-21-graph-curation-react-workbench-archives.md`.
 - Index validation passed: `python C:\Users\10062\.codex\plugins\cache\local-home\superpowers-asset-compounding\0.1.4\skills\compound-development-asset\scripts\check_indexes.py . --json`.

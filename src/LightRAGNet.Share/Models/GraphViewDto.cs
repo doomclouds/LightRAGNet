@@ -91,4 +91,9 @@ public class GraphEdgeDto
     /// Edge color
     /// </summary>
     public string Color { get; set; } = "#ccc";
+
+    /// <summary>
+    /// Edge properties (for display and relation editing in properties panel)
+    /// </summary>
+    public Dictionary<string, object> Properties { get; set; } = new();
 }

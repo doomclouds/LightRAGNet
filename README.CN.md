@@ -210,11 +210,20 @@ LightRAGNet 采用分层架构设计：
 
 ## 参考实现
 
-本实现完全参考 Python 版本的 LightRAG：
+本实现参考 Python 版本的 LightRAG：
 - `lightrag.py` - 主类实现
 - `operate.py` - 核心操作函数
 - `prompt.py` - 提示词模板
 - `kg/` - 存储实现
+
+图谱治理工作台参考来源声明：
+
+- Source repository: `https://github.com/HKUDS/LightRAG`
+- Local reference copy: `LightRAG/`
+- 参考的前端区域：`LightRAG/lightrag_webui/src/features/GraphViewer.tsx`、`LightRAG/lightrag_webui/src/hooks/useLightragGraph.tsx`、`LightRAG/lightrag_webui/src/stores/graph.ts`、`LightRAG/lightrag_webui/src/stores/settings.ts`、`LightRAG/lightrag_webui/src/components/graph/PropertiesView.tsx`、`LightRAG/lightrag_webui/src/components/graph/EditablePropertyRow.tsx`、`LightRAG/lightrag_webui/src/components/graph/MergeDialog.tsx`、`LightRAG/lightrag_webui/src/api/lightrag.ts`
+- 参考的后端区域：`LightRAG/lightrag/api/routers/graph_routes.py`、`LightRAG/lightrag/lightrag.py`、`LightRAG/lightrag/utils_graph.py`
+
+React 图谱工作台参考并移植了 Python LightRAG WebUI 的产品语义和 UI 结构，不声称图谱治理设计完全原创于本仓库。
 
 ## RAG 任务处理
 

@@ -12,6 +12,45 @@ public sealed class GraphController(
     GraphCurationService graphCurationService,
     ILogger<GraphController> logger) : ControllerBase
 {
+    [HttpGet("query")]
+    [ProducesResponseType<GraphViewDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<GraphCurationResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<GraphCurationResponse>(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<GraphViewDto>> Query(
+        [FromQuery] string? label = "*",
+        [FromQuery] int maxDepth = 2,
+        [FromQuery] int maxNodes = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (maxNodes <= 0 || maxNodes > 1000)
+        {
+            return BadRequest(CreateValidationResponse("maxNodes must be between 1 and 1000."));
+        }
+
+        if (maxDepth <= 0 || maxDepth > 5)
+        {
+            return BadRequest(CreateValidationResponse("maxDepth must be between 1 and 5."));
+        }
+
+        try
+        {
+            var knowledgeGraph = await graphStore.GetKnowledgeGraphAsync(
+                string.IsNullOrWhiteSpace(label) ? "*" : label,
+                maxDepth,
+                maxNodes,
+                cancellationToken);
+
+            return Ok(GraphViewController.ConvertToGraphViewDto(knowledgeGraph));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to query graph workbench data.");
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                CreateValidationResponse("Failed to fetch graph data."));
+        }
+    }
+
     [HttpGet("entity/exists")]
     [ProducesResponseType<GraphEntityExistsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<GraphCurationResponse>(StatusCodes.Status400BadRequest)]

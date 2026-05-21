@@ -43,11 +43,11 @@ export async function queryGraph(
   maxNodes: number
 ): Promise<GraphViewDto> {
   const query = new URLSearchParams({
-    nodeLabel: label,
+    label,
     maxDepth: String(maxDepth),
     maxNodes: String(maxNodes)
   });
-  const response = await fetch(buildUrl(apiBase, `/api/GraphView?${query.toString()}`), { method: "GET" });
+  const response = await fetch(buildUrl(apiBase, `/api/graph/query?${query.toString()}`), { method: "GET" });
   return readJson<GraphViewDto>(response);
 }
 

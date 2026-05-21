@@ -46,14 +46,14 @@ describe("graphApi", () => {
     vi.unstubAllGlobals();
   });
 
-  test("queryGraph calls GraphView with encoded query parameters", async () => {
+  test("queryGraph calls graph query with encoded query parameters", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(graphResponse));
 
     const result = await queryGraph("/base/", "Entity / ? #", 3, 25);
 
     expect(result).toEqual(graphResponse);
     expect(fetch).toHaveBeenCalledWith(
-      "/base/api/GraphView?nodeLabel=Entity+%2F+%3F+%23&maxDepth=3&maxNodes=25",
+      "/base/api/graph/query?label=Entity+%2F+%3F+%23&maxDepth=3&maxNodes=25",
       expect.objectContaining({ method: "GET" })
     );
   });

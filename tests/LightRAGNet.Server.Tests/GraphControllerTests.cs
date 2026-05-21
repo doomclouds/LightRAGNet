@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
@@ -161,6 +162,45 @@ public sealed class GraphControllerTests
         labels.Should().Equal("BETA", "ALPHA");
         graphStore.PopularLabelsCalls.Should().ContainSingle().Which.Should().Be(300);
         graphStore.AllLabelsCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Query_ReturnsGraphViewWithEdgeProperties()
+    {
+        var graphStore = new InMemoryGraphStore();
+        graphStore.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_name"] = "ALPHA",
+            ["description"] = "Alpha entity"
+        });
+        graphStore.SeedNode("BETA", new()
+        {
+            ["entity_id"] = "BETA",
+            ["entity_name"] = "BETA",
+            ["description"] = "Beta entity"
+        });
+        await graphStore.UpsertEdgeAsync("ALPHA", "BETA", new Dictionary<string, object>
+        {
+            ["description"] = "Alpha knows beta",
+            ["keywords"] = "alpha,beta",
+            ["weight"] = 2
+        });
+
+        await using var factory = CreateFactory(graphStore);
+        var client = factory.CreateClient();
+
+        var graph = await client.GetFromJsonAsync<GraphViewDto>(
+            "/api/graph/query?label=ALPHA&maxDepth=2&maxNodes=100");
+
+        graph.Should().NotBeNull();
+        graph!.Edges.Should().ContainSingle();
+        graph.Edges[0].Properties.Should().ContainKey("description")
+            .WhoseValue.Should().Match<object>(value => ReadJsonValue(value) == "Alpha knows beta");
+        graph.Edges[0].Properties.Should().ContainKey("keywords")
+            .WhoseValue.Should().Match<object>(value => ReadJsonValue(value) == "alpha,beta");
+        graph.Edges[0].Properties.Should().ContainKey("weight")
+            .WhoseValue.Should().Match<object>(value => ReadJsonValue(value) == "2");
     }
 
     [Fact]
@@ -659,5 +699,20 @@ public sealed class GraphControllerTests
             float[] vector => vector.ToArray(),
             _ => value
         };
+    }
+
+    private static string? ReadJsonValue(object value)
+    {
+        return value is JsonElement element
+            ? element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Number => element.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Null => null,
+                _ => element.GetRawText()
+            }
+            : value.ToString();
     }
 }
