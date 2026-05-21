@@ -150,16 +150,26 @@ public sealed class NaiveQueryServiceTests
     [Fact]
     public void ConstructorSurface_RequiresRerankCoordinatorInsteadOfDirectRerankService()
     {
-        var constructorParameterTypes = typeof(NaiveQueryService)
+        var constructorParameterLists = typeof(NaiveQueryService)
             .GetConstructors(System.Reflection.BindingFlags.Public
                 | System.Reflection.BindingFlags.NonPublic
                 | System.Reflection.BindingFlags.Instance)
-            .SelectMany(constructor => constructor.GetParameters())
-            .Select(parameter => parameter.ParameterType)
+            .Select(constructor => constructor.GetParameters()
+                .Select(parameter => parameter.ParameterType)
+                .ToArray())
+            .ToList();
+
+        var constructorParameterTypes = constructorParameterLists
+            .SelectMany(parameterTypes => parameterTypes)
             .ToList();
 
         constructorParameterTypes.Should().NotContain(typeof(IRerankService));
-        constructorParameterTypes.Should().Contain(typeof(RerankCoordinator));
+        constructorParameterTypes.Should().NotContain(typeof(object));
+        constructorParameterLists.Should().ContainSingle()
+            .Which.Should().Equal(
+                typeof(IVectorStore),
+                typeof(RerankCoordinator),
+                typeof(ITokenizer));
     }
 
     [Fact]

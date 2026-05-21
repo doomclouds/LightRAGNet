@@ -23,14 +23,6 @@ public sealed class NaiveQueryService
         _tokenizer = tokenizer;
     }
 
-    internal NaiveQueryService(
-        IVectorStore vectorStore,
-        object rerankCoordinator,
-        ITokenizer tokenizer)
-        : this(vectorStore, (RerankCoordinator)rerankCoordinator, tokenizer)
-    {
-    }
-
     public async Task<QueryContextResult?> BuildContextAsync(
         string query,
         QueryParam queryParam,

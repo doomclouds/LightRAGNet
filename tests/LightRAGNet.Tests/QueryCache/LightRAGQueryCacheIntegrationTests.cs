@@ -401,13 +401,20 @@ public sealed class LightRAGQueryCacheIntegrationTests
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
 
+        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
         var rag = new LightRAG(
             llmService,
             vectorStore,
             documentProcessingService,
             knowledgeGraphMergeService,
             retrievalContextService,
-            new NaiveQueryService(vectorStore, rerankService, tokenizer),
+            new NaiveQueryService(
+                vectorStore,
+                new RerankCoordinator(
+                    rerankService,
+                    new RerankDocumentChunker(tokenizer, rerankOptions),
+                    rerankOptions),
+                tokenizer),
             cacheService,
             tokenizer,
             textChunksStore,

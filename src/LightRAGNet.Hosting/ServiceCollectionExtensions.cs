@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
 
         services.Configure<DeepSeekOptions>(configuration.GetSection("LLM"));
         services.Configure<AliyunRerankOptions>(configuration.GetSection("Rerank"));
+        services.Configure<RerankChunkingOptions>(configuration.GetSection("Rerank"));
         services.Configure<AliyunEmbeddingOptions>(configuration.GetSection("Embedding"));
         services.Configure<QdrantOptions>(configuration.GetSection("Qdrant"));
         services.Configure<Neo4JOptions>(configuration.GetSection("Neo4j"));
@@ -162,7 +163,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DocumentDeletionService>();
         services.AddSingleton<KnowledgeGraphMergeService>();
         services.AddSingleton<RetrievalContextService>();
-        services.AddSingleton<NaiveQueryService>();
+        services.AddSingleton<RerankDocumentChunker>();
+        services.AddSingleton<RerankCoordinator>();
+        services.AddSingleton(sp => new NaiveQueryService(
+            sp.GetRequiredService<IVectorStore>(),
+            sp.GetRequiredService<RerankCoordinator>(),
+            sp.GetRequiredService<ITokenizer>()));
         services.AddSingleton<LightRagCacheKeyBuilder>();
         services.AddSingleton<LightRagLlmCacheService>();
         services.AddSingleton<LightRAG>();
