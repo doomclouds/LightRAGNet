@@ -128,6 +128,48 @@ public sealed class DocumentDeletionServiceTests
     }
 
     [Fact]
+    public async Task DeleteAsync_WhenEntitySourceIdIsStale_UsesRemainingTrackingChunksForGraphAndVector()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        fixture.FullEntities.Seed("doc-1", new() { ["entity_names"] = new List<object> { "ALPHA" }, ["count"] = 1 });
+        fixture.EntityChunks.Seed("ALPHA", new() { ["chunk_ids"] = new List<object> { "chunk-a", "chunk-z" }, ["count"] = 2 });
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["source_id"] = "chunk-a<SEP>stale", ["description"] = "alpha desc" });
+
+        var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededNode("ALPHA")!.Properties["source_id"].Should().Be("chunk-z");
+        fixture.VectorStore
+            .Get("entities", HashUtils.ComputeMd5Hash("ALPHA", "ent-"))!
+            .Metadata["source_id"]
+            .Should()
+            .Be("chunk-z");
+        fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-z" });
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenRelationSourceIdIsStale_UsesRemainingTrackingChunksForGraphAndVector()
+    {
+        var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);
+        fixture.FullRelations.Seed("doc-1", new() { ["relation_pairs"] = new List<object> { new List<object> { "ALPHA", "BETA" } }, ["count"] = 1 });
+        fixture.RelationChunks.Seed("ALPHA<SEP>BETA", new() { ["chunk_ids"] = new List<object> { "chunk-a", "chunk-z" }, ["count"] = 2 });
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["source_id"] = "chunk-z", ["description"] = "alpha desc" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["source_id"] = "chunk-z", ["description"] = "beta desc" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new() { ["source_id"] = "chunk-a<SEP>stale", ["description"] = "rel desc", ["keywords"] = "rel" });
+
+        var result = await fixture.Service.DeleteAsync(new DocumentDeletionRequest("workspace-a", "doc-1", ["chunk-a"], DeleteLlmCache: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededEdge("ALPHA", "BETA")!.Properties["source_id"].Should().Be("chunk-z");
+        fixture.VectorStore
+            .Get("relationships", HashUtils.ComputeMd5Hash("ALPHA" + "BETA", "rel-"))!
+            .Metadata["source_id"]
+            .Should()
+            .Be("chunk-z");
+        fixture.RelationChunks.Items["ALPHA<SEP>BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-z" });
+    }
+
+    [Fact]
     public async Task DeleteAsync_WhenDeleteLlmCacheFalse_DoesNotDeleteCacheIds()
     {
         var fixture = await DocumentDeletionFixture.CreateProcessedDocumentAsync(chunkIds: ["chunk-a"]);

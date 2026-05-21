@@ -404,16 +404,14 @@ public sealed class DocumentDeletionService
         var node = await _graphStore.GetNodeAsync(entityName, cancellationToken)
             ?? throw new InvalidOperationException($"Graph entity '{entityName}' was not found.");
 
+        var effectiveSourceId = remainingChunkIds.Count > 0
+            ? GraphSourceReferenceParser.Join(remainingChunkIds)
+            : GraphSourceReferenceParser.Join(
+                GraphSourceReferenceParser.Prune(GetString(node.Properties, "source_id"), deletedChunkIds));
         var updatedProperties = new Dictionary<string, object>(node.Properties, StringComparer.Ordinal)
         {
-            ["source_id"] = GraphSourceReferenceParser.Join(
-                GraphSourceReferenceParser.Prune(GetString(node.Properties, "source_id"), deletedChunkIds))
+            ["source_id"] = effectiveSourceId
         };
-
-        if (string.IsNullOrWhiteSpace(updatedProperties["source_id"].ToString()))
-        {
-            updatedProperties["source_id"] = GraphSourceReferenceParser.Join(remainingChunkIds);
-        }
 
         var description = GetString(updatedProperties, "description");
         var content = $"{entityName}\n{description}";
@@ -448,16 +446,14 @@ public sealed class DocumentDeletionService
         var edge = await _graphStore.GetEdgeAsync(sourceId, targetId, cancellationToken)
             ?? throw new InvalidOperationException($"Graph relation '{sourceId}<->{targetId}' was not found.");
 
+        var effectiveSourceId = remainingChunkIds.Count > 0
+            ? GraphSourceReferenceParser.Join(remainingChunkIds)
+            : GraphSourceReferenceParser.Join(
+                GraphSourceReferenceParser.Prune(GetString(edge.Properties, "source_id"), deletedChunkIds));
         var updatedProperties = new Dictionary<string, object>(edge.Properties, StringComparer.Ordinal)
         {
-            ["source_id"] = GraphSourceReferenceParser.Join(
-                GraphSourceReferenceParser.Prune(GetString(edge.Properties, "source_id"), deletedChunkIds))
+            ["source_id"] = effectiveSourceId
         };
-
-        if (string.IsNullOrWhiteSpace(updatedProperties["source_id"].ToString()))
-        {
-            updatedProperties["source_id"] = GraphSourceReferenceParser.Join(remainingChunkIds);
-        }
 
         var keywords = GetString(updatedProperties, "keywords");
         var description = GetString(updatedProperties, "description");
