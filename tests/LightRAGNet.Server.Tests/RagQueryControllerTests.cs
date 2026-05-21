@@ -44,18 +44,36 @@ public sealed class RagQueryControllerTests
     }
 
     [Fact]
-    public void SplitRawData_WhenRawDataIsNullOrMissingSections_ReturnsEmptySections()
+    public void SplitRawData_WhenRawDataIsNull_ReturnsEmptySections()
     {
-        var nullResult = RagQueryController.SplitRawData(null);
-        var missingResult = RagQueryController.SplitRawData(new Dictionary<string, object>
+        var result = RagQueryController.SplitRawData(null);
+
+        result.Data.Should().BeEmpty();
+        result.Metadata.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SplitRawData_WhenRawDataIsMissingDataAndMetadataKeys_ReturnsEmptySections()
+    {
+        var result = RagQueryController.SplitRawData(new Dictionary<string, object>
+        {
+            ["source"] = "query"
+        });
+
+        result.Data.Should().BeEmpty();
+        result.Metadata.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SplitRawData_WhenRawDataContainsNonDictionarySections_ReturnsEmptySections()
+    {
+        var result = RagQueryController.SplitRawData(new Dictionary<string, object>
         {
             ["data"] = null!,
             ["metadata"] = "not a dictionary"
         });
 
-        nullResult.Data.Should().BeEmpty();
-        nullResult.Metadata.Should().BeEmpty();
-        missingResult.Data.Should().BeEmpty();
-        missingResult.Metadata.Should().BeEmpty();
+        result.Data.Should().BeEmpty();
+        result.Metadata.Should().BeEmpty();
     }
 }
