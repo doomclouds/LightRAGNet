@@ -57,10 +57,10 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
         foreach (var item in items)
         {
             var candidate = accepted.Concat([item]).ToList();
-            var candidateTokens = CountSectionTokens(sectionFactory(candidate), candidate.Count);
+            var candidateTokens = tokenizer.CountTokens(sectionFactory(candidate));
             if (candidateTokens > maxTokens)
             {
-                if (accepted.Count == 0 && CountSectionTokens(singleItemSectionFactory(item), 1) <= maxTokens)
+                if (accepted.Count == 0 && tokenizer.CountTokens(singleItemSectionFactory(item)) <= maxTokens)
                 {
                     accepted.Add(item);
                 }
@@ -72,12 +72,6 @@ internal sealed class KgQueryContextBuilder(ITokenizer tokenizer)
         }
 
         return accepted;
-    }
-
-    private int CountSectionTokens(string section, int itemCount)
-    {
-        // Keep newline-delimited JSON items from being treated as free by delimiter-insensitive tokenizers.
-        return tokenizer.CountTokens(section) + Math.Max(0, itemCount - 1) * 2;
     }
 
     private List<ChunkData> LimitChunksByFinalContext(

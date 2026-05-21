@@ -1,5 +1,6 @@
 using FluentAssertions;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Tests.TestDoubles;
 
@@ -81,7 +82,7 @@ public sealed class KgQueryContextBuilderTests
     [Fact]
     public void Build_LimitsEntitiesUsingJsonContextShape()
     {
-        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var builder = new KgQueryContextBuilder(new WhitespaceTokenizer());
         var searchResult = new KGSearchResult
         {
             Entities =
@@ -95,7 +96,7 @@ public sealed class KgQueryContextBuilderTests
             searchResult,
             new QueryParam
             {
-                MaxEntityTokens = 4,
+                MaxEntityTokens = 7,
                 MaxRelationTokens = 1000,
                 MaxTotalTokens = 30000
             },
@@ -107,9 +108,37 @@ public sealed class KgQueryContextBuilderTests
     }
 
     [Fact]
+    public void Build_WhenEntitySectionFitsBudgetExactly_DoesNotApplySyntheticJsonLineCost()
+    {
+        var builder = new KgQueryContextBuilder(new WhitespaceTokenizer());
+        var searchResult = new KGSearchResult
+        {
+            Entities =
+            [
+                new EntityData { Name = "ALPHA", Type = "concept", Description = "short" },
+                new EntityData { Name = "BETA", Type = "concept", Description = "second" }
+            ]
+        };
+
+        var result = builder.Build(
+            searchResult,
+            new QueryParam
+            {
+                MaxEntityTokens = 8,
+                MaxRelationTokens = 1000,
+                MaxTotalTokens = 30000
+            },
+            query: "alpha");
+
+        result.Entities.Select(entity => entity.Name).Should().Equal("ALPHA", "BETA");
+        result.Context.Should().Contain("""{"entity":"ALPHA","type":"concept","description":"short"}""");
+        result.Context.Should().Contain("""{"entity":"BETA","type":"concept","description":"second"}""");
+    }
+
+    [Fact]
     public void Build_LimitsRelationshipsUsingJsonContextShape()
     {
-        var builder = new KgQueryContextBuilder(new FakeTokenizer());
+        var builder = new KgQueryContextBuilder(new WhitespaceTokenizer());
         var searchResult = new KGSearchResult
         {
             Relations =
@@ -136,7 +165,7 @@ public sealed class KgQueryContextBuilderTests
             new QueryParam
             {
                 MaxEntityTokens = 1000,
-                MaxRelationTokens = 5,
+                MaxRelationTokens = 7,
                 MaxTotalTokens = 30000
             },
             query: "alpha");
@@ -176,5 +205,32 @@ public sealed class KgQueryContextBuilderTests
         result.Chunks.Should().BeEmpty();
         result.References.Should().BeEmpty();
         result.Context.Should().NotContain("Document Chunks");
+    }
+
+    private sealed class WhitespaceTokenizer : ITokenizer
+    {
+        public List<int> Encode(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return [];
+            }
+
+            var tokenCount = text
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Length;
+
+            return Enumerable.Range(1, tokenCount).ToList();
+        }
+
+        public string Decode(List<int> tokens)
+        {
+            return string.Join(" ", tokens.Select(token => $"t{token}"));
+        }
+
+        public int CountTokens(string text)
+        {
+            return Encode(text).Count;
+        }
     }
 }
