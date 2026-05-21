@@ -334,6 +334,23 @@ public class ApiClient(HttpClient httpClient)
         }
     }
 
+    public async Task<RagQueryDataResponse?> GetRagQueryDataAsync(
+        RagQueryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var response = await httpClient.PostAsJsonAsync(
+            "api/RagQuery/data",
+            request,
+            cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<RagQueryDataResponse>(
+            cancellationToken: cancellationToken);
+    }
+
     private static RagQueryEvent ItemParser(string type, ReadOnlySpan<byte> data)
     {
         return JsonSerializer.Deserialize<RagQueryEvent>(data) ??

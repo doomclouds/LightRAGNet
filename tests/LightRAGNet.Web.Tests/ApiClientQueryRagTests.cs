@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
@@ -161,9 +162,54 @@ public sealed class ApiClientQueryRagTests
         received.Should().Equal("first");
     }
 
+    [Fact]
+    public async Task GetRagQueryDataAsync_PostsToQueryDataEndpoint()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        var response = new RagQueryDataResponse
+        {
+            Status = "success",
+            Message = "Retrieval data returned.",
+            Data = new Dictionary<string, object>
+            {
+                ["chunks"] = new[] { "chunk-a" }
+            },
+            Metadata = new Dictionary<string, object>
+            {
+                ["query_mode"] = "Mix"
+            }
+        };
+        var client = CreateClient(new CapturingHandler(request =>
+        {
+            capturedRequest = request;
+            return JsonResponse(response);
+        }));
+
+        var result = await client.GetRagQueryDataAsync(new RagQueryRequest
+        {
+            Query = "inspect",
+            Mode = QueryMode.Mix
+        });
+
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.Method.Should().Be(HttpMethod.Post);
+        capturedRequest.RequestUri!.ToString().Should().Be("http://localhost/api/RagQuery/data");
+        result.Should().NotBeNull();
+        result!.Status.Should().Be("success");
+        result.Metadata.Should().ContainKey("query_mode");
+    }
+
     private static ApiClient CreateClient(HttpMessageHandler handler)
     {
         return new ApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") });
+    }
+
+    private static HttpResponseMessage JsonResponse<T>(T value)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(value)
+        };
     }
 
     private static HttpResponseMessage SseResponse(params RagQueryEvent[] events)
