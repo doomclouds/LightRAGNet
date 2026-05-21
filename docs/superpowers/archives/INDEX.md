@@ -3,6 +3,7 @@
 ## 2026-05
 
 - [2026-05-21-kg-context-builder-parity-archives.md](./2026-05/2026-05-21-kg-context-builder-parity-archives.md): 将 KG query context 收口到结构化 builder，统一 JSON section、`reference_id` 引用锚点和按最终输出形态计算的 token budget。
+- [2026-05-21-rerank-chunking-parity-archives.md](./2026-05/2026-05-21-rerank-chunking-parity-archives.md): 将 Naive 和 KG Mix 的长 chunk rerank 对齐为 token 子片段打分、max-score 原始 chunk 聚合和 document-level topN。
 - [2026-05-20-chat-query-ui-adaptation-archives.md](./2026-05/2026-05-20-chat-query-ui-adaptation-archives.md): 将 Chat 升级为可选 query mode、Streaming/Cacheable、References 和 diagnostics 的查询工作台，并补齐共享请求/SSE metadata 合同。
 - [2026-05-20-indexing-llm-cache-parity-archives.md](./2026-05/2026-05-20-indexing-llm-cache-parity-archives.md): 将索引阶段 LLM cache 对齐为 `default:extract` / `default:summary` 合同，写入 chunk cache 引用并区分 extract 删除与 summary 保留语义。
 - [2026-05-20-retrieval-context-vector-chunk-parity-archives.md](./2026-05/2026-05-20-retrieval-context-vector-chunk-parity-archives.md): 让 KG entity/relation related chunks 的默认 `VECTOR` 配置真正按 chunk vector cosine similarity 选择，并在向量不可用时稳定降级到 `WEIGHT`。
