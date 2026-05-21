@@ -1,4 +1,5 @@
 using FluentAssertions;
+using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Services.GraphCuration;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -57,6 +58,8 @@ public sealed class GraphCurationServiceTests
         fixture.Graph.GetSeededNode("ALPHA")!.Properties["description"].Should().Be("Alpha description");
         fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Content
             .Should().Be("ALPHA\nAlpha description");
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Vector
+            .Should().Equal(FakeEmbeddingService.Embedding);
         fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
         fixture.QueryRevisionBumps.Should().Be(1);
     }
@@ -84,6 +87,62 @@ public sealed class GraphCurationServiceTests
         fixture.Graph.GetSeededNode("ALPHA")!.Properties["description"].Should().Be("new");
         fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Content
             .Should().Be("ALPHA\nnew");
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA"))!.Vector
+            .Should().Equal(FakeEmbeddingService.Embedding);
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EditEntityAsync_WhenRenameSucceeds_PreservesConnectedEdgesAndMovesEntityRecords()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_type"] = "Concept",
+            ["description"] = "alpha",
+            ["source_id"] = "chunk-a",
+            ["file_path"] = "doc.md"
+        });
+        fixture.Graph.SeedNode("GAMMA", new() { ["entity_id"] = "GAMMA", ["description"] = "gamma" });
+        fixture.Graph.SeedEdge("ALPHA", "GAMMA", new()
+        {
+            ["description"] = "related",
+            ["source_id"] = "chunk-r",
+            ["weight"] = 1
+        });
+        fixture.VectorStore.Seed("entities", new VectorDocument
+        {
+            Id = GraphCurationVectorIds.Entity("ALPHA"),
+            Content = "ALPHA\nalpha",
+            Vector = [1.0f],
+            Metadata = new Dictionary<string, object>()
+        });
+        fixture.FullEntities.Seed("ALPHA", new() { ["entity_id"] = "ALPHA" });
+        fixture.EntityChunks.Seed("ALPHA", new()
+        {
+            ["chunk_ids"] = new List<string> { "chunk-a" },
+            ["count"] = 1
+        });
+
+        var result = await fixture.Service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["entity_name"] = "BETA" },
+            AllowRename: true,
+            AllowMerge: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.Graph.GetSeededNode("ALPHA").Should().BeNull();
+        fixture.Graph.GetSeededNode("BETA")!.Properties["entity_id"].Should().Be("BETA");
+        fixture.Graph.GetSeededEdge("ALPHA", "GAMMA").Should().BeNull();
+        fixture.Graph.GetSeededEdge("BETA", "GAMMA")!.Properties["description"].Should().Be("related");
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA")).Should().BeNull();
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("BETA"))!.Vector
+            .Should().Equal(FakeEmbeddingService.Embedding);
+        fixture.FullEntities.Items.Should().NotContainKey("ALPHA");
+        fixture.FullEntities.Items.Should().ContainKey("BETA");
+        fixture.EntityChunks.Items.Should().NotContainKey("ALPHA");
+        fixture.EntityChunks.Items["BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 
@@ -103,6 +162,12 @@ public sealed class GraphCurationServiceTests
         result.Succeeded.Should().BeFalse();
         result.Status.Should().Be("conflict");
         fixture.Graph.GetSeededNode("ALPHA").Should().NotBeNull();
+        fixture.VectorStore.UpsertCalls.Should().BeEmpty();
+        fixture.VectorStore.DeleteCalls.Should().BeEmpty();
+        fixture.FullEntities.UpsertCalls.Should().BeEmpty();
+        fixture.FullEntities.DeleteCalls.Should().BeEmpty();
+        fixture.EntityChunks.UpsertCalls.Should().BeEmpty();
+        fixture.EntityChunks.DeleteCalls.Should().BeEmpty();
         fixture.QueryRevisionBumps.Should().Be(0);
     }
 
@@ -110,6 +175,7 @@ public sealed class GraphCurationServiceTests
     {
         public InMemoryGraphStore Graph { get; } = new();
         public InMemoryVectorStore VectorStore { get; } = new();
+        public FakeEmbeddingService EmbeddingService { get; } = new();
         public InMemoryKvStore FullEntities { get; } = new();
         public InMemoryKvStore FullRelations { get; } = new();
         public InMemoryKvStore EntityChunks { get; } = new();
@@ -122,6 +188,7 @@ public sealed class GraphCurationServiceTests
             Service = new GraphCurationService(
                 Graph,
                 VectorStore,
+                EmbeddingService,
                 FullEntities,
                 FullRelations,
                 EntityChunks,
@@ -135,5 +202,30 @@ public sealed class GraphCurationServiceTests
         }
 
         public static GraphCurationFixture Create() => new();
+    }
+
+    private sealed class FakeEmbeddingService : IEmbeddingService
+    {
+        public static readonly float[] Embedding = [0.25f, 0.75f];
+
+        public int EmbeddingDimension => Embedding.Length;
+
+        public int MaxTokenSize => 8192;
+
+        public Task<float[]> GenerateEmbeddingAsync(
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Embedding.ToArray());
+        }
+
+        public Task<float[][]> GenerateEmbeddingsAsync(
+            IEnumerable<string> texts,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(texts.Select(_ => Embedding.ToArray()).ToArray());
+        }
     }
 }

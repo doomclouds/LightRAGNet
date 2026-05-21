@@ -165,6 +165,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => new GraphCurationService(
             sp.GetRequiredService<IGraphStore>(),
             sp.GetRequiredService<IVectorStore>(),
+            sp.GetRequiredService<IEmbeddingService>(),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullEntities),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.FullRelations),
             sp.GetRequiredKeyedService<IKVStore>(KVContracts.EntityChunks),

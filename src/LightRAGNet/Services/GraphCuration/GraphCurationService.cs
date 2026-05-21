@@ -11,6 +11,7 @@ public sealed class GraphCurationService
 
     private readonly IGraphStore graphStore;
     private readonly IVectorStore vectorStore;
+    private readonly IEmbeddingService embeddingService;
     private readonly IKVStore fullEntitiesStore;
     private readonly IKVStore fullRelationsStore;
     private readonly IKVStore entityChunksStore;
@@ -21,6 +22,7 @@ public sealed class GraphCurationService
     public GraphCurationService(
         IGraphStore graphStore,
         IVectorStore vectorStore,
+        IEmbeddingService embeddingService,
         IKVStore fullEntitiesStore,
         IKVStore fullRelationsStore,
         IKVStore entityChunksStore,
@@ -30,6 +32,7 @@ public sealed class GraphCurationService
     {
         this.graphStore = graphStore;
         this.vectorStore = vectorStore;
+        this.embeddingService = embeddingService;
         this.fullEntitiesStore = fullEntitiesStore;
         this.fullRelationsStore = fullRelationsStore;
         this.entityChunksStore = entityChunksStore;
@@ -74,9 +77,10 @@ public sealed class GraphCurationService
         }
 
         var nodeData = BuildEntityData(entityName, request.EntityData);
+        var entityVector = await BuildEntityVectorDocumentAsync(entityName, nodeData, cancellationToken);
 
+        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
         await graphStore.UpsertNodeAsync(entityName, nodeData, cancellationToken);
-        await UpsertEntityVectorAsync(entityName, nodeData, cancellationToken);
         await UpsertEntityTrackingAsync(entityName, nodeData, cancellationToken);
         await UpsertFullEntityAsync(entityName, nodeData, cancellationToken);
         await bumpQueryRevisionAsync();
@@ -164,16 +168,27 @@ public sealed class GraphCurationService
         updatedData["entity_id"] = finalName;
         updatedData["entity_name"] = finalName;
 
+        var connectedEdges = renamed
+            ? await GetConnectedEdgesAsync(currentName, finalName, cancellationToken)
+            : [];
+        var entityVector = await BuildEntityVectorDocumentAsync(finalName, updatedData, cancellationToken);
+
+        await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
+
         if (renamed)
         {
+            await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
+            await UpsertRewiredEdgesAsync(connectedEdges, cancellationToken);
             await graphStore.DeleteNodeAsync(currentName, cancellationToken);
             await vectorStore.DeleteAsync(EntitiesCollection, [GraphCurationVectorIds.Entity(currentName)], cancellationToken);
             await fullEntitiesStore.DeleteAsync([currentName], cancellationToken);
             await entityChunksStore.DeleteAsync([currentName], cancellationToken);
         }
+        else
+        {
+            await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
+        }
 
-        await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
-        await UpsertEntityVectorAsync(finalName, updatedData, cancellationToken);
         await UpsertEntityTrackingAsync(finalName, updatedData, cancellationToken);
         await UpsertFullEntityAsync(finalName, updatedData, cancellationToken);
         await bumpQueryRevisionAsync();
@@ -209,19 +224,24 @@ public sealed class GraphCurationService
                 Renamed: false)));
     }
 
-    private async Task UpsertEntityVectorAsync(
+    private async Task<VectorDocument> BuildEntityVectorDocumentAsync(
         string entityName,
         Dictionary<string, object> entityData,
         CancellationToken cancellationToken)
     {
         var description = GetString(entityData, "description") ?? string.Empty;
+        var content = $"{entityName}\n{description}";
+        var embedding = await embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
 
-        var document = new VectorDocument
+        return new VectorDocument
         {
             Id = GraphCurationVectorIds.Entity(entityName),
-            Content = $"{entityName}\n{description}",
+            Content = content,
+            Vector = embedding,
             Metadata = new Dictionary<string, object>(StringComparer.Ordinal)
             {
+                ["id"] = GraphCurationVectorIds.Entity(entityName),
+                ["content"] = content,
                 ["entity_name"] = entityName,
                 ["source_id"] = GetString(entityData, "source_id") ?? string.Empty,
                 ["description"] = description,
@@ -229,8 +249,6 @@ public sealed class GraphCurationService
                 ["file_path"] = GetString(entityData, "file_path") ?? string.Empty
             }
         };
-
-        await vectorStore.UpsertAsync(EntitiesCollection, [document], cancellationToken);
     }
 
     private async Task UpsertEntityTrackingAsync(
@@ -306,4 +324,62 @@ public sealed class GraphCurationService
     {
         return data.TryGetValue(key, out var value) ? value?.ToString() : null;
     }
+
+    private async Task<List<RewiredEdge>> GetConnectedEdgesAsync(
+        string currentName,
+        string finalName,
+        CancellationToken cancellationToken)
+    {
+        var edgePairs = await graphStore.GetNodeEdgesAsync(currentName, cancellationToken);
+        var rewiredEdges = new List<RewiredEdge>();
+
+        foreach (var edgePair in edgePairs)
+        {
+            var edge = await graphStore.GetEdgeAsync(edgePair.SourceId, edgePair.TargetId, cancellationToken);
+            if (edge is null)
+            {
+                logger.LogWarning(
+                    "Connected edge {SourceId}->{TargetId} was listed but could not be loaded during entity rename.",
+                    edgePair.SourceId,
+                    edgePair.TargetId);
+                continue;
+            }
+
+            var rewiredSourceId = string.Equals(edgePair.SourceId, currentName, StringComparison.Ordinal)
+                ? finalName
+                : edgePair.SourceId;
+            var rewiredTargetId = string.Equals(edgePair.TargetId, currentName, StringComparison.Ordinal)
+                ? finalName
+                : edgePair.TargetId;
+
+            rewiredEdges.Add(new RewiredEdge(
+                rewiredSourceId,
+                rewiredTargetId,
+                edge.Properties.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.Ordinal)));
+        }
+
+        return rewiredEdges;
+    }
+
+    private async Task UpsertRewiredEdgesAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        foreach (var edge in edges)
+        {
+            await graphStore.UpsertEdgeAsync(
+                edge.SourceId,
+                edge.TargetId,
+                edge.Properties,
+                cancellationToken);
+        }
+    }
+
+    private sealed record RewiredEdge(
+        string SourceId,
+        string TargetId,
+        Dictionary<string, object> Properties);
 }
