@@ -27,9 +27,8 @@ public class RetrievalContextService(
     
     private readonly ILogger<RetrievalContextService> _logger = loggerFactory.CreateLogger<RetrievalContextService>();
     private readonly LightRAGOptions _options = options.Value;
-    private readonly TokenBudgetPlanner _tokenBudgetPlanner = new(tokenizer);
-    private readonly ChunkTokenLimiter _chunkTokenLimiter = new(tokenizer);
     private readonly ReferenceListBuilder _referenceListBuilder = new();
+    private readonly KgQueryContextBuilder _contextBuilder = new(tokenizer);
     /// <summary>
     /// Build query context
     /// Reference: operate.py _build_query_context function
@@ -75,20 +74,23 @@ public class RetrievalContextService(
             }
         }
         
-        // Build context string
-        var context = BuildContextString(searchResult, queryParam);
-        
-        var rawData = BuildRawData(searchResult, keywords, queryParam);
+        var contextResult = _contextBuilder.Build(searchResult, queryParam, query);
+        if (string.IsNullOrWhiteSpace(contextResult.Context))
+        {
+            return null;
+        }
+
+        var rawData = BuildRawData(contextResult, keywords, queryParam);
 
         return new QueryContextResult
         {
-            Context = context,
+            Context = contextResult.Context,
             RawData = rawData
         };
     }
 
     private static Dictionary<string, object> BuildRawData(
-        KGSearchResult searchResult,
+        KgQueryContextBuildResult contextResult,
         KeywordsResult keywords,
         QueryParam queryParam)
     {
@@ -96,7 +98,7 @@ public class RetrievalContextService(
         {
             ["data"] = new Dictionary<string, object>
             {
-                ["entities"] = searchResult.Entities.Select(entity => new Dictionary<string, object>
+                ["entities"] = contextResult.Entities.Select(entity => new Dictionary<string, object>
                 {
                     ["entity_name"] = entity.Name,
                     ["entity_type"] = entity.Type,
@@ -105,7 +107,7 @@ public class RetrievalContextService(
                     ["source_id"] = entity.SourceId ?? string.Empty,
                     ["file_path"] = entity.FilePath ?? string.Empty
                 }).ToList(),
-                ["relationships"] = searchResult.Relations.Select(relation => new Dictionary<string, object>
+                ["relationships"] = contextResult.Relations.Select(relation => new Dictionary<string, object>
                 {
                     ["src_id"] = relation.SourceId,
                     ["tgt_id"] = relation.TargetId,
@@ -115,14 +117,14 @@ public class RetrievalContextService(
                     ["weight"] = relation.Weight,
                     ["source_id"] = relation.RSourceId ?? string.Empty
                 }).ToList(),
-                ["chunks"] = searchResult.Chunks.Select(chunk => new Dictionary<string, object>
+                ["chunks"] = contextResult.Chunks.Select(chunk => new Dictionary<string, object>
                 {
                     ["chunk_id"] = chunk.ChunkId,
                     ["content"] = chunk.Content,
                     ["file_path"] = chunk.FilePath,
                     ["reference_id"] = chunk.ReferenceId
                 }).ToList(),
-                ["references"] = searchResult.References.Select((reference, index) => new Dictionary<string, object>
+                ["references"] = contextResult.References.Select((reference, index) => new Dictionary<string, object>
                 {
                     ["reference_id"] = string.IsNullOrEmpty(reference.ReferenceId)
                         ? (index + 1).ToString()
@@ -142,9 +144,9 @@ public class RetrievalContextService(
                 },
                 ["processing_info"] = new Dictionary<string, object>
                 {
-                    ["total_entities_found"] = searchResult.Entities.Count,
-                    ["total_relations_found"] = searchResult.Relations.Count,
-                    ["final_chunks_count"] = searchResult.Chunks.Count
+                    ["total_entities_found"] = contextResult.Entities.Count,
+                    ["total_relations_found"] = contextResult.Relations.Count,
+                    ["final_chunks_count"] = contextResult.Chunks.Count
                 }
             }
         };
@@ -259,19 +261,7 @@ public class RetrievalContextService(
         
         // Round-robin merge chunks (consistent with Python version _merge_all_chunks)
         var mergedChunks = MergeAllChunksRoundRobin(vectorChunks, entityChunks, relationChunks);
-        
-        // Apply token limit (apply uniformly after merging all chunks)
-        // Reference Python version: after _merge_all_chunks, chunks will apply token limit in _build_context_str
-        // But for consistency, we apply the limit here
-        var tokenBudgetPlan = _tokenBudgetPlanner.Plan(
-            maxTotalTokens: queryParam.MaxTotalTokens,
-            systemPrompt: string.Empty,
-            query: string.Empty,
-            knowledgeGraphContext: string.Empty,
-            reservedOutputTokens: queryParam.MaxEntityTokens + queryParam.MaxRelationTokens,
-            safetyBufferTokens: 0);
-        var finalChunks = _chunkTokenLimiter.Limit(mergedChunks, tokenBudgetPlan.AvailableChunkTokens);
-        
+
         // Log information consistent with Python version
         _logger.LogInformation(
             "Raw search results: {EntityCount} entities, {RelationCount} relations, {VectorChunkCount} vector chunks",
@@ -280,7 +270,7 @@ public class RetrievalContextService(
             vectorChunks.Count);
         
         // Generate reference list (reference Python version generate_reference_list_from_chunks function)
-        var (references, chunksWithRefIds) = _referenceListBuilder.Build(finalChunks);
+        var (references, chunksWithRefIds) = _referenceListBuilder.Build(mergedChunks);
         
         // Merge results
         searchResult.Chunks = chunksWithRefIds;
@@ -916,132 +906,4 @@ public class RetrievalContextService(
         return mergedChunks;
     }
     
-    private string BuildContextString(KGSearchResult searchResult, QueryParam queryParam)
-    {
-        var parts = new List<string>();
-        
-        // For mix mode, results are already merged in MixSearchStrategy, directly use LocalEntities
-        // For local and global modes, need to merge (although only one has data)
-        var allEntities = searchResult.Entities;
-        
-        // Entity data (apply token limit)
-        allEntities = allEntities
-            .Take(GetEntityCountByTokens(allEntities, queryParam.MaxEntityTokens))
-            .ToList();
-        
-        if (allEntities.Count > 0)
-        {
-            // Use concise text format instead of JSON to save tokens
-            var entitiesText = string.Join("\n", allEntities.Select(e => 
-                $"{e.Name} ({e.Type}): {e.Description}"));
-            
-            parts.Add($"Knowledge Graph Data (Entity):\n\n```\n{entitiesText}\n```");
-        }
-        
-        // For mix mode, results are already merged in MixSearchStrategy, directly use LocalRelations
-        // For local and global modes, need to merge (although only one has data)
-        var allRelations = searchResult.Relations;
-        
-        // Relationship data (apply token limit)
-        allRelations = allRelations
-            .Take(GetRelationCountByTokens(allRelations, queryParam.MaxRelationTokens))
-            .ToList();
-        
-        if (allRelations.Count > 0)
-        {
-            // Use concise text format instead of JSON to save tokens
-            var relationsText = string.Join("\n", allRelations.Select(r => 
-                $"{r.SourceId} -> {r.TargetId}: {r.Keywords} - {r.Description}"));
-            
-            parts.Add($"Knowledge Graph Data (Relationship):\n\n```\n{relationsText}\n```");
-        }
-        
-        // Document chunks
-        if (searchResult.Chunks.Count > 0)
-        {
-            // Build a mapping from file path to file name for chunks
-            var filePathToFileName = new Dictionary<string, string>();
-            foreach (var chunk in searchResult.Chunks)
-            {
-                if (!string.IsNullOrEmpty(chunk.FilePath) && !filePathToFileName.ContainsKey(chunk.FilePath))
-                {
-                    filePathToFileName[chunk.FilePath] = ReferenceListBuilder.ExtractFileName(chunk.FilePath);
-                }
-            }
-            
-            // Use concise text format with file name instead of reference_id
-            var chunksText = string.Join("\n\n", searchResult.Chunks.Select(c =>
-            {
-                var fileName = !string.IsNullOrEmpty(c.FilePath) && filePathToFileName.TryGetValue(c.FilePath, out var name)
-                    ? name
-                    : "unknown";
-                return $"[{fileName}]\n{c.Content}";
-            }));
-            
-            parts.Add($"Document Chunks (Each entry shows the file name in brackets, refer to the `Reference Document List` for file paths):\n\n```\n{chunksText}\n```");
-        }
-        
-        // Reference list
-        if (searchResult.References.Count > 0)
-        {
-            var refList = string.Join("\n", searchResult.References.Select((r, _) => 
-            {
-                // Extract file name from file path
-                var filePath = r.FilePath;
-                var fileName = ReferenceListBuilder.ExtractFileName(filePath);
-                
-                if (!string.IsNullOrEmpty(filePath) && (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-                {
-                    // Format as Markdown link: [FileName](URL)
-                    return $"[{fileName}]({filePath})";
-                }
-                // Fallback to original format if not a URL
-                return $"[{fileName}] {filePath}";
-            }));
-            
-            parts.Add($"Reference Document List (Each entry shows the file name and file path. Use the file name in citations, not reference_id):\n\n```\n{refList}\n```");
-        }
-        
-        return string.Join("\n\n", parts);
-    }
-    
-    private int GetEntityCountByTokens(IEnumerable<EntityData> entities, int maxTokens)
-    {
-        var count = 0;
-        var currentTokens = 0;
-        
-        foreach (var entity in entities)
-        {
-            // Calculate tokens based on actual text format used in context: "Name (Type): Description"
-            var entityText = $"{entity.Name} ({entity.Type}): {entity.Description}";
-            var tokens = tokenizer.CountTokens(entityText);
-            if (currentTokens + tokens > maxTokens)
-                break;
-            
-            count++;
-            currentTokens += tokens;
-        }
-        
-        return count;
-    }
-    
-    private int GetRelationCountByTokens(IEnumerable<RelationData> relations, int maxTokens)
-    {
-        var count = 0;
-        var currentTokens = 0;
-        
-        foreach (var relation in relations)
-        {
-            // Calculate tokens based on actual text format used in context: "Source -> Target: Keywords - Description"
-            var relationText = $"{relation.SourceId} -> {relation.TargetId}: {relation.Keywords} - {relation.Description}";
-            var tokens = tokenizer.CountTokens(relationText);
-            if (currentTokens + tokens > maxTokens)
-                break;
-            
-            count++;
-            currentTokens += tokens;
-        }
-        
-        return count;
-    }
 }

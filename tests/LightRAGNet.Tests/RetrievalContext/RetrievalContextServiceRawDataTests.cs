@@ -124,8 +124,17 @@ public sealed class RetrievalContextServiceRawDataTests
             CancellationToken.None);
 
         result.Should().NotBeNull();
+        result!.Context.Should().Contain("""{"entity":"Alpha","type":"Concept","description":"Alpha description"}""");
+        result.Context.Should().Contain("""{"entity1":"Alpha","entity2":"Beta","keywords":"depends on","description":"Alpha depends on Beta"}""");
+        result.Context.Should().Contain("""{"reference_id":"1","content":"chunk content"}""");
+        result.Context.Should().Contain("""{"reference_id":"2","content":"relationship chunk content"}""");
+        result.Context.Should().Contain("[1] docs/a.md");
+        result.Context.Should().Contain("[2] docs/b.md");
+        result.Context.Should().NotContain("Alpha (Concept): Alpha description");
+        result.Context.Should().NotContain("Alpha -> Beta: depends on - Alpha depends on Beta");
+        result.Context.Should().NotContain("[a.md]");
 
-        var data = result!.RawData["data"].Should().BeOfType<Dictionary<string, object>>().Subject;
+        var data = result.RawData["data"].Should().BeOfType<Dictionary<string, object>>().Subject;
         data.Should().ContainKeys("entities", "relationships", "chunks", "references");
 
         var entities = data["entities"].Should().BeAssignableTo<IEnumerable<Dictionary<string, object>>>().Subject;
