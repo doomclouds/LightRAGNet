@@ -377,11 +377,16 @@ public sealed class LightRAGQueryCacheIntegrationTests
             NullLogger<KnowledgeGraphMergeService>.Instance,
             loggerFactory);
 
+        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
+        var rerankCoordinator = new RerankCoordinator(
+            rerankService,
+            new RerankDocumentChunker(tokenizer, rerankOptions),
+            rerankOptions);
         var retrievalContextService = new RetrievalContextService(
             embeddingService,
             vectorStore,
             graphStore,
-            rerankService,
+            rerankCoordinator,
             tokenizer,
             textChunksStore,
             optionsMonitor,
@@ -401,7 +406,6 @@ public sealed class LightRAGQueryCacheIntegrationTests
             lifecycleService,
             NullLogger<DocumentDeletionService>.Instance);
 
-        var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
         var rag = new LightRAG(
             llmService,
             vectorStore,
@@ -410,10 +414,7 @@ public sealed class LightRAGQueryCacheIntegrationTests
             retrievalContextService,
             new NaiveQueryService(
                 vectorStore,
-                new RerankCoordinator(
-                    rerankService,
-                    new RerankDocumentChunker(tokenizer, rerankOptions),
-                    rerankOptions),
+                rerankCoordinator,
                 tokenizer),
             cacheService,
             tokenizer,
