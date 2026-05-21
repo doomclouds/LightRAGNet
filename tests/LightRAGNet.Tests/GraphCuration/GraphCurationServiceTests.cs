@@ -106,6 +106,52 @@ public sealed class GraphCurationServiceTests
     }
 
     [Fact]
+    public async Task EditEntityAsync_WhenTrackingExists_DoesNotUseStaleNodeSourceIdForTrackingOrFullEntityIndexes()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("stale-chunk", new() { ["full_doc_id"] = "stale-doc" });
+        fixture.TextChunks.Seed("real-chunk", new() { ["full_doc_id"] = "real-doc" });
+        fixture.FullEntities.Seed("stale-doc", new()
+        {
+            ["entity_names"] = new List<string> { "OTHER" },
+            ["count"] = 1
+        });
+        fixture.FullEntities.Seed("real-doc", new()
+        {
+            ["entity_names"] = new List<string> { "ALPHA", "OTHER" },
+            ["count"] = 2
+        });
+        fixture.EntityChunks.Seed("ALPHA", new()
+        {
+            ["chunk_ids"] = new List<string> { "real-chunk" },
+            ["count"] = 1
+        });
+        fixture.Graph.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_name"] = "ALPHA",
+            ["entity_type"] = "Concept",
+            ["description"] = "old",
+            ["source_id"] = "stale-chunk"
+        });
+
+        var result = await fixture.Service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["description"] = "new" },
+            AllowRename: true,
+            AllowMerge: false));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.EntityChunks.Items["ALPHA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "real-chunk" });
+        ReadStrings(fixture.FullEntities.Items["real-doc"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "ALPHA", "OTHER" });
+        ReadStrings(fixture.FullEntities.Items["stale-doc"], "entity_names")
+            .Should().BeEquivalentTo(new[] { "OTHER" });
+        fixture.FullEntities.Items["stale-doc"]["count"].Should().Be(1);
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
     public async Task EditEntityAsync_WhenRenameSucceeds_PreservesConnectedEdgesAndMovesEntityRecords()
     {
         var fixture = GraphCurationFixture.Create();
@@ -368,6 +414,51 @@ public sealed class GraphCurationServiceTests
             .Should().Contain("new-keyword");
         ReadRelationPairs(fixture.FullRelations.Items["doc-1"], "relation_pairs")
             .Should().BeEquivalentTo(new[] { new[] { "ALPHA", "BETA" } });
+        fixture.QueryRevisionBumps.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EditRelationAsync_WhenTrackingExists_DoesNotUseStaleEdgeSourceIdForTrackingOrFullRelationIndexes()
+    {
+        var fixture = GraphCurationFixture.Create();
+        fixture.TextChunks.Seed("stale-rel", new() { ["full_doc_id"] = "stale-doc" });
+        fixture.TextChunks.Seed("real-rel", new() { ["full_doc_id"] = "real-doc" });
+        fixture.Graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        fixture.Graph.SeedEdge("ALPHA", "BETA", new()
+        {
+            ["description"] = "old",
+            ["keywords"] = "old-keyword",
+            ["source_id"] = "stale-rel"
+        });
+        fixture.RelationChunks.Seed("ALPHA<SEP>BETA", new()
+        {
+            ["chunk_ids"] = new List<string> { "real-rel" },
+            ["count"] = 1
+        });
+        fixture.FullRelations.Seed("stale-doc", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "OTHER", "PAIR" } },
+            ["count"] = 1
+        });
+        fixture.FullRelations.Seed("real-doc", new()
+        {
+            ["relation_pairs"] = new List<string[]> { new[] { "ALPHA", "BETA" } },
+            ["count"] = 1
+        });
+
+        var result = await fixture.Service.EditRelationAsync(new GraphRelationEditRequest(
+            "BETA",
+            "ALPHA",
+            new Dictionary<string, object> { ["description"] = "new", ["keywords"] = "new-keyword" }));
+
+        result.Succeeded.Should().BeTrue();
+        fixture.RelationChunks.Items["ALPHA<SEP>BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "real-rel" });
+        ReadRelationPairs(fixture.FullRelations.Items["real-doc"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "ALPHA", "BETA" } });
+        ReadRelationPairs(fixture.FullRelations.Items["stale-doc"], "relation_pairs")
+            .Should().BeEquivalentTo(new[] { new[] { "OTHER", "PAIR" } });
+        fixture.FullRelations.Items["stale-doc"]["count"].Should().Be(1);
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 

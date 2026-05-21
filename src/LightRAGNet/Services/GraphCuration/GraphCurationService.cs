@@ -321,6 +321,10 @@ public sealed class GraphCurationService
         var connectedEdges = renamed
             ? await GetConnectedEdgesAsync(currentName, finalName, cancellationToken)
             : [];
+        var entityChunkIds = await CollectEntityChunkIdsAsync(currentName, updatedData, cancellationToken);
+        var connectedRelationChunkIds = renamed
+            ? await BuildRelationChunkOverridesByNewKeyAsync(connectedEdges, cancellationToken)
+            : new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         var entityVector = await BuildEntityVectorDocumentAsync(finalName, updatedData, cancellationToken);
         var relationVectors = renamed
             ? await CreateRelationVectorDocumentsAsync(connectedEdges, cancellationToken)
@@ -333,17 +337,17 @@ public sealed class GraphCurationService
             await graphStore.DeleteNodeAsync(currentName, cancellationToken);
             await entityChunksStore.DeleteAsync([currentName], cancellationToken);
             await DeleteOldRelationTrackingAsync(connectedEdges, cancellationToken);
-            await UpsertRelationTrackingAsync(connectedEdges, cancellationToken);
-            await UpsertFullEntityIndexAsync(finalName, updatedData, cancellationToken, currentName);
-            await UpsertFullRelationIndexesAsync(connectedEdges, cancellationToken);
+            await UpsertRelationTrackingAsync(connectedEdges, connectedRelationChunkIds, cancellationToken);
+            await UpsertFullEntityIndexAsync(finalName, entityChunkIds, cancellationToken, currentName);
+            await UpsertFullRelationIndexesAsync(connectedEdges, connectedRelationChunkIds, cancellationToken);
         }
         else
         {
             await graphStore.UpsertNodeAsync(finalName, updatedData, cancellationToken);
-            await UpsertFullEntityIndexAsync(finalName, updatedData, cancellationToken);
+            await UpsertFullEntityIndexAsync(finalName, entityChunkIds, cancellationToken);
         }
 
-        await UpsertEntityTrackingAsync(finalName, updatedData, cancellationToken);
+        await UpsertEntityTrackingAsync(finalName, entityChunkIds, cancellationToken);
         if (renamed)
         {
             await vectorStore.DeleteAsync(EntitiesCollection, [GraphCurationVectorIds.Entity(currentName)], cancellationToken);
@@ -783,6 +787,11 @@ public sealed class GraphCurationService
                     normalizedPair.Source,
                     normalizedPair.Target,
                     updatedData);
+                var relationChunkIds = await CollectRelationChunkIdsAsync(edge, cancellationToken);
+                var relationChunkOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+                {
+                    [GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId)] = relationChunkIds
+                };
                 var relationVector = await CreateRelationVectorDocumentAsync(edge, cancellationToken);
 
                 await graphStore.UpsertEdgeAsync(
@@ -790,8 +799,8 @@ public sealed class GraphCurationService
                     normalizedPair.Target,
                     updatedData,
                     cancellationToken);
-                await UpsertRelationTrackingAsync([edge], cancellationToken);
-                await UpsertFullRelationIndexesAsync([edge], cancellationToken);
+                await UpsertRelationTrackingAsync([edge], relationChunkOverrides, cancellationToken);
+                await UpsertFullRelationIndexesAsync([edge], relationChunkOverrides, cancellationToken);
                 await DeleteOldRelationVectorsAsync([edge], cancellationToken);
                 await UpsertRelationVectorsAsync([relationVector], cancellationToken);
                 await bumpQueryRevisionAsync();
@@ -928,11 +937,27 @@ public sealed class GraphCurationService
         IReadOnlyList<RewiredEdge> edges,
         CancellationToken cancellationToken)
     {
+        await UpsertFullRelationIndexesAsync(
+            edges,
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal),
+            cancellationToken);
+    }
+
+    private async Task UpsertFullRelationIndexesAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> relationChunkOverrides,
+        CancellationToken cancellationToken)
+    {
         var updates = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
 
         foreach (var edge in edges)
         {
-            var docIds = await ResolveFullDocIdsAsync(edge.Properties, cancellationToken);
+            var oldKey = GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId);
+            var newKey = GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId);
+            var chunkIds = relationChunkOverrides.TryGetValue(newKey, out var overrideChunkIds)
+                ? overrideChunkIds
+                : ExtractChunkIds(edge.Properties);
+            var docIds = await ResolveFullDocIdsAsync(chunkIds, cancellationToken);
             if (docIds.Count == 0)
             {
                 logger.LogDebug(
@@ -941,9 +966,6 @@ public sealed class GraphCurationService
                     edge.TargetId);
                 continue;
             }
-
-            var oldKey = GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId);
-            var newKey = GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId);
 
             foreach (var docId in docIds)
             {
@@ -1104,6 +1126,20 @@ public sealed class GraphCurationService
         }
 
         return ExtractChunkIds(edge.Properties);
+    }
+
+    private async Task<Dictionary<string, IReadOnlyList<string>>> BuildRelationChunkOverridesByNewKeyAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        var overrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var edge in edges)
+        {
+            overrides[GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId)] =
+                await CollectRelationChunkIdsAsync(edge, cancellationToken);
+        }
+
+        return overrides;
     }
 
     private static void AddUnique(List<string> target, IEnumerable<string> values)
@@ -1882,11 +1918,25 @@ public sealed class GraphCurationService
         IReadOnlyList<RewiredEdge> edges,
         CancellationToken cancellationToken)
     {
+        await UpsertRelationTrackingAsync(
+            edges,
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal),
+            cancellationToken);
+    }
+
+    private async Task UpsertRelationTrackingAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> relationChunkOverrides,
+        CancellationToken cancellationToken)
+    {
         var data = edges.ToDictionary(
             edge => GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId),
             edge =>
             {
-                var chunkIds = ExtractChunkIds(edge.Properties);
+                var relationKey = GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId);
+                var chunkIds = relationChunkOverrides.TryGetValue(relationKey, out var overrideChunkIds)
+                    ? overrideChunkIds.Distinct(StringComparer.Ordinal).ToList()
+                    : ExtractChunkIds(edge.Properties);
                 return new Dictionary<string, object>(StringComparer.Ordinal)
                 {
                     ["chunk_ids"] = chunkIds,
