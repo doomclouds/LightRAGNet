@@ -100,4 +100,38 @@ public sealed class ChatQuerySettingsModelTests
 
         message.References.Should().BeEmpty();
     }
+
+    [Fact]
+    public void CloneRequest_CopiesListsSoHistoryDoesNotFollowToolbarMutation()
+    {
+        var request = new RagQueryRequest
+        {
+            Query = "inspect retrieval",
+            Mode = QueryMode.Mix,
+            Stream = true,
+            IncludeReferences = true,
+            ResponseType = "Concise",
+            TopK = 5,
+            ChunkTopK = 3,
+            EnableRerank = true,
+            HighLevelKeywords = ["graph"],
+            LowLevelKeywords = ["chunk"],
+            OnlyNeedContext = false,
+            OnlyNeedPrompt = false
+        };
+
+        var clone = ChatQuerySettingsModel.CloneRequest(request);
+
+        clone.Should().NotBeSameAs(request);
+        clone.HighLevelKeywords.Should().NotBeSameAs(request.HighLevelKeywords);
+        clone.LowLevelKeywords.Should().NotBeSameAs(request.LowLevelKeywords);
+        clone.HighLevelKeywords.Should().Equal("graph");
+        clone.LowLevelKeywords.Should().Equal("chunk");
+
+        request.HighLevelKeywords.Add("mutated");
+        request.LowLevelKeywords.Add("changed");
+
+        clone.HighLevelKeywords.Should().Equal("graph");
+        clone.LowLevelKeywords.Should().Equal("chunk");
+    }
 }

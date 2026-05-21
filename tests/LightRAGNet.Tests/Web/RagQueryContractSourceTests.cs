@@ -50,6 +50,18 @@ public sealed class RagQueryContractSourceTests
         source.Should().Contain("public string FilePath { get; init; } = string.Empty;");
     }
 
+    [Fact]
+    public void RagQueryDataResponse_ExposesStructuredDataContract()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Share", "Models", "RagQueryDataResponse.cs");
+
+        source.Should().Contain("public sealed class RagQueryDataResponse");
+        source.Should().Contain("public string Status { get; init; } = \"success\";");
+        source.Should().Contain("public string Message { get; init; } = string.Empty;");
+        source.Should().Contain("public Dictionary<string, object> Data { get; init; } = [];");
+        source.Should().Contain("public Dictionary<string, object> Metadata { get; init; } = [];");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();

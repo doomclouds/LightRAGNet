@@ -4,6 +4,7 @@
 
 - [2026-05-21-document-intake-pipeline-parity-archives.md](./2026-05/2026-05-21-document-intake-pipeline-parity-archives.md): 将 Markdown/text 文档接入升级为带 `track_id`、后台队列、状态追踪、retry/cancel 和 Web 基础操作的 intake pipeline。
 - [2026-05-21-kg-context-builder-parity-archives.md](./2026-05/2026-05-21-kg-context-builder-parity-archives.md): 将 KG query context 收口到结构化 builder，统一 JSON section、`reference_id` 引用锚点和按最终输出形态计算的 token budget。
+- [2026-05-21-query-data-debug-panel-archives.md](./2026-05/2026-05-21-query-data-debug-panel-archives.md): 为每条 RAG Chat assistant 回复增加按需检索数据检查入口，用消息级请求快照查看 raw retrieval data 和 metadata。
 - [2026-05-21-rerank-chunking-parity-archives.md](./2026-05/2026-05-21-rerank-chunking-parity-archives.md): 将 Naive 和 KG Mix 的长 chunk rerank 对齐为 token 子片段打分、max-score 原始 chunk 聚合和 document-level topN。
 - [2026-05-20-chat-query-ui-adaptation-archives.md](./2026-05/2026-05-20-chat-query-ui-adaptation-archives.md): 将 Chat 升级为可选 query mode、Streaming/Cacheable、References 和 diagnostics 的查询工作台，并补齐共享请求/SSE metadata 合同。
 - [2026-05-20-indexing-llm-cache-parity-archives.md](./2026-05/2026-05-20-indexing-llm-cache-parity-archives.md): 将索引阶段 LLM cache 对齐为 `default:extract` / `default:summary` 合同，写入 chunk cache 引用并区分 extract 删除与 summary 保留语义。

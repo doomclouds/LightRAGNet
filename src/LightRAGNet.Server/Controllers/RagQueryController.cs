@@ -59,6 +59,80 @@ public class RagQueryController(
         }
     }
 
+    [HttpPost("data")]
+    [ProducesResponseType(typeof(RagQueryDataResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<RagQueryDataResponse>> QueryDataAsync(
+        [FromBody] RagQueryRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Query))
+        {
+            return BadRequest(new { error = "Query cannot be empty" });
+        }
+
+        try
+        {
+            var dataRequest = RagQueryRequestMapper.ForceRetrievalDataRequest(request);
+            dataRequest.Stream = false;
+            dataRequest.IncludeReferences = true;
+            dataRequest.OnlyNeedContext = true;
+            dataRequest.OnlyNeedPrompt = false;
+            var queryParam = RagQueryRequestMapper.ToQueryParam(dataRequest);
+            var queryResult = await lightRAG.QueryAsync(
+                dataRequest.Query,
+                queryParam,
+                cancellationToken);
+
+            var (data, metadata) = SplitRawData(queryResult.RawData);
+            var message = data.Count == 0 && metadata.Count == 0
+                ? "No retrieval data was returned."
+                : "Retrieval data returned.";
+
+            return Ok(new RagQueryDataResponse
+            {
+                Status = "success",
+                Message = message,
+                Data = data,
+                Metadata = metadata
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error retrieving query data: {Query}", request.Query);
+            return StatusCode(StatusCodes.Status500InternalServerError, new RagQueryDataResponse
+            {
+                Status = "failure",
+                Message = "Error retrieving query data."
+            });
+        }
+    }
+
+    internal static (Dictionary<string, object> Data, Dictionary<string, object> Metadata) SplitRawData(
+        Dictionary<string, object>? rawData)
+    {
+        if (rawData is null)
+        {
+            return ([], []);
+        }
+
+        var data = rawData.TryGetValue("data", out var dataValue) &&
+            dataValue is Dictionary<string, object> dataDictionary
+                ? dataDictionary
+                : [];
+
+        var metadata = rawData.TryGetValue("metadata", out var metadataValue) &&
+            metadataValue is Dictionary<string, object> metadataDictionary
+                ? metadataDictionary
+                : [];
+
+        return (data, metadata);
+    }
+
     private static async IAsyncEnumerable<RagQueryEvent> WrapQueryResultAsEventsAsync(
         RagQueryRequest request,
         QueryResult queryResult,

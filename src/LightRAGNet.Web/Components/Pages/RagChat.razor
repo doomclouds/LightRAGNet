@@ -6,6 +6,7 @@
 @using LightRAGNet.Web.Models
 @inject ApiClient ApiClient
 @inject ChatHistoryService ChatHistoryService
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
@@ -138,6 +139,22 @@
                                                         }
                                                     </MudExpansionPanel>
                                                 </MudExpansionPanels>
+                                            }
+                                            @if (CanShowRetrievalDataButton(chatMessage))
+                                            {
+                                                <div class="d-flex justify-end mt-2">
+                                                    <MudTooltip Text="查看这次回复使用的实体、关系、文本片段和引用。">
+                                                        <span>
+                                                            <MudButton Variant="Variant.Text"
+                                                                       Size="Size.Small"
+                                                                       StartIcon="@Icons.Material.Filled.ManageSearch"
+                                                                       Disabled="@chatMessage.IsLoadingRetrievalData"
+                                                                       OnClick="@(() => LoadRetrievalDataAsync(chatMessage))">
+                                                                查看检索数据
+                                                            </MudButton>
+                                                        </span>
+                                                    </MudTooltip>
+                                                </div>
                                             }
                                         }
                                         else
@@ -428,6 +445,7 @@
             HighLevelKeywords = [.. request.HighLevelKeywords],
             LowLevelKeywords = [.. request.LowLevelKeywords]
         };
+        assistantMessage.RetrievalDataRequest = ChatQuerySettingsModel.CloneRequest(request);
         _chatHistory.Add(assistantMessage);
         ChatHistoryService.AddMessage(assistantMessage);
         
@@ -529,6 +547,66 @@
             && (message.Diagnostics.Count > 0
                 || message.HighLevelKeywords.Count > 0
                 || message.LowLevelKeywords.Count > 0);
+    }
+
+    private static bool CanShowRetrievalDataButton(ChatMessageModel message)
+    {
+        return message is
+        {
+            Role: "Assistant",
+            IsComplete: true,
+            RetrievalDataRequest: not null,
+            Mode: not null
+        } && message.Mode != QueryMode.Bypass;
+    }
+
+    private async Task LoadRetrievalDataAsync(ChatMessageModel chatMessage)
+    {
+        var message = chatMessage;
+        if (message.RetrievalDataRequest is null || message.IsLoadingRetrievalData)
+        {
+            return;
+        }
+
+        message.IsLoadingRetrievalData = true;
+        message.RetrievalDataError = null;
+        StateHasChanged();
+
+        try
+        {
+            message.RetrievalData = await ApiClient.GetRagQueryDataAsync(message.RetrievalDataRequest,
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            message.RetrievalDataError = ex.Message;
+            Snackbar.Add($"Retrieval data failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            message.IsLoadingRetrievalData = false;
+            await OpenRetrievalDataDialog(chatMessage);
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenRetrievalDataDialog(ChatMessageModel message)
+    {
+        var parameters = new DialogParameters
+        {
+            ["RetrievalData"] = message.RetrievalData,
+            ["Query"] = message.RetrievalDataRequest?.Query,
+            ["ErrorMessage"] = message.RetrievalDataError
+        };
+
+        var options = new DialogOptions
+        {
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large,
+            CloseButton = true
+        };
+
+        await DialogService.ShowAsync<RagQueryDataDialog>("Retrieval Data", parameters, options);
     }
 
     private void ClearChatHistory()

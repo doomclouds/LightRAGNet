@@ -43,6 +43,27 @@ public sealed class ChatQuerySettingsModel
         };
     }
 
+    public static RagQueryRequest CloneRequest(RagQueryRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new RagQueryRequest
+        {
+            Query = request.Query,
+            Mode = request.Mode,
+            Stream = request.Stream,
+            IncludeReferences = request.IncludeReferences,
+            ResponseType = request.ResponseType,
+            TopK = request.TopK,
+            ChunkTopK = request.ChunkTopK,
+            EnableRerank = request.EnableRerank,
+            HighLevelKeywords = [.. request.HighLevelKeywords],
+            LowLevelKeywords = [.. request.LowLevelKeywords],
+            OnlyNeedContext = request.OnlyNeedContext,
+            OnlyNeedPrompt = request.OnlyNeedPrompt
+        };
+    }
+
     public static List<string> ParseKeywords(string value)
     {
         return value

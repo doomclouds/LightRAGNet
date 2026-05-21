@@ -43,6 +43,45 @@ public sealed class RagQueryRequestMapperTests
     }
 
     [Fact]
+    public void ForceRetrievalDataRequest_PreservesRetrievalOptionsAndForcesDebugFlags()
+    {
+        var request = new RagQueryRequest
+        {
+            Query = "explain indexing",
+            Mode = QueryMode.Hybrid,
+            Stream = true,
+            IncludeReferences = false,
+            ResponseType = "Bullet Points",
+            TopK = 11,
+            ChunkTopK = 7,
+            EnableRerank = false,
+            HighLevelKeywords = ["index"],
+            LowLevelKeywords = ["chunk"],
+            OnlyNeedContext = false,
+            OnlyNeedPrompt = true
+        };
+
+        var forced = RagQueryRequestMapper.ForceRetrievalDataRequest(request);
+
+        forced.Should().NotBeSameAs(request);
+        forced.Query.Should().Be("explain indexing");
+        forced.Mode.Should().Be(QueryMode.Hybrid);
+        forced.Stream.Should().BeFalse();
+        forced.IncludeReferences.Should().BeTrue();
+        forced.ResponseType.Should().Be("Bullet Points");
+        forced.TopK.Should().Be(11);
+        forced.ChunkTopK.Should().Be(7);
+        forced.EnableRerank.Should().BeFalse();
+        forced.HighLevelKeywords.Should().Equal("index");
+        forced.LowLevelKeywords.Should().Equal("chunk");
+        forced.OnlyNeedContext.Should().BeTrue();
+        forced.OnlyNeedPrompt.Should().BeFalse();
+
+        request.HighLevelKeywords.Add("mutated");
+        forced.HighLevelKeywords.Should().Equal("index");
+    }
+
+    [Fact]
     public void ToMetadataEvent_UsesRequestAndQueryResult()
     {
         var request = new RagQueryRequest

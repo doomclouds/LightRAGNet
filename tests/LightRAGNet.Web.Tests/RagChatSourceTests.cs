@@ -76,6 +76,49 @@ public sealed class RagChatSourceTests
         source.Should().Contain("ChatQuerySettingsModel.ApplyMetadata(assistantMessage, metadataEvent)");
     }
 
+    [Fact]
+    public void RagChat_WiresMessageLevelRetrievalDataAction()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
+
+        source.Should().Contain("@inject IDialogService DialogService");
+        source.Should().Contain("查看检索数据");
+        source.Should().Contain("CanShowRetrievalDataButton(chatMessage)");
+        source.Should().Contain("LoadRetrievalDataAsync(chatMessage)");
+        source.Should().Contain("OpenRetrievalDataDialog(chatMessage)");
+        source.Should().Contain("assistantMessage.RetrievalDataRequest = ChatQuerySettingsModel.CloneRequest(request);");
+        source.Should().Contain("message.Mode != QueryMode.Bypass");
+        source.Should().Contain("await ApiClient.GetRagQueryDataAsync(message.RetrievalDataRequest");
+    }
+
+    [Fact]
+    public void RagQueryDataDialog_RendersGroupedRetrievalDataSections()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagQueryDataDialog.razor");
+
+        source.Should().Contain("@using System.Text.Json");
+        source.Should().Contain("[CascadingParameter] IMudDialogInstance MudDialog");
+        source.Should().Contain("[Parameter] public RagQueryDataResponse? RetrievalData { get; set; }");
+        source.Should().Contain("Entities");
+        source.Should().Contain("Relationships");
+        source.Should().Contain("Chunks");
+        source.Should().Contain("References");
+        source.Should().Contain("Metadata");
+        source.Should().Contain("Raw JSON");
+        source.Should().Contain("SerializeSection");
+        source.Should().Contain("LightRAGJsonOptions.HumanReadableIndented");
+        source.Should().Contain("<pre");
+        source.Should().Contain("retrieval-data-json");
+        source.Should().Contain("white-space: pre-wrap;");
+        source.Should().Contain("overflow-x: auto;");
+        source.Should().Contain("max-width: 100%;");
+        source.Should().Contain("overflow-wrap: anywhere;");
+        source.Should().Contain("ErrorMessage");
+        source.Should().Contain("No retrieval data returned for this response.");
+        source.Should().Contain("Query");
+        source.Should().Contain("MudDialog.Close()");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();

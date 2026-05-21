@@ -29,6 +29,27 @@ public static class RagQueryRequestMapper
         };
     }
 
+    public static RagQueryRequest ForceRetrievalDataRequest(RagQueryRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new RagQueryRequest
+        {
+            Query = request.Query,
+            Mode = request.Mode,
+            Stream = false,
+            IncludeReferences = true,
+            ResponseType = request.ResponseType,
+            TopK = request.TopK,
+            ChunkTopK = request.ChunkTopK,
+            EnableRerank = request.EnableRerank,
+            HighLevelKeywords = NormalizeKeywords(request.HighLevelKeywords),
+            LowLevelKeywords = NormalizeKeywords(request.LowLevelKeywords),
+            OnlyNeedContext = true,
+            OnlyNeedPrompt = false
+        };
+    }
+
     public static QueryMetadataEvent ToMetadataEvent(RagQueryRequest request, QueryResult result)
     {
         ArgumentNullException.ThrowIfNull(request);
