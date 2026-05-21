@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
@@ -80,6 +81,139 @@ public sealed class GraphControllerTests
         body!.Succeeded.Should().BeTrue();
         body.Status.Should().Be("success");
         graphStore.GetSeededEdge("ALPHA", "BETA").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task EditEntity_WhenEntityMissing_ReturnsNotFound()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.PatchAsJsonAsync(
+            "/api/graph/entity/ALPHA",
+            new GraphEntityEditDto(new Dictionary<string, object>
+            {
+                ["description"] = "Updated alpha"
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("not_found");
+    }
+
+    [Fact]
+    public async Task CreateEntity_WhenDuplicate_ReturnsConflict()
+    {
+        var graphStore = new InMemoryGraphStore();
+        graphStore.SeedNode("ALPHA", new()
+        {
+            ["entity_id"] = "ALPHA",
+            ["entity_name"] = "ALPHA",
+            ["description"] = "Existing alpha"
+        });
+
+        await using var factory = CreateFactory(graphStore);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/graph/entity",
+            new GraphEntityCreateDto(
+                EntityName: "ALPHA",
+                EntityData: new Dictionary<string, object>
+                {
+                    ["description"] = "Duplicate alpha"
+                }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("conflict");
+    }
+
+    [Fact]
+    public async Task DeleteRelation_WhenQueryMissing_ReturnsBadRequest()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/graph/relation?source=&target=BETA");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("validation_error");
+    }
+
+    [Fact]
+    public async Task Labels_ReturnsPopularLabels()
+    {
+        var graphStore = new InMemoryGraphStore
+        {
+            PopularLabels = ["BETA", "ALPHA"]
+        };
+
+        await using var factory = CreateFactory(graphStore);
+        var client = factory.CreateClient();
+
+        var labels = await client.GetFromJsonAsync<List<string>>("/api/graph/labels");
+
+        labels.Should().Equal("BETA", "ALPHA");
+        graphStore.PopularLabelsCalls.Should().ContainSingle().Which.Should().Be(300);
+        graphStore.AllLabelsCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DeleteEntity_WhenMissing_ReturnsNotFound()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/graph/entity/ALPHA");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("not_found");
+    }
+
+    [Fact]
+    public async Task CreateEntity_WhenBodyIsNull_ReturnsValidationResponse()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        using var content = new StringContent("null", Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("/api/graph/entity", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("validation_error");
+    }
+
+    [Fact]
+    public async Task CreateEntity_WhenEntityDataMissing_ReturnsValidationResponse()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/graph/entity", new
+        {
+            EntityName = "ALPHA"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await ReadCurationResponseAsync(response);
+        body.Succeeded.Should().BeFalse();
+        body.Status.Should().Be("validation_error");
+    }
+
+    private static async Task<GraphCurationResponse> ReadCurationResponseAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadFromJsonAsync<GraphCurationResponse>();
+        body.Should().NotBeNull();
+        return body!;
     }
 
     private static LightRagServerFactory CreateFactory(InMemoryGraphStore? graphStore = null)
@@ -231,6 +365,10 @@ public sealed class GraphControllerTests
     {
         private readonly Dictionary<string, GraphNode> nodes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, GraphEdge> edges = new(StringComparer.Ordinal);
+
+        public List<string> PopularLabels { get; set; } = [];
+        public List<int> PopularLabelsCalls { get; } = [];
+        public int AllLabelsCallCount { get; private set; }
 
         public void SeedNode(string nodeId, Dictionary<string, object> properties)
         {
@@ -390,6 +528,7 @@ public sealed class GraphControllerTests
         public Task<List<string>> GetAllLabelsAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            AllLabelsCallCount++;
             return Task.FromResult(nodes.Keys.Order(StringComparer.Ordinal).ToList());
         }
 
@@ -398,7 +537,12 @@ public sealed class GraphControllerTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(nodes.Keys.Order(StringComparer.Ordinal).Take(limit).ToList());
+            PopularLabelsCalls.Add(limit);
+            var labels = PopularLabels.Count > 0
+                ? PopularLabels
+                : nodes.Keys.Order(StringComparer.Ordinal).Take(limit).ToList();
+
+            return Task.FromResult(labels.Take(limit).ToList());
         }
 
         public Task<Dictionary<string, GraphNode>> GetNodesBatchAsync(
