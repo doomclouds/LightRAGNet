@@ -277,6 +277,11 @@
         var oldStatus = ApplyTaskStatusUpdate(update);
         if (oldStatus is null)
         {
+            if (ShouldRefreshForMissingTaskStatus(update, _selectedStatusFilter))
+            {
+                await RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized);
+            }
+
             return;
         }
 
@@ -667,6 +672,14 @@
 
         return update.Status is "Completed" or "Failed" &&
                oldStatus is "Processing" or "Pending";
+    }
+
+    private static bool ShouldRefreshForMissingTaskStatus(
+        TaskStatusUpdate update,
+        string? selectedStatusFilter)
+    {
+        return !string.IsNullOrWhiteSpace(selectedStatusFilter) &&
+               NormalizeFilterStatus(update.Status) == NormalizeFilterStatus(selectedStatusFilter);
     }
 
     private static string? NormalizeFilterStatus(string? status)

@@ -86,6 +86,27 @@ public sealed class MarkdownDocumentsSourceTests
     }
 
     [Fact]
+    public void MarkdownDocuments_StatusFilter_ReloadsWhenMissingTaskUpdateMatchesFilter()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+        var indexHandlerStart = source.IndexOf(
+            "private async Task HandleIndexTaskStatusUpdateAsync",
+            StringComparison.Ordinal);
+        var serverReloadStart = source.IndexOf(
+            "private async Task<TableData<MarkdownDocumentDto>> ServerReload",
+            StringComparison.Ordinal);
+        var missingStatusRefresh = source.IndexOf(
+            "ShouldRefreshForMissingTaskStatus(update, _selectedStatusFilter)",
+            StringComparison.Ordinal);
+
+        indexHandlerStart.Should().BeGreaterThanOrEqualTo(0);
+        serverReloadStart.Should().BeGreaterThan(indexHandlerStart);
+        missingStatusRefresh.Should().BeGreaterThan(indexHandlerStart);
+        missingStatusRefresh.Should().BeLessThan(serverReloadStart);
+        source.Should().Contain("NormalizeFilterStatus(update.Status) == NormalizeFilterStatus(selectedStatusFilter)");
+    }
+
+    [Fact]
     public void MarkdownDocuments_PipelineActions_AreAvailableForEligibleStatuses()
     {
         var source = NormalizeLineEndings(ReadPageSource());
