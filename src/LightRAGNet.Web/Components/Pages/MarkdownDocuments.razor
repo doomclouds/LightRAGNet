@@ -280,7 +280,7 @@
             return;
         }
 
-        if (ShouldRefreshForTaskStatus(update, oldStatus))
+        if (ShouldRefreshForTaskStatus(update, oldStatus, _selectedStatusFilter))
         {
             await RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized);
             return;
@@ -654,10 +654,24 @@
         return oldStatus;
     }
 
-    private static bool ShouldRefreshForTaskStatus(TaskStatusUpdate update, string? oldStatus)
+    private static bool ShouldRefreshForTaskStatus(
+        TaskStatusUpdate update,
+        string? oldStatus,
+        string? selectedStatusFilter)
     {
+        if (!string.IsNullOrWhiteSpace(selectedStatusFilter) &&
+            NormalizeFilterStatus(oldStatus) != NormalizeFilterStatus(update.Status))
+        {
+            return true;
+        }
+
         return update.Status is "Completed" or "Failed" &&
                oldStatus is "Processing" or "Pending";
+    }
+
+    private static string? NormalizeFilterStatus(string? status)
+    {
+        return status == "Pending" ? "Queued" : status;
     }
 
     private void ApplyAddToRagResult(int id, MarkdownDocumentDto document)

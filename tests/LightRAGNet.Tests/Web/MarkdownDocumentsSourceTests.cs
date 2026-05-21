@@ -39,7 +39,7 @@ public sealed class MarkdownDocumentsSourceTests
         var source = NormalizeLineEndings(ReadPageSource());
 
         source.Should().Contain("ApplyTaskStatusUpdate(update)");
-        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus)");
+        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus, _selectedStatusFilter)");
         source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.TaskStatusFinalized)");
     }
 
@@ -73,6 +73,16 @@ public sealed class MarkdownDocumentsSourceTests
         source.Should().Contain("private string? _selectedStatusFilter;");
         source.Should().Contain("Value=\"_selectedStatusFilter\"");
         source.Should().Contain("GetMarkdownDocumentsAsync(state.Page + 1, state.PageSize, cancellationToken, status: _selectedStatusFilter)");
+    }
+
+    [Fact]
+    public void MarkdownDocuments_StatusFilter_ReloadsWhenTaskStatusCrossesFilterBoundary()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("ShouldRefreshForTaskStatus(update, oldStatus, _selectedStatusFilter)");
+        source.Should().Contain("!string.IsNullOrWhiteSpace(selectedStatusFilter)");
+        source.Should().Contain("NormalizeFilterStatus(oldStatus) != NormalizeFilterStatus(update.Status)");
     }
 
     [Fact]
