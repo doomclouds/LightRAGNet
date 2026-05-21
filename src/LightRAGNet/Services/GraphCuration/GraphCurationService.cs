@@ -1,5 +1,6 @@
 using System.Globalization;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Services.DocumentDeletion;
 using Microsoft.Extensions.Logging;
 
 namespace LightRAGNet.Services.GraphCuration;
@@ -7,6 +8,7 @@ namespace LightRAGNet.Services.GraphCuration;
 public sealed class GraphCurationService
 {
     private const string EntitiesCollection = "entities";
+    private const string RelationshipsCollection = "relationships";
     private const string SourceSeparator = "<SEP>";
 
     private readonly IGraphStore graphStore;
@@ -172,6 +174,9 @@ public sealed class GraphCurationService
             ? await GetConnectedEdgesAsync(currentName, finalName, cancellationToken)
             : [];
         var entityVector = await BuildEntityVectorDocumentAsync(finalName, updatedData, cancellationToken);
+        var relationVectors = renamed
+            ? await CreateRelationVectorDocumentsAsync(connectedEdges, cancellationToken)
+            : [];
 
         await vectorStore.UpsertAsync(EntitiesCollection, [entityVector], cancellationToken);
 
@@ -181,8 +186,12 @@ public sealed class GraphCurationService
             await UpsertRewiredEdgesAsync(connectedEdges, cancellationToken);
             await graphStore.DeleteNodeAsync(currentName, cancellationToken);
             await vectorStore.DeleteAsync(EntitiesCollection, [GraphCurationVectorIds.Entity(currentName)], cancellationToken);
+            await DeleteOldRelationVectorsAsync(connectedEdges, cancellationToken);
+            await UpsertRelationVectorsAsync(relationVectors, cancellationToken);
             await fullEntitiesStore.DeleteAsync([currentName], cancellationToken);
             await entityChunksStore.DeleteAsync([currentName], cancellationToken);
+            await DeleteOldRelationTrackingAsync(connectedEdges, cancellationToken);
+            await UpsertRelationTrackingAsync(connectedEdges, cancellationToken);
         }
         else
         {
@@ -325,6 +334,50 @@ public sealed class GraphCurationService
         return data.TryGetValue(key, out var value) ? value?.ToString() : null;
     }
 
+    private async Task<List<VectorDocument>> CreateRelationVectorDocumentsAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        var documents = new List<VectorDocument>();
+        foreach (var edge in edges)
+        {
+            documents.Add(await CreateRelationVectorDocumentAsync(edge, cancellationToken));
+        }
+
+        return documents;
+    }
+
+    private async Task<VectorDocument> CreateRelationVectorDocumentAsync(
+        RewiredEdge edge,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPair = GraphCurationVectorIds.NormalizePair(edge.SourceId, edge.TargetId);
+        var description = GetString(edge.Properties, "description") ?? string.Empty;
+        var keywords = GetString(edge.Properties, "keywords") ?? string.Empty;
+        var content = $"{normalizedPair.Source}\n{normalizedPair.Target}\n{keywords}\n{description}";
+        var vectorId = GraphCurationVectorIds.Relation(normalizedPair.Source, normalizedPair.Target);
+        var embedding = await embeddingService.GenerateEmbeddingAsync(content, cancellationToken);
+
+        return new VectorDocument
+        {
+            Id = vectorId,
+            Content = content,
+            Vector = embedding,
+            Metadata = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["id"] = vectorId,
+                ["content"] = content,
+                ["src_id"] = normalizedPair.Source,
+                ["tgt_id"] = normalizedPair.Target,
+                ["source_id"] = GetString(edge.Properties, "source_id") ?? string.Empty,
+                ["description"] = description,
+                ["keywords"] = keywords,
+                ["weight"] = GetDouble(edge.Properties, "weight"),
+                ["file_path"] = GetString(edge.Properties, "file_path") ?? string.Empty
+            }
+        };
+    }
+
     private async Task<List<RewiredEdge>> GetConnectedEdgesAsync(
         string currentName,
         string finalName,
@@ -353,6 +406,8 @@ public sealed class GraphCurationService
                 : edgePair.TargetId;
 
             rewiredEdges.Add(new RewiredEdge(
+                edgePair.SourceId,
+                edgePair.TargetId,
                 rewiredSourceId,
                 rewiredTargetId,
                 edge.Properties.ToDictionary(
@@ -378,7 +433,103 @@ public sealed class GraphCurationService
         }
     }
 
+    private async Task DeleteOldRelationVectorsAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        var ids = edges
+            .SelectMany(edge => GraphCurationVectorIds.RelationIds(edge.OriginalSourceId, edge.OriginalTargetId))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        await vectorStore.DeleteAsync(RelationshipsCollection, ids, cancellationToken);
+    }
+
+    private async Task UpsertRelationVectorsAsync(
+        IReadOnlyList<VectorDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        if (documents.Count == 0)
+        {
+            return;
+        }
+
+        await vectorStore.UpsertAsync(RelationshipsCollection, documents, cancellationToken);
+    }
+
+    private async Task DeleteOldRelationTrackingAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        var keys = edges
+            .Select(edge => GraphSourceReferenceParser.MakeRelationKey(edge.OriginalSourceId, edge.OriginalTargetId))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (keys.Count == 0)
+        {
+            return;
+        }
+
+        await relationChunksStore.DeleteAsync(keys, cancellationToken);
+    }
+
+    private async Task UpsertRelationTrackingAsync(
+        IReadOnlyList<RewiredEdge> edges,
+        CancellationToken cancellationToken)
+    {
+        var data = edges.ToDictionary(
+            edge => GraphSourceReferenceParser.MakeRelationKey(edge.SourceId, edge.TargetId),
+            edge =>
+            {
+                var chunkIds = ExtractChunkIds(edge.Properties);
+                return new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["chunk_ids"] = chunkIds,
+                    ["count"] = chunkIds.Count
+                };
+            },
+            StringComparer.Ordinal);
+
+        if (data.Count == 0)
+        {
+            return;
+        }
+
+        await relationChunksStore.UpsertAsync(data, cancellationToken);
+    }
+
+    private static double GetDouble(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value) || value is null)
+        {
+            return 0;
+        }
+
+        return value switch
+        {
+            double typed => typed,
+            float typed => typed,
+            decimal typed => (double)typed,
+            int typed => typed,
+            long typed => typed,
+            _ when double.TryParse(
+                value.ToString(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var parsed) => parsed,
+            _ => 0
+        };
+    }
+
     private sealed record RewiredEdge(
+        string OriginalSourceId,
+        string OriginalTargetId,
         string SourceId,
         string TargetId,
         Dictionary<string, object> Properties);

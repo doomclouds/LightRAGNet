@@ -104,12 +104,30 @@ public sealed class GraphCurationServiceTests
             ["source_id"] = "chunk-a",
             ["file_path"] = "doc.md"
         });
+        fixture.Graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
         fixture.Graph.SeedNode("GAMMA", new() { ["entity_id"] = "GAMMA", ["description"] = "gamma" });
         fixture.Graph.SeedEdge("ALPHA", "GAMMA", new()
         {
             ["description"] = "related",
-            ["source_id"] = "chunk-r",
-            ["weight"] = 1
+            ["keywords"] = "uses",
+            ["source_id"] = "chunk-r<SEP>chunk-s",
+            ["weight"] = 1.25,
+            ["file_path"] = "rel.md"
+        });
+        var oldRelationKey = "ALPHA<SEP>GAMMA";
+        var newRelationKey = "BETA_RENAMED<SEP>GAMMA";
+        var oldRelationVectorId = GraphCurationVectorIds.Relation("ALPHA", "GAMMA");
+        var newRelationVectorId = GraphCurationVectorIds.Relation("BETA_RENAMED", "GAMMA");
+        fixture.VectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = oldRelationVectorId,
+            Content = "ALPHA\nGAMMA\nuses\nrelated",
+            Vector = [1.0f],
+            Metadata = new Dictionary<string, object>
+            {
+                ["src_id"] = "ALPHA",
+                ["tgt_id"] = "GAMMA"
+            }
         });
         fixture.VectorStore.Seed("entities", new VectorDocument
         {
@@ -124,25 +142,38 @@ public sealed class GraphCurationServiceTests
             ["chunk_ids"] = new List<string> { "chunk-a" },
             ["count"] = 1
         });
+        fixture.RelationChunks.Seed(oldRelationKey, new()
+        {
+            ["chunk_ids"] = new List<string> { "chunk-r", "chunk-s" },
+            ["count"] = 2
+        });
 
         var result = await fixture.Service.EditEntityAsync(new GraphEntityEditRequest(
             "ALPHA",
-            new Dictionary<string, object> { ["entity_name"] = "BETA" },
+            new Dictionary<string, object> { ["entity_name"] = "BETA_RENAMED" },
             AllowRename: true,
             AllowMerge: false));
 
         result.Succeeded.Should().BeTrue();
         fixture.Graph.GetSeededNode("ALPHA").Should().BeNull();
-        fixture.Graph.GetSeededNode("BETA")!.Properties["entity_id"].Should().Be("BETA");
+        fixture.Graph.GetSeededNode("BETA_RENAMED")!.Properties["entity_id"].Should().Be("BETA_RENAMED");
         fixture.Graph.GetSeededEdge("ALPHA", "GAMMA").Should().BeNull();
-        fixture.Graph.GetSeededEdge("BETA", "GAMMA")!.Properties["description"].Should().Be("related");
+        fixture.Graph.GetSeededEdge("BETA_RENAMED", "GAMMA")!.Properties["description"].Should().Be("related");
         fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("ALPHA")).Should().BeNull();
-        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("BETA"))!.Vector
+        fixture.VectorStore.Get("entities", GraphCurationVectorIds.Entity("BETA_RENAMED"))!.Vector
             .Should().Equal(FakeEmbeddingService.Embedding);
+        fixture.VectorStore.Get("relationships", oldRelationVectorId).Should().BeNull();
+        var newRelationVector = fixture.VectorStore.Get("relationships", newRelationVectorId);
+        newRelationVector.Should().NotBeNull();
+        newRelationVector!.Vector.Should().Equal(FakeEmbeddingService.Embedding);
+        newRelationVector.Metadata["src_id"].Should().Be("BETA_RENAMED");
+        newRelationVector.Metadata["tgt_id"].Should().Be("GAMMA");
         fixture.FullEntities.Items.Should().NotContainKey("ALPHA");
-        fixture.FullEntities.Items.Should().ContainKey("BETA");
+        fixture.FullEntities.Items.Should().ContainKey("BETA_RENAMED");
         fixture.EntityChunks.Items.Should().NotContainKey("ALPHA");
-        fixture.EntityChunks.Items["BETA"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
+        fixture.EntityChunks.Items["BETA_RENAMED"]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-a" });
+        fixture.RelationChunks.Items.Should().NotContainKey(oldRelationKey);
+        fixture.RelationChunks.Items[newRelationKey]["chunk_ids"].Should().BeEquivalentTo(new[] { "chunk-r", "chunk-s" });
         fixture.QueryRevisionBumps.Should().Be(1);
     }
 
