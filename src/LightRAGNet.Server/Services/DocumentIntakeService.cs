@@ -96,6 +96,47 @@ public sealed class DocumentIntakeService(
         };
     }
 
+    public async Task<DocumentSubmissionResponse> SubmitUploadedFilesAsync(
+        IReadOnlyList<IFormFile> files,
+        CancellationToken cancellationToken)
+    {
+        if (files.Count == 0)
+        {
+            throw new ArgumentException("At least one file is required.", nameof(files));
+        }
+
+        var documents = new List<TextDocumentInput>(files.Count);
+        foreach (var file in files)
+        {
+            if (file.Length == 0)
+            {
+                throw new ArgumentException("File cannot be empty.", nameof(files));
+            }
+
+            var extension = Path.GetExtension(file.FileName);
+            if (!IsSupportedUploadExtension(extension))
+            {
+                throw new ArgumentException("Only .md, .markdown, or .txt files are supported.", nameof(files));
+            }
+
+            await using var stream = file.OpenReadStream();
+            using var reader = new StreamReader(
+                stream,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true);
+
+            documents.Add(new TextDocumentInput
+            {
+                FileName = file.FileName,
+                Content = await reader.ReadToEndAsync(cancellationToken)
+            });
+        }
+
+        return await SubmitTextDocumentsAsync(
+            new SubmitTextDocumentsRequest { Documents = documents },
+            cancellationToken);
+    }
+
     public async Task<DocumentTrackStatusResponse?> GetTrackStatusAsync(
         string trackId,
         CancellationToken cancellationToken)
@@ -137,6 +178,11 @@ public sealed class DocumentIntakeService(
     private static bool IsQueuedStatus(string? status)
     {
         return status is DocumentIntakeStatus.Queued or "Pending";
+    }
+
+    private static bool IsSupportedUploadExtension(string? extension)
+    {
+        return extension?.ToLowerInvariant() is ".md" or ".markdown" or ".txt";
     }
 
     private static void MarkQueueFailed(MarkdownDocument document, string errorMessage)

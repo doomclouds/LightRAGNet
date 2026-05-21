@@ -48,6 +48,8 @@ public class MarkdownDocumentsController(
     /// </summary>
     /// <param name="page">Page number (starts from 1, default 1)</param>
     /// <param name="pageSize">Number of items per page (default 10, max 100)</param>
+    /// <param name="status">Optional RAG status filter</param>
+    /// <param name="trackId">Optional intake track filter</param>
     /// <param name="cancellationToken"></param>
     /// <returns>Paged document list</returns>
     /// <response code="200">Successfully returns document list</response>
@@ -56,6 +58,8 @@ public class MarkdownDocumentsController(
     public async Task<ActionResult<PagedResult<MarkdownDocumentDto>>> GetMarkdownDocuments(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
+        [FromQuery] string? status = null,
+        [FromQuery] string? trackId = null,
         CancellationToken cancellationToken = default)
     {
         // Limit maximum items per page
@@ -66,13 +70,27 @@ public class MarkdownDocumentsController(
         if (page < 1)
             page = 1;
 
-        var totalCount = await context.MarkdownDocuments.CountAsync(cancellationToken: cancellationToken);
+        var query = context.MarkdownDocuments.AsQueryable();
 
-        // Sorting rule: documents being processed (Processing, Pending) come first, then failed status, finally other statuses sorted by upload time descending
-        var documents = await context.MarkdownDocuments
-            .OrderBy(d => d.RagStatus == "Processing" ? 0 : 
-                         d.RagStatus == "Pending" ? 1 : 
-                         d.RagStatus == "Failed" ? 2 : 3) // Priority: Processing < Pending < Failed < Others
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = status == DocumentIntakeStatus.Queued
+                ? query.Where(d => d.RagStatus == DocumentIntakeStatus.Queued || d.RagStatus == "Pending")
+                : query.Where(d => d.RagStatus == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(trackId))
+        {
+            query = query.Where(d => d.TrackId == trackId);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken: cancellationToken);
+
+        // Sorting rule: Processing first, then queued entries, then failed, finally other statuses by upload time descending.
+        var documents = await query
+            .OrderBy(d => d.RagStatus == DocumentIntakeStatus.Processing ? 0 :
+                         d.RagStatus == DocumentIntakeStatus.Queued || d.RagStatus == "Pending" ? 1 :
+                         d.RagStatus == DocumentIntakeStatus.Failed ? 2 : 3)
             .ThenByDescending(d => d.UploadTime) // Same priority sorted by upload time descending
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -81,7 +99,7 @@ public class MarkdownDocumentsController(
 
         // Batch query task status to improve performance
         var pendingOrProcessingDocuments = documents
-            .Where(d => d.RagStatus is "Pending" or "Processing")
+            .Where(d => d.RagStatus is DocumentIntakeStatus.Queued or "Pending" or DocumentIntakeStatus.Processing)
             .ToList();
         
         if (pendingOrProcessingDocuments.Count > 0)
@@ -96,7 +114,9 @@ public class MarkdownDocumentsController(
                 {
                     if (tasks.TryGetValue(document.Id, out var task))
                     {
-                        document.RagStatus = task.Status.ToString();
+                        document.RagStatus = task.Status == RagTaskStatus.Pending
+                            ? DocumentIntakeStatus.Queued
+                            : task.Status.ToString();
                         document.RagCurrentStage = task.CurrentStage?.ToString();
                         document.RagProgress = task.Progress;
                         
@@ -143,6 +163,25 @@ public class MarkdownDocumentsController(
         try
         {
             var result = await documentIntakeService.SubmitTextDocumentsAsync(request, cancellationToken);
+            return Accepted(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("upload")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(DocumentSubmissionResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<DocumentSubmissionResponse>> UploadMarkdownDocumentsBatch(
+        [FromForm] List<IFormFile> files,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await documentIntakeService.SubmitUploadedFilesAsync(files, cancellationToken);
             return Accepted(result);
         }
         catch (ArgumentException ex)

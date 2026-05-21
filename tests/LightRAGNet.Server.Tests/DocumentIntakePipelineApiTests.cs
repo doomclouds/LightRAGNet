@@ -250,6 +250,93 @@ public sealed class DocumentIntakePipelineApiTests
         document.RagRetryCount.Should().Be(2);
     }
 
+    [Fact]
+    public async Task GetMarkdownDocuments_WithStatusAndTrackFilters_ReturnsMatchingRowsOnly()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 301,
+            FileName = "queued.md",
+            Content = "queued",
+            TrackId = "track-filter",
+            RagStatus = "Queued"
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 302,
+            FileName = "failed.md",
+            Content = "failed",
+            TrackId = "other-track",
+            RagStatus = "Failed"
+        });
+        using var client = factory.CreateClient();
+
+        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+            "/api/MarkdownDocuments?page=1&pageSize=10&status=Queued&trackId=track-filter");
+
+        result.Should().NotBeNull();
+        result!.Items.Should().ContainSingle(d => d.Id == 301);
+        result.TotalCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task UploadMarkdownDocumentsBatch_CreatesOneTrackForAllFiles()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent("alpha"), "files", "alpha.md");
+        content.Add(new StringContent("beta"), "files", "beta.md");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
+        body.Should().NotBeNull();
+        body!.Documents.Should().HaveCount(2);
+        body.Documents.Select(d => d.TrackId).Should().OnlyContain(id => id == body.TrackId);
+        body.Documents.Select(d => d.RagStatus).Should().OnlyContain(status => status == "Queued");
+    }
+
+    [Fact]
+    public async Task GetMarkdownDocuments_WhenQueuedDocumentHasActiveTask_RefreshesTaskProgressAndKeepsQueuedStatus()
+    {
+        var queue = new StatusReportingRagTaskQueueService(new RagTask
+        {
+            DocumentId = 303,
+            TaskId = "task-queued",
+            Status = RagTaskStatus.Pending,
+            Progress = 42,
+            CurrentStage = TaskStage.ProcessingChunks
+        });
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 303,
+            FileName = "queued-active.md",
+            Content = "queued active",
+            TrackId = "track-active",
+            RagStatus = "Queued",
+            ActiveRagTaskId = "task-queued",
+            RagProgress = 0
+        });
+        using var client = factory.CreateClient();
+
+        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+            "/api/MarkdownDocuments?page=1&pageSize=10&status=Queued");
+
+        result.Should().NotBeNull();
+        var document = result!.Items.Should().ContainSingle(d => d.Id == 303).Subject;
+        document.RagStatus.Should().Be("Queued");
+        document.RagProgress.Should().Be(42);
+        document.RagCurrentStage.Should().Be(TaskStage.ProcessingChunks.ToString());
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();
@@ -304,7 +391,7 @@ public sealed class DocumentIntakePipelineApiTests
             return Task.FromResult<RagTask?>(null);
         }
 
-        public Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(
+        public virtual Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(
             IEnumerable<int> documentIds,
             CancellationToken cancellationToken = default)
         {
@@ -381,6 +468,18 @@ public sealed class DocumentIntakePipelineApiTests
             CancellationToken cancellationToken = default)
         {
             throw new OperationCanceledException("queue cancelled");
+        }
+    }
+
+    private sealed class StatusReportingRagTaskQueueService(RagTask task) : RecordingRagTaskQueueService
+    {
+        public override Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(
+            IEnumerable<int> documentIds,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(documentIds.Contains(task.DocumentId)
+                ? new Dictionary<int, RagTask> { [task.DocumentId] = task }
+                : new Dictionary<int, RagTask>());
         }
     }
 
