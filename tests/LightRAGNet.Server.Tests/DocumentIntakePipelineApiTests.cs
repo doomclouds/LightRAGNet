@@ -262,6 +262,7 @@ public sealed class DocumentIntakePipelineApiTests
     {
         using var factory = new LightRagServerFactory();
         var existingStartedAt = DateTime.UtcNow.AddMinutes(-10);
+        var taskStartedAt = DateTime.UtcNow.AddMinutes(-3);
         await SeedDocumentAsync(factory, new MarkdownDocument
         {
             Id = 702,
@@ -281,6 +282,7 @@ public sealed class DocumentIntakePipelineApiTests
             Status = RagTaskStatus.Processing,
             CurrentStage = TaskStage.ProcessingChunks,
             Progress = 25,
+            StartedAt = taskStartedAt,
             OperationType = RagTaskOperationType.IndexDocument
         }), CancellationToken.None);
 
@@ -292,6 +294,37 @@ public sealed class DocumentIntakePipelineApiTests
         document.ActiveRagTaskId.Should().Be("task-handler-processing");
         document.PipelineStartedAt.Should().Be(existingStartedAt);
         document.RagProgress.Should().Be(25);
+    }
+
+    [Fact]
+    public async Task RagTaskStatusChangedHandler_WhenProcessingIndexTaskHasTaskStartedAt_UsesTaskStartedAt()
+    {
+        using var factory = new LightRagServerFactory();
+        var taskStartedAt = DateTime.UtcNow.AddMinutes(-2);
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 704,
+            FileName = "handler-processing-started.md",
+            Content = "handler processing started",
+            RagStatus = DocumentIntakeStatus.Queued
+        });
+        using var scope = factory.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            TaskId = "task-handler-processing-started",
+            DocumentId = 704,
+            Status = RagTaskStatus.Processing,
+            StartedAt = taskStartedAt,
+            OperationType = RagTaskOperationType.IndexDocument
+        }), CancellationToken.None);
+
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.ChangeTracker.Clear();
+        var document = await context.MarkdownDocuments.FindAsync(704);
+        document.Should().NotBeNull();
+        document!.PipelineStartedAt.Should().Be(taskStartedAt);
     }
 
     [Theory]

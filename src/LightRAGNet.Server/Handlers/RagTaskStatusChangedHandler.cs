@@ -112,7 +112,7 @@ public class RagTaskStatusChangedHandler(
 
             if (task.Status == RagTaskStatus.Processing && document.PipelineStartedAt == null)
             {
-                document.PipelineStartedAt = DateTime.UtcNow;
+                document.PipelineStartedAt = task.StartedAt ?? DateTime.UtcNow;
             }
 
             await context.SaveChangesAsync(cancellationToken);
