@@ -1,5 +1,6 @@
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Core.Models;
 using LightRAGNet.Services.GraphCuration;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -495,6 +496,64 @@ public sealed class GraphCurationServiceTests
         fixture.FullRelations.Items.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task CreateRelationAsync_WhenEndpointRenameInProgress_WaitsForEntityLockAndRevalidates()
+    {
+        var graph = new PausingGraphStore("ALPHA_RENAMED");
+        graph.SeedNode("ALPHA", new() { ["entity_id"] = "ALPHA", ["description"] = "alpha" });
+        graph.SeedNode("BETA", new() { ["entity_id"] = "BETA", ["description"] = "beta" });
+        var vectorStore = new InMemoryVectorStore();
+        var textChunks = new InMemoryKvStore();
+        var fullEntities = new InMemoryKvStore();
+        var fullRelations = new InMemoryKvStore();
+        var entityChunks = new InMemoryKvStore();
+        var relationChunks = new InMemoryKvStore();
+        var bumps = 0;
+        var service = new GraphCurationService(
+            graph,
+            vectorStore,
+            new FakeEmbeddingService(),
+            textChunks,
+            fullEntities,
+            fullRelations,
+            entityChunks,
+            relationChunks,
+            () =>
+            {
+                bumps++;
+                return Task.CompletedTask;
+            },
+            NullLogger<GraphCurationService>.Instance);
+
+        var renameTask = service.EditEntityAsync(new GraphEntityEditRequest(
+            "ALPHA",
+            new Dictionary<string, object> { ["entity_name"] = "ALPHA_RENAMED" },
+            AllowRename: true,
+            AllowMerge: false));
+        await graph.BlockedOnUpsert.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var relationTask = service.CreateRelationAsync(new GraphRelationCreateRequest(
+            "ALPHA",
+            "BETA",
+            new Dictionary<string, object> { ["description"] = "blocked while endpoint is renamed" }));
+
+        await Task.Delay(100);
+        relationTask.IsCompleted.Should().BeFalse();
+
+        graph.ResumeUpsert.SetResult();
+        var renameResult = await renameTask.WaitAsync(TimeSpan.FromSeconds(3));
+        var relationResult = await relationTask.WaitAsync(TimeSpan.FromSeconds(3));
+
+        renameResult.Succeeded.Should().BeTrue();
+        relationResult.Succeeded.Should().BeFalse();
+        relationResult.Status.Should().Be("validation_error");
+        graph.GetSeededNode("ALPHA").Should().BeNull();
+        graph.GetSeededNode("ALPHA_RENAMED").Should().NotBeNull();
+        graph.GetSeededEdge("ALPHA", "BETA").Should().BeNull();
+        vectorStore.Get("relationships", GraphCurationVectorIds.Relation("ALPHA", "BETA")).Should().BeNull();
+        bumps.Should().Be(1);
+    }
+
     private sealed class GraphCurationFixture
     {
         public static readonly float[] Embedding = FakeEmbeddingService.Embedding;
@@ -530,6 +589,121 @@ public sealed class GraphCurationServiceTests
         }
 
         public static GraphCurationFixture Create() => new();
+    }
+
+    private sealed class PausingGraphStore(string pausedUpsertNodeId) : IGraphStore
+    {
+        private readonly InMemoryGraphStore inner = new();
+
+        public TaskCompletionSource BlockedOnUpsert { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ResumeUpsert { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void SeedNode(string nodeId, Dictionary<string, object> properties) =>
+            inner.SeedNode(nodeId, properties);
+
+        public GraphNode? GetSeededNode(string nodeId) =>
+            inner.GetSeededNode(nodeId);
+
+        public GraphEdge? GetSeededEdge(string sourceId, string targetId) =>
+            inner.GetSeededEdge(sourceId, targetId);
+
+        public Task<bool> HasNodeAsync(string nodeId, CancellationToken cancellationToken = default) =>
+            inner.HasNodeAsync(nodeId, cancellationToken);
+
+        public Task<bool> HasEdgeAsync(
+            string sourceNodeId,
+            string targetNodeId,
+            CancellationToken cancellationToken = default) =>
+            inner.HasEdgeAsync(sourceNodeId, targetNodeId, cancellationToken);
+
+        public Task<int> GetNodeDegreeAsync(string nodeId, CancellationToken cancellationToken = default) =>
+            inner.GetNodeDegreeAsync(nodeId, cancellationToken);
+
+        public Task<GraphNode?> GetNodeAsync(string nodeId, CancellationToken cancellationToken = default) =>
+            inner.GetNodeAsync(nodeId, cancellationToken);
+
+        public Task<GraphEdge?> GetEdgeAsync(
+            string sourceNodeId,
+            string targetNodeId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetEdgeAsync(sourceNodeId, targetNodeId, cancellationToken);
+
+        public Task<List<(string SourceId, string TargetId)>> GetNodeEdgesAsync(
+            string sourceNodeId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetNodeEdgesAsync(sourceNodeId, cancellationToken);
+
+        public async Task UpsertNodeAsync(
+            string nodeId,
+            Dictionary<string, object> nodeData,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.Equals(nodeId, pausedUpsertNodeId, StringComparison.Ordinal))
+            {
+                BlockedOnUpsert.TrySetResult();
+                await ResumeUpsert.Task.WaitAsync(cancellationToken);
+            }
+
+            await inner.UpsertNodeAsync(nodeId, nodeData, cancellationToken);
+        }
+
+        public Task UpsertEdgeAsync(
+            string sourceNodeId,
+            string targetNodeId,
+            Dictionary<string, object> edgeData,
+            CancellationToken cancellationToken = default) =>
+            inner.UpsertEdgeAsync(sourceNodeId, targetNodeId, edgeData, cancellationToken);
+
+        public Task DeleteNodeAsync(string nodeId, CancellationToken cancellationToken = default) =>
+            inner.DeleteNodeAsync(nodeId, cancellationToken);
+
+        public Task RemoveEdgesAsync(
+            List<(string SourceId, string TargetId)> edges,
+            CancellationToken cancellationToken = default) =>
+            inner.RemoveEdgesAsync(edges, cancellationToken);
+
+        public Task<KnowledgeGraph> GetKnowledgeGraphAsync(
+            string nodeLabel,
+            int maxDepth = 3,
+            int maxNodes = 1000,
+            CancellationToken cancellationToken = default) =>
+            inner.GetKnowledgeGraphAsync(nodeLabel, maxDepth, maxNodes, cancellationToken);
+
+        public Task<List<string>> GetAllLabelsAsync(CancellationToken cancellationToken = default) =>
+            inner.GetAllLabelsAsync(cancellationToken);
+
+        public Task<List<string>> GetPopularLabelsAsync(
+            int limit = 300,
+            CancellationToken cancellationToken = default) =>
+            inner.GetPopularLabelsAsync(limit, cancellationToken);
+
+        public Task<Dictionary<string, GraphNode>> GetNodesBatchAsync(
+            List<string> nodeIds,
+            CancellationToken cancellationToken = default) =>
+            inner.GetNodesBatchAsync(nodeIds, cancellationToken);
+
+        public Task<Dictionary<string, int>> GetNodeDegreesBatchAsync(
+            List<string> nodeIds,
+            CancellationToken cancellationToken = default) =>
+            inner.GetNodeDegreesBatchAsync(nodeIds, cancellationToken);
+
+        public Task<Dictionary<string, List<(string SourceId, string TargetId)>>> GetNodesEdgesBatchAsync(
+            List<string> nodeIds,
+            CancellationToken cancellationToken = default) =>
+            inner.GetNodesEdgesBatchAsync(nodeIds, cancellationToken);
+
+        public Task<Dictionary<(string SourceId, string TargetId), GraphEdge>> GetEdgesBatchAsync(
+            List<(string SourceId, string TargetId)> edgePairs,
+            CancellationToken cancellationToken = default) =>
+            inner.GetEdgesBatchAsync(edgePairs, cancellationToken);
+
+        public Task<Dictionary<(string SourceId, string TargetId), int>> GetEdgeDegreesBatchAsync(
+            List<(string SourceId, string TargetId)> edgePairs,
+            CancellationToken cancellationToken = default) =>
+            inner.GetEdgeDegreesBatchAsync(edgePairs, cancellationToken);
     }
 
     private static IReadOnlyList<string> ReadStrings(Dictionary<string, object> data, string key)

@@ -12,7 +12,7 @@ public sealed class GraphCurationService
     private const string EntitiesCollection = "entities";
     private const string RelationshipsCollection = "relationships";
     private const string SourceSeparator = "<SEP>";
-    private static readonly HashSet<string> ImmutableEntityFields = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> ImmutableProvenanceFields = new(StringComparer.Ordinal)
     {
         "source_id",
         "file_path",
@@ -29,8 +29,7 @@ public sealed class GraphCurationService
     private readonly IKVStore relationChunksStore;
     private readonly Func<Task> bumpQueryRevisionAsync;
     private readonly ILogger<GraphCurationService> logger;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> entityLocks = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> relationLocks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> graphMutationLocks = new(StringComparer.Ordinal);
 
     public GraphCurationService(
         IGraphStore graphStore,
@@ -136,7 +135,7 @@ public sealed class GraphCurationService
                 "validation_error");
         }
 
-        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableEntityFields.Contains);
+        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableProvenanceFields.Contains);
         if (immutableField is not null)
         {
             return GraphCurationOperationResult.Failure(
@@ -337,7 +336,7 @@ public sealed class GraphCurationService
             edgeData);
         var relationVector = await CreateRelationVectorDocumentAsync(edge, cancellationToken);
 
-        return await ExecuteWithRelationLockAsync(
+        return await ExecuteWithRelationAndEndpointLocksAsync(
             normalizedPair.Source,
             normalizedPair.Target,
             async () =>
@@ -396,7 +395,7 @@ public sealed class GraphCurationService
                 "validation_error");
         }
 
-        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableEntityFields.Contains);
+        var immutableField = request.UpdatedData.Keys.FirstOrDefault(ImmutableProvenanceFields.Contains);
         if (immutableField is not null)
         {
             return GraphCurationOperationResult.Failure(
@@ -416,7 +415,7 @@ public sealed class GraphCurationService
         }
 
         var normalizedPair = GraphCurationVectorIds.NormalizePair(sourceEntity, targetEntity);
-        return await ExecuteWithRelationLockAsync(
+        return await ExecuteWithRelationAndEndpointLocksAsync(
             normalizedPair.Source,
             normalizedPair.Target,
             async () =>
@@ -1051,12 +1050,39 @@ public sealed class GraphCurationService
         Func<Task<T>> operation,
         CancellationToken cancellationToken)
     {
-        var locks = entityNames
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => name.Trim())
+        return await ExecuteWithGraphMutationLocksAsync(
+            entityNames.Select(EntityLockKey),
+            operation,
+            cancellationToken);
+    }
+
+    private async Task<T> ExecuteWithRelationAndEndpointLocksAsync<T>(
+        string sourceEntity,
+        string targetEntity,
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        return await ExecuteWithGraphMutationLocksAsync(
+            [
+                EntityLockKey(sourceEntity),
+                EntityLockKey(targetEntity),
+                RelationLockKey(sourceEntity, targetEntity)
+            ],
+            operation,
+            cancellationToken);
+    }
+
+    private async Task<T> ExecuteWithGraphMutationLocksAsync<T>(
+        IEnumerable<string> lockKeys,
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var locks = lockKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key.Trim())
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
-            .Select(name => entityLocks.GetOrAdd(name, _ => new SemaphoreSlim(1, 1)))
+            .Select(key => graphMutationLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1)))
             .ToList();
 
         var acquiredLocks = 0;
@@ -1080,25 +1106,11 @@ public sealed class GraphCurationService
         }
     }
 
-    private async Task<T> ExecuteWithRelationLockAsync<T>(
-        string sourceEntity,
-        string targetEntity,
-        Func<Task<T>> operation,
-        CancellationToken cancellationToken)
-    {
-        var relationKey = "relation:" + GraphSourceReferenceParser.MakeRelationKey(sourceEntity, targetEntity);
-        var semaphore = relationLocks.GetOrAdd(relationKey, _ => new SemaphoreSlim(1, 1));
+    private static string EntityLockKey(string entityName) =>
+        "entity:" + entityName.Trim();
 
-        await semaphore.WaitAsync(cancellationToken);
-        try
-        {
-            return await operation();
-        }
-        finally
-        {
-            semaphore.Release();
-        }
-    }
+    private static string RelationLockKey(string sourceEntity, string targetEntity) =>
+        "relation:" + GraphSourceReferenceParser.MakeRelationKey(sourceEntity, targetEntity);
 
     private sealed record RewiredEdge(
         string OriginalSourceId,
