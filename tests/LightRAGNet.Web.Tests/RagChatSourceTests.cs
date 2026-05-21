@@ -94,6 +94,10 @@ public sealed class RagChatSourceTests
         source.Should().Contain("LightRAGJsonOptions.HumanReadableIndented");
         source.Should().Contain("<pre");
         source.Should().Contain("retrieval-data-json");
+        source.Should().Contain("white-space: pre-wrap;");
+        source.Should().Contain("overflow-x: auto;");
+        source.Should().Contain("max-width: 100%;");
+        source.Should().Contain("overflow-wrap: anywhere;");
         source.Should().Contain("ErrorMessage");
         source.Should().Contain("No retrieval data returned for this response.");
         source.Should().Contain("Query");
