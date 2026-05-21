@@ -47,6 +47,18 @@ dotnet run --project src/LightRAGNet.Web
 
 `docker compose up -d` starts local development Qdrant and Neo4j. Tests must not depend on or mutate those real services by default.
 
+### React Graph Workbench
+
+The graph workbench is a React/Vite island hosted by the Blazor web app.
+
+```powershell
+Set-Location .\src\LightRAGNet.Web\ClientApp
+npm install
+npm run build
+Set-Location ..\..\..
+dotnet run --project .\src\LightRAGNet.Web
+```
+
 ## Features
 
 ### Core Features

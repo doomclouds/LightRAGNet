@@ -47,6 +47,18 @@ dotnet run --project src/LightRAGNet.Web
 
 `docker compose up -d` 会启动本机开发用 Qdrant 和 Neo4j；测试默认不应该依赖或修改这些真实服务。
 
+### React 图谱工作台
+
+图谱工作台是由 Blazor Web 承载的 React/Vite island，后续可迁移为主 React 前端模块。
+
+```powershell
+Set-Location .\src\LightRAGNet.Web\ClientApp
+npm install
+npm run build
+Set-Location ..\..\..
+dotnet run --project .\src\LightRAGNet.Web
+```
+
 ## 功能特性
 
 ### 核心功能
