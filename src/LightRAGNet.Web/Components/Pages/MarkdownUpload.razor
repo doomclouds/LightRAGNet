@@ -81,7 +81,6 @@
                 <li>Only PDF or DOCX files are supported</li>
                 <li>Maximum 10MB per file</li>
                 <li>Maximum 10 files can be uploaded at once</li>
-                <li>The system will automatically detect duplicate files (based on file content hash), duplicate files cannot be uploaded</li>
                 <li>After upload, click "Add to RAG" on the document list page; Add to RAG starts processing conversion and indexing</li>
             </ul>
         </MudText>
@@ -220,76 +219,15 @@
         {
             _uploading = true;
             _uploadedCount = 0;
-            var successCount = 0;
-            var failCount = 0;
-            var duplicateCount = 0;
-            var failFiles = new List<string>();
+            var result = await ApiClient.UploadDocumentsAsync(_selectedFiles);
+            _uploadedCount = _selectedFiles.Count;
+            await InvokeAsync(StateHasChanged);
 
-            foreach (var file in _selectedFiles)
+            if (result.Success)
             {
-                try
-                {
-                    var result = await ApiClient.UploadDocumentAsync(file);
-
-                    if (result.Success && result.Document != null)
-                    {
-                        successCount++;
-                    }
-                    else
-                    {
-                        failCount++;
-                        if (result.IsDuplicate)
-                        {
-                            // File already exists (deduplication)
-                            duplicateCount++;
-                            failFiles.Add($"{file.Name} (file already exists, content duplicate)");
-                        }
-                        else
-                        {
-                            failFiles.Add($"{file.Name} ({result.ErrorMessage ?? "upload failed"})");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failCount++;
-                    failFiles.Add($"{file.Name} ({ex.Message})");
-                }
-                finally
-                {
-                    _uploadedCount++;
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-
-            // Display upload results
-            if (successCount > 0)
-            {
+                var successCount = result.Documents.Count;
                 Snackbar.Add($"Successfully uploaded {successCount} file(s). Use Add to RAG from the document list when ready.", Severity.Success);
-            }
 
-            if (failCount > 0)
-            {
-                // Distinguish duplicate files and other errors
-                var duplicateFiles = failFiles.Where(f => f.Contains("content duplicate")).ToList();
-                var otherFailures = failFiles.Where(f => !f.Contains("content duplicate")).ToList();
-                
-                if (duplicateCount > 0)
-                {
-                    var duplicateFileNames = duplicateFiles.Select(f => f.Split('(')[0].Trim()).ToList();
-                    Snackbar.Add($"Detected {duplicateCount} duplicate file(s) (content already exists), skipped: {string.Join(", ", duplicateFileNames)}", Severity.Warning);
-                }
-                
-                if (otherFailures.Count > 0)
-                {
-                    Snackbar.Add($"Failed to upload {otherFailures.Count} file(s): {string.Join(", ", otherFailures)}", Severity.Error);
-                }
-            }
-
-            // If there are successfully uploaded files, navigate to document list page
-            if (successCount > 0)
-            {
-                // Clear selected files
                 _selectedFiles.Clear();
                 _uploadedCount = 0;
                 
@@ -298,7 +236,7 @@
             }
             else
             {
-                // All failed, don't clear file list, stay on current page for user to retry
+                Snackbar.Add($"Failed to upload {_selectedFiles.Count} file(s): {result.ErrorMessage ?? "upload failed"}", Severity.Error);
                 _uploadedCount = 0;
             }
         }

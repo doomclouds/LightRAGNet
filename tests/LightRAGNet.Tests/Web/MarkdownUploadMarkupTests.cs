@@ -34,6 +34,19 @@ public sealed class MarkdownUploadMarkupTests
         markup.Should().Contain("starts processing");
     }
 
+    [Fact]
+    public void MarkdownUpload_CopyDoesNotPromiseDuplicateHashBlocking()
+    {
+        var markup = File.ReadAllText(FindRepositoryFile("src/LightRAGNet.Web/Components/Pages/MarkdownUpload.razor"));
+
+        markup.Should().NotContain("duplicate files");
+        markup.Should().NotContain("content hash");
+        markup.Should().NotContain("duplicate files cannot be uploaded");
+        markup.Should().NotContain("content duplicate");
+        markup.Should().NotContain("IsDuplicate");
+        markup.Should().NotContain("duplicateCount");
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
