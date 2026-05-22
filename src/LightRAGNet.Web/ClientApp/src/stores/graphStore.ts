@@ -10,6 +10,7 @@ export type GraphStoreSnapshot = {
   focusedNode: GraphNodeDto | null;
   focusedEdge: GraphEdgeDto | null;
   focusedEdgeKey: string | null;
+  moveToSelectedNode: boolean;
   isFetching: boolean;
   sigmaInstance: unknown | null;
 };
@@ -18,11 +19,12 @@ export type GraphStoreApi = {
   getState: () => GraphStoreSnapshot;
   subscribe: (listener: () => void) => () => void;
   setRawGraph: (graph: GraphViewDto | null) => void;
-  selectNode: (nodeId: string | null) => void;
+  selectNode: (nodeId: string | null, moveToSelectedNode?: boolean) => void;
   selectEdge: (edgeId: string | null) => void;
   focusNode: (nodeId: string | null) => void;
   focusEdge: (edgeId: string | null) => void;
   setSigmaInstance: (sigmaInstance: unknown | null) => void;
+  setMoveToSelectedNode: (moveToSelectedNode: boolean) => void;
   setIsFetching: (isFetching: boolean) => void;
   updateNodeProperty: (nodeId: string, key: string, value: JsonValue) => void;
   renameNode: (oldId: string, newId: string) => void;
@@ -40,6 +42,7 @@ const defaultSnapshot: GraphStoreSnapshot = {
   focusedNode: null,
   focusedEdge: null,
   focusedEdgeKey: null,
+  moveToSelectedNode: false,
   isFetching: false,
   sigmaInstance: null
 };
@@ -117,11 +120,12 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         focusedEdgeKey: focusedEdge.key
       });
     },
-    selectNode: (nodeId) => {
+    selectNode: (nodeId, moveToSelectedNode = false) => {
       const selectedNode = findNode(state.rawGraph, nodeId);
       setState({
         ...state,
         selectedNode,
+        moveToSelectedNode: selectedNode ? moveToSelectedNode : false,
         selectedEdge: selectedNode ? null : state.selectedEdge,
         selectedEdgeKey: selectedNode ? null : state.selectedEdgeKey
       });
@@ -151,6 +155,9 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
     },
     setSigmaInstance: (sigmaInstance) => {
       setState({ ...state, sigmaInstance });
+    },
+    setMoveToSelectedNode: (moveToSelectedNode) => {
+      setState({ ...state, moveToSelectedNode });
     },
     setIsFetching: (isFetching) => {
       setState({ ...state, isFetching });
@@ -341,7 +348,8 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         selectedEdgeKey: null,
         focusedNode: null,
         focusedEdge: null,
-        focusedEdgeKey: null
+        focusedEdgeKey: null,
+        moveToSelectedNode: false
       });
     }
   };

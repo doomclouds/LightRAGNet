@@ -63,6 +63,7 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const selectedEdge = useGraphStore((state) => state.selectedEdge);
   const focusedNode = useGraphStore((state) => state.focusedNode);
   const focusedEdge = useGraphStore((state) => state.focusedEdge);
+  const rawGraph = useGraphStore((state) => state.rawGraph);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -77,6 +78,25 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const target: PropertyEditTarget | null = currentNode ? "node" : currentEdge ? "edge" : null;
   const title = currentNode ? getNodeTitle(currentNode) : currentEdge ? getEdgeTitle(currentEdge) : "No selection";
   const properties = currentNode?.properties ?? currentEdge?.properties ?? {};
+  const relationships = useMemo(() => {
+    if (!rawGraph || !currentNode) {
+      return [];
+    }
+
+    return rawGraph.edges
+      .filter((edge) => edge.source === currentNode.id || edge.target === currentNode.id)
+      .map((edge) => {
+        const neighbourId = edge.source === currentNode.id ? edge.target : edge.source;
+        const neighbour = rawGraph.nodes.find((node) => node.id === neighbourId);
+        return {
+          edge,
+          neighbourId,
+          label: neighbour ? getNodeTitle(neighbour) : neighbourId,
+          type: edge.type ?? "Neighbour"
+        };
+      })
+      .slice(0, 40);
+  }, [currentNode, rawGraph]);
   const initialValues = useMemo<PropertyEditValues>(
     () => propertyValuesFromProperties(target ?? "node", properties, currentNode?.id ?? ""),
     [properties, currentNode?.id, target]
@@ -216,6 +236,24 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
       </div>
 
       {renderProperties(properties)}
+
+      {currentNode && relationships.length > 0 ? (
+        <section className="graph-workbench__relationships" aria-label="Node relationships">
+          <h3>Relationships</h3>
+          <div>
+            {relationships.map(({ edge, neighbourId, label, type }) => (
+              <button
+                key={`${edge.id}:${neighbourId}`}
+                type="button"
+                onClick={() => useGraphStore.selectNode(neighbourId, true)}
+              >
+                <span>{type}</span>
+                <strong>{label}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {hasPinnedSelection ? (
         <div className="graph-workbench__panel-actions">

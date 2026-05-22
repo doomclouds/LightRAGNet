@@ -1,8 +1,11 @@
 import { RefreshCw } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 
+import { getGraphLabels } from "../../api/graphApi";
 import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 
 type GraphQueryControlsProps = {
+  apiBase: string;
   isFetching: boolean;
   onLoad: () => void;
 };
@@ -18,8 +21,29 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-export function GraphQueryControls({ isFetching, onLoad }: GraphQueryControlsProps) {
+export function GraphQueryControls({ apiBase, isFetching, onLoad }: GraphQueryControlsProps) {
   const settings = useGraphSettingsStore();
+  const labelListId = useId();
+  const [labels, setLabels] = useState<string[]>(["*"]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getGraphLabels(apiBase)
+      .then((items) => {
+        if (!cancelled) {
+          setLabels(["*", ...items.filter((item) => item !== "*")]);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLabels(["*"]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   return (
     <form
@@ -41,10 +65,16 @@ export function GraphQueryControls({ isFetching, onLoad }: GraphQueryControlsPro
       <label className="graph-workbench__compact-field graph-workbench__compact-field--label">
         <span>Label</span>
         <input
+          list={labelListId}
           type="text"
           value={settings.queryLabel}
           onChange={(event) => useGraphSettingsStore.setQueryLabel(event.currentTarget.value.trim() || "*")}
         />
+        <datalist id={labelListId}>
+          {labels.map((label) => (
+            <option key={label} value={label} />
+          ))}
+        </datalist>
       </label>
 
       <label className="graph-workbench__compact-field">

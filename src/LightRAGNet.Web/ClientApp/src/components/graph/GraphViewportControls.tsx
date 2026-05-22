@@ -2,6 +2,8 @@ import { useCamera, useSigma } from "@react-sigma/core";
 import { LocateFixed, RotateCcw, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback } from "react";
 
+import { GraphFullscreenControl } from "./GraphFullscreenControl";
+
 type GraphViewportControlsProps = {
   legendVisible: boolean;
   onToggleLegend: () => void;
@@ -50,6 +52,7 @@ export function GraphViewportControls({ legendVisible, onToggleLegend }: GraphVi
       >
         <span aria-hidden="true" className="graph-workbench__legend-icon" />
       </button>
+      <GraphFullscreenControl />
     </>
   );
 }

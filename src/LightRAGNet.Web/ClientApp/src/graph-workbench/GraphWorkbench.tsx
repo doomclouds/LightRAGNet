@@ -6,6 +6,7 @@ import { GraphLayoutControls } from "../components/graph/GraphLayoutControls";
 import { GraphLegend } from "../components/graph/GraphLegend";
 import { GraphQueryControls } from "../components/graph/GraphQueryControls";
 import { GraphSearchBox } from "../components/graph/GraphSearchBox";
+import { GraphSettingsPanel } from "../components/graph/GraphSettingsPanel";
 import { GraphViewportControls } from "../components/graph/GraphViewportControls";
 import { PropertiesPanel } from "../components/graph/PropertiesPanel";
 import { useGraphSettingsStore } from "../stores/graphSettingsStore";
@@ -52,11 +53,12 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
       <div className="graph-workbench__main">
         <GraphCanvas graph={rawGraph} isFetching={isFetching} errorMessage={errorMessage}>
           <div className="graph-workbench__top-left">
-            <GraphQueryControls isFetching={isFetching} onLoad={() => void loadGraph()} />
+            <GraphQueryControls apiBase={apiBase} isFetching={isFetching} onLoad={() => void loadGraph()} />
             <GraphSearchBox />
           </div>
           <div className="graph-workbench__control-dock">
             <GraphLayoutControls />
+            <GraphSettingsPanel />
             <GraphViewportControls
               legendVisible={legendVisible}
               onToggleLegend={() => setLegendVisible((visible) => !visible)}

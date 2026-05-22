@@ -8,15 +8,18 @@ import { Grip, Network, Shuffle } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { animateNodes } from "sigma/utils";
 
+import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
+
 type LayoutName = "Force Atlas" | "Force Directed" | "Noverlap" | "Random" | "Circular";
 
 export function GraphLayoutControls() {
   const sigma = useSigma();
   const [isOpen, setIsOpen] = useState(false);
+  const layoutIterations = useGraphSettingsStore((state) => state.layoutIterations);
   const layoutCircular = useLayoutCircular();
   const layoutRandom = useLayoutRandom();
   const layoutNoverlap = useLayoutNoverlap({
-    maxIterations: 180,
+    maxIterations: layoutIterations,
     settings: {
       margin: 6,
       expansion: 1.15,
@@ -26,7 +29,7 @@ export function GraphLayoutControls() {
     }
   });
   const layoutForce = useLayoutForce({
-    maxIterations: 220,
+    maxIterations: layoutIterations,
     settings: {
       attraction: 0.0003,
       repulsion: 0.02,
@@ -36,7 +39,7 @@ export function GraphLayoutControls() {
     }
   });
   const layoutForceAtlas = useLayoutForceAtlas2({
-    iterations: 240,
+    iterations: layoutIterations,
     settings: {
       barnesHutOptimize: sigma.getGraph().order > 60,
       edgeWeightInfluence: 0.7,

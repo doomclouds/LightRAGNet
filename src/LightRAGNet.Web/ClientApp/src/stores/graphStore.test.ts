@@ -49,6 +49,7 @@ describe("graphStore", () => {
       focusedNode: null,
       focusedEdge: null,
       focusedEdgeKey: null,
+      moveToSelectedNode: false,
       isFetching: false
     });
   });
@@ -89,6 +90,24 @@ describe("graphStore", () => {
     expect(store.getState().selectedNode).toBeNull();
     expect(store.getState().focusedNode).toBeNull();
     expect(store.getState().focusedEdge).toBeNull();
+  });
+
+  test("node selection only moves the camera when explicitly requested", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.focusNode("ALPHA");
+    expect(store.getState().moveToSelectedNode).toBe(false);
+
+    store.selectNode("ALPHA");
+    expect(store.getState().selectedNode?.id).toBe("ALPHA");
+    expect(store.getState().moveToSelectedNode).toBe(false);
+
+    store.selectNode("BETA", true);
+    expect(store.getState().selectedNode?.id).toBe("BETA");
+    expect(store.getState().moveToSelectedNode).toBe(true);
+
+    store.setMoveToSelectedNode(false);
+    expect(store.getState().moveToSelectedNode).toBe(false);
   });
 
   test("blank edge ids are selectable through the graphology dynamic edge key", () => {
@@ -241,7 +260,14 @@ describe("graphSettingsStore", () => {
     expect(store.getState()).toEqual({
       queryLabel: "ALPHA",
       maxDepth: 4,
-      maxNodes: 250
+      maxNodes: 250,
+      showNodeLabels: true,
+      showEdgeLabels: false,
+      enableEdgeEvents: true,
+      hideUnselectedEdges: false,
+      minEdgeSize: 1.25,
+      maxEdgeSize: 5,
+      layoutIterations: 240
     });
     expect(listener).toHaveBeenCalledTimes(3);
   });
@@ -252,7 +278,36 @@ describe("graphSettingsStore", () => {
     expect(store.getState()).toEqual({
       queryLabel: "*",
       maxDepth: 2,
-      maxNodes: 100
+      maxNodes: 100,
+      showNodeLabels: true,
+      showEdgeLabels: false,
+      enableEdgeEvents: true,
+      hideUnselectedEdges: false,
+      minEdgeSize: 1.25,
+      maxEdgeSize: 5,
+      layoutIterations: 240
+    });
+  });
+
+  test("exposes Python-style display setting setters", () => {
+    const store = createGraphSettingsStoreState();
+
+    store.setShowNodeLabels(false);
+    store.setShowEdgeLabels(true);
+    store.setEnableEdgeEvents(false);
+    store.setHideUnselectedEdges(true);
+    store.setMinEdgeSize(2);
+    store.setMaxEdgeSize(8);
+    store.setLayoutIterations(120);
+
+    expect(store.getState()).toMatchObject({
+      showNodeLabels: false,
+      showEdgeLabels: true,
+      enableEdgeEvents: false,
+      hideUnselectedEdges: true,
+      minEdgeSize: 2,
+      maxEdgeSize: 8,
+      layoutIterations: 120
     });
   });
 });

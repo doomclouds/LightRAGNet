@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-22-graph-workbench-functional-parity-archives.md](./2026-05/2026-05-22-graph-workbench-functional-parity-archives.md): 补齐 Python LightRAG 图谱节点 degree size、边 weight size、相机移动边界、Settings、Label、Fullscreen 和 relationships 交互。
 - [2026-05-22-graph-workbench-python-parity-archives.md](./2026-05/2026-05-22-graph-workbench-python-parity-archives.md): 将 Knowledge Graph tab 重构为 Python LightRAG 风格的整屏 Sigma 图谱工作台，补齐浮层控件、布局菜单、搜索聚焦、图例和属性面板。
 - [2026-05-21-document-intake-pipeline-parity-archives.md](./2026-05/2026-05-21-document-intake-pipeline-parity-archives.md): 将 Markdown/text 文档接入升级为带 `track_id`、后台队列、状态追踪、retry/cancel 和 Web 基础操作的 intake pipeline。
 - [2026-05-21-graph-curation-react-workbench-archives.md](./2026-05/2026-05-21-graph-curation-react-workbench-archives.md): 引入 React/Vite 图谱工作台和图谱治理 API，对齐 Python LightRAG 图谱编辑、属性面板和实体合并语义，并保留参考来源声明。

@@ -50,7 +50,7 @@ export function GraphSearchBox() {
               onMouseEnter={() => useGraphStore.focusNode(node.id)}
               onFocus={() => useGraphStore.focusNode(node.id)}
               onClick={() => {
-                useGraphStore.selectNode(node.id);
+                useGraphStore.selectNode(node.id, true);
                 setQuery(node.label || node.id);
               }}
             >

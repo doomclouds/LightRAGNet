@@ -4,6 +4,14 @@ import type { GraphEdgeDto, GraphNodeDto, GraphViewDto, JsonValue } from "../../
 
 export type SigmaGraphAttributes = Record<string, JsonValue | undefined>;
 
+const minNodeSize = 4;
+const maxNodeSize = 20;
+
+type GraphologyGraphOptions = {
+  minEdgeSize?: number;
+  maxEdgeSize?: number;
+};
+
 function readString(value: JsonValue | undefined): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -55,7 +63,78 @@ function getEdgeColor(edge: GraphEdgeDto): string {
   return edge.color.toLowerCase() === "#cccccc" ? "#8a98a8" : edge.color;
 }
 
-export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId?: string, selectedEdgeId?: string) {
+function calculateNodeSizes(graph: GraphViewDto): Map<string, number> {
+  const degreeByNode = new Map(graph.nodes.map((node) => [node.id, 0]));
+
+  graph.edges.forEach((edge) => {
+    if (!degreeByNode.has(edge.source) || !degreeByNode.has(edge.target)) {
+      return;
+    }
+
+    degreeByNode.set(edge.source, (degreeByNode.get(edge.source) ?? 0) + 1);
+    degreeByNode.set(edge.target, (degreeByNode.get(edge.target) ?? 0) + 1);
+  });
+
+  const degrees = [...degreeByNode.values()];
+  const minDegree = degrees.length > 0 ? Math.min(...degrees) : 0;
+  const maxDegree = degrees.length > 0 ? Math.max(...degrees) : 0;
+  const range = maxDegree - minDegree;
+
+  return new Map(
+    graph.nodes.map((node) => {
+      if (range <= 0) {
+        return [node.id, Math.max(node.size, 10)];
+      }
+
+      const scale = maxNodeSize - minNodeSize;
+      const degree = degreeByNode.get(node.id) ?? 0;
+      const size = Math.round(minNodeSize + scale * Math.sqrt((degree - minDegree) / range));
+      return [node.id, size];
+    })
+  );
+}
+
+function readEdgeWeight(edge: GraphEdgeDto): number {
+  const weight = edge.properties?.weight;
+  if (typeof weight === "number" && Number.isFinite(weight)) {
+    return weight;
+  }
+
+  if (typeof weight === "string") {
+    const parsed = Number(weight);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 1;
+}
+
+function calculateEdgeSizes(edges: GraphEdgeDto[], minEdgeSize: number, maxEdgeSize: number): Map<GraphEdgeDto, number> {
+  const weights = edges.map(readEdgeWeight);
+  const minWeight = weights.length > 0 ? Math.min(...weights) : 1;
+  const maxWeight = weights.length > 0 ? Math.max(...weights) : 1;
+  const range = maxWeight - minWeight;
+
+  return new Map(
+    edges.map((edge, index) => {
+      if (range <= 0) {
+        return [edge, minEdgeSize];
+      }
+
+      const weight = weights[index] ?? 1;
+      const size = minEdgeSize + (maxEdgeSize - minEdgeSize) * Math.sqrt((weight - minWeight) / range);
+      return [edge, Math.round(size * 100) / 100];
+    })
+  );
+}
+
+export function createGraphologyGraph(
+  graph: GraphViewDto | null,
+  selectedNodeId?: string,
+  selectedEdgeId?: string,
+  options: GraphologyGraphOptions = {}
+) {
   const sigmaGraph = new MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes>();
 
   if (!graph) {
@@ -63,16 +142,21 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
   }
 
   const count = graph.nodes.length;
+  const edgeMinSize = options.minEdgeSize ?? 1.25;
+  const edgeMaxSize = options.maxEdgeSize ?? 5;
+  const nodeSizes = calculateNodeSizes(graph);
+  const edgeSizes = calculateEdgeSizes(graph.edges, edgeMinSize, edgeMaxSize);
 
   graph.nodes.forEach((node) => {
     const position = getInitialPosition(node.id, count);
     const isSelected = selectedNodeId === node.id;
+    const size = nodeSizes.get(node.id) ?? Math.max(node.size, 10);
 
     sigmaGraph.addNode(node.id, {
       x: position.x,
       y: position.y,
       label: getNodeLabel(node),
-      size: isSelected ? Math.max(node.size + 4, 13) : Math.max(node.size, 8),
+      size: isSelected ? Math.max(size + 4, 13) : size,
       color: isSelected ? "#0f766e" : node.color,
       borderColor: isSelected ? "#0f172a" : "#ffffff",
       labelColor: "#172026",
@@ -89,12 +173,13 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
     }
 
     const isSelected = selectedEdgeId === edgeKey || selectedEdgeId === edge.id;
+    const edgeSize = edgeSizes.get(edge) ?? edgeMinSize;
     sigmaGraph.addUndirectedEdgeWithKey(edgeKey, edge.source, edge.target, {
       label: getEdgeLabel(edge),
-      size: isSelected ? Math.max(edge.size + 2, 4) : Math.max(edge.size, 1.75),
+      size: isSelected ? Math.max(edgeSize + 2, 4) : edgeSize,
       color: isSelected ? "#dc2626" : getEdgeColor(edge),
       type: "curvedNoArrow",
-      originalWeight: typeof edge.properties?.weight === "number" ? edge.properties.weight : edge.size,
+      originalWeight: readEdgeWeight(edge),
       labelColor: "#172026",
       domainType: edge.type ?? undefined,
       properties: edge.properties ?? {}

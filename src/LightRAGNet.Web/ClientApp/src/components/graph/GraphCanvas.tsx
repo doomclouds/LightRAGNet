@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { EdgeArrowProgram, NodeCircleProgram, NodePointProgram } from "sigma/rendering";
 
+import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 import { useGraphStore } from "../../stores/graphStore";
 import type { GraphViewDto } from "../../types/graph";
 import { createGraphologyGraph, type SigmaGraphAttributes } from "./graphologyAdapter";
@@ -63,6 +64,12 @@ function GraphEvents() {
 
         sigma.getGraph().removeNodeAttribute(draggedNode, "highlighted");
         setDraggedNode(null);
+      },
+      mousedown: (event: { original: MouseEvent | TouchEvent }) => {
+        const original = event.original;
+        if ("buttons" in original && original.buttons !== 0 && !sigma.getCustomBBox()) {
+          sigma.setCustomBBox(sigma.getBBox());
+        }
       }
     });
   }, [draggedNode, registerEvents, sigma]);
@@ -81,8 +88,9 @@ function GraphLoader({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttribut
 }
 
 function GraphAutoLayout({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes> }) {
+  const layoutIterations = useGraphSettingsStore((state) => state.layoutIterations);
   const { assign } = useLayoutForceAtlas2({
-    iterations: 220,
+    iterations: layoutIterations,
     settings: {
       barnesHutOptimize: graph.order > 60,
       edgeWeightInfluence: 0.7,
@@ -108,6 +116,7 @@ function GraphAutoLayout({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttr
 function GraphReducers() {
   const sigma = useSigma();
   const setSettings = useSetSettings();
+  const settings = useGraphSettingsStore();
   const selectedNodeId = useGraphStore((state) => state.selectedNode?.id ?? null);
   const focusedNodeId = useGraphStore((state) => state.focusedNode?.id ?? null);
   const selectedEdgeKey = useGraphStore((state) => state.selectedEdgeKey ?? state.selectedEdge?.id ?? null);
@@ -120,6 +129,9 @@ function GraphReducers() {
 
   useEffect(() => {
     setSettings({
+      enableEdgeEvents: settings.enableEdgeEvents,
+      renderEdgeLabels: settings.showEdgeLabels,
+      renderLabels: settings.showNodeLabels,
       nodeReducer: (node, data) => {
         const graph = sigma.getGraph();
         const activeNode = focusedNodeId ?? selectedNodeId;
@@ -164,52 +176,76 @@ function GraphReducers() {
         }
 
         if (activeNode && graph.hasNode(activeNode) && !graph.extremities(edge).includes(activeNode)) {
-          nextData.color = "#d1d9d5";
-          nextData.size = Math.max(Number(data.size ?? 1.75) * 0.65, 0.8);
+          if (settings.hideUnselectedEdges) {
+            nextData.hidden = true;
+          } else {
+            nextData.color = "#d1d9d5";
+            nextData.size = Math.max(Number(data.size ?? 1.75) * 0.65, 0.8);
+          }
         }
 
         if (selectedEdgeKey && edge !== selectedEdgeKey) {
-          nextData.color = "#d1d9d5";
+          if (settings.hideUnselectedEdges) {
+            nextData.hidden = true;
+          } else {
+            nextData.color = "#d1d9d5";
+          }
         }
 
         return nextData;
       }
     });
-  }, [focusedEdgeKey, focusedNodeId, selectedEdgeKey, selectedNodeId, setSettings, sigma]);
+  }, [focusedEdgeKey, focusedNodeId, selectedEdgeKey, selectedNodeId, setSettings, settings, sigma]);
 
   return null;
 }
 
 function GraphCameraFocus() {
   const sigma = useSigma();
-  const focusedNodeId = useGraphStore((state) => state.focusedNode?.id ?? null);
   const selectedNodeId = useGraphStore((state) => state.selectedNode?.id ?? null);
-  const nodeId = focusedNodeId ?? selectedNodeId;
+  const moveToSelectedNode = useGraphStore((state) => state.moveToSelectedNode);
 
   useEffect(() => {
-    if (!nodeId) {
+    if (!moveToSelectedNode) {
+      return;
+    }
+
+    if (!selectedNodeId) {
+      sigma.setCustomBBox(null);
+      useGraphStore.setMoveToSelectedNode(false);
       return;
     }
 
     const graph = sigma.getGraph();
-    if (!graph.hasNode(nodeId)) {
+    if (!graph.hasNode(selectedNodeId)) {
+      useGraphStore.setMoveToSelectedNode(false);
       return;
     }
 
-    const x = graph.getNodeAttribute(nodeId, "x");
-    const y = graph.getNodeAttribute(nodeId, "y");
+    const x = graph.getNodeAttribute(selectedNodeId, "x");
+    const y = graph.getNodeAttribute(selectedNodeId, "y");
     if (typeof x !== "number" || typeof y !== "number") {
+      useGraphStore.setMoveToSelectedNode(false);
       return;
     }
 
     sigma.getCamera().animate({ x, y, ratio: 0.55 }, { duration: 420 });
-  }, [nodeId, sigma]);
+    useGraphStore.setMoveToSelectedNode(false);
+  }, [moveToSelectedNode, selectedNodeId, sigma]);
 
   return null;
 }
 
 export function GraphCanvas({ graph, isFetching, errorMessage, children }: GraphCanvasProps) {
-  const graphologyGraph = useMemo(() => createGraphologyGraph(graph), [graph]);
+  const settings = useGraphSettingsStore();
+  const graphologyGraph = useMemo(
+    () =>
+      createGraphologyGraph(graph, undefined, undefined, {
+        minEdgeSize: settings.minEdgeSize,
+        maxEdgeSize: settings.maxEdgeSize
+      }),
+    [graph, settings.maxEdgeSize, settings.minEdgeSize]
+  );
   const isEmpty = !graph || graph.nodes.length === 0;
 
   return (
@@ -220,7 +256,7 @@ export function GraphCanvas({ graph, isFetching, errorMessage, children }: Graph
           allowInvalidContainer: true,
           defaultNodeType: "default",
           defaultEdgeType: "curvedNoArrow",
-          enableEdgeEvents: true,
+          enableEdgeEvents: settings.enableEdgeEvents,
           edgeProgramClasses: {
             arrow: EdgeArrowProgram,
             curvedArrow: EdgeCurvedArrowProgram,
@@ -238,8 +274,8 @@ export function GraphCanvas({ graph, isFetching, errorMessage, children }: Graph
           labelRenderedSizeThreshold: 10,
           labelSize: 12,
           edgeLabelSize: 8,
-          renderEdgeLabels: false,
-          renderLabels: true
+          renderEdgeLabels: settings.showEdgeLabels,
+          renderLabels: settings.showNodeLabels
         }}
       >
         <GraphLoader graph={graphologyGraph} />

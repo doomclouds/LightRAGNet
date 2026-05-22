@@ -189,7 +189,7 @@
 
 .graph-workbench__control-dock {
   position: absolute;
-  bottom: 12px;
+  bottom: 44px;
   left: 12px;
   z-index: 8;
   display: grid;
@@ -243,6 +243,10 @@
   position: relative;
 }
 
+.graph-workbench__settings-control {
+  position: relative;
+}
+
 .graph-workbench__layout-menu {
   position: absolute;
   bottom: 0;
@@ -271,6 +275,50 @@
 
 .graph-workbench__layout-menu button:hover {
   background: rgb(15 118 110 / 10%);
+}
+
+.graph-workbench__settings-panel {
+  position: absolute;
+  bottom: 0;
+  left: 44px;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  width: 230px;
+  border: 1px solid rgb(148 163 184 / 38%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 90%);
+  box-shadow: 0 18px 42px rgb(15 23 42 / 14%);
+  padding: 10px;
+  backdrop-filter: blur(16px);
+}
+
+.graph-workbench__settings-panel label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: #26332e;
+  font-size: 0.78rem;
+}
+
+.graph-workbench__settings-panel input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #0f766e;
+}
+
+.graph-workbench__settings-panel .graph-workbench__range-field {
+  grid-template-columns: minmax(0, 1fr) 74px;
+}
+
+.graph-workbench__settings-panel input[type="number"] {
+  width: 100%;
+  border: 1px solid rgb(148 163 184 / 48%);
+  border-radius: 6px;
+  background: #ffffff;
+  color: #172026;
+  padding: 5px 6px;
 }
 
 .graph-workbench__legend {
@@ -436,6 +484,59 @@
   grid-template-columns: 1fr;
   gap: 8px;
   margin-top: 14px;
+}
+
+.graph-workbench__relationships {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  min-height: 0;
+}
+
+.graph-workbench__relationships h3 {
+  color: #0f766e;
+  font-size: 0.86rem;
+}
+
+.graph-workbench__relationships > div {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.graph-workbench__relationships button {
+  display: grid;
+  grid-template-columns: minmax(62px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgb(148 163 184 / 30%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 48%);
+  color: #172026;
+  cursor: pointer;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.graph-workbench__relationships button:hover {
+  background: rgb(15 118 110 / 10%);
+}
+
+.graph-workbench__relationships span {
+  overflow: hidden;
+  color: #60716a;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-workbench__relationships strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .graph-workbench__hover-hint {

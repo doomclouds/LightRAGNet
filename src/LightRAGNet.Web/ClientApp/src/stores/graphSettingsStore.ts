@@ -4,6 +4,13 @@ export type GraphSettingsSnapshot = {
   queryLabel: string;
   maxDepth: number;
   maxNodes: number;
+  showNodeLabels: boolean;
+  showEdgeLabels: boolean;
+  enableEdgeEvents: boolean;
+  hideUnselectedEdges: boolean;
+  minEdgeSize: number;
+  maxEdgeSize: number;
+  layoutIterations: number;
 };
 
 export type GraphSettingsStoreApi = {
@@ -12,12 +19,26 @@ export type GraphSettingsStoreApi = {
   setQueryLabel: (queryLabel: string) => void;
   setMaxDepth: (maxDepth: number) => void;
   setMaxNodes: (maxNodes: number) => void;
+  setShowNodeLabels: (showNodeLabels: boolean) => void;
+  setShowEdgeLabels: (showEdgeLabels: boolean) => void;
+  setEnableEdgeEvents: (enableEdgeEvents: boolean) => void;
+  setHideUnselectedEdges: (hideUnselectedEdges: boolean) => void;
+  setMinEdgeSize: (minEdgeSize: number) => void;
+  setMaxEdgeSize: (maxEdgeSize: number) => void;
+  setLayoutIterations: (layoutIterations: number) => void;
 };
 
 const defaultSnapshot: GraphSettingsSnapshot = {
   queryLabel: "*",
   maxDepth: 2,
-  maxNodes: 100
+  maxNodes: 100,
+  showNodeLabels: true,
+  showEdgeLabels: false,
+  enableEdgeEvents: true,
+  hideUnselectedEdges: false,
+  minEdgeSize: 1.25,
+  maxEdgeSize: 5,
+  layoutIterations: 240
 };
 
 export function createGraphSettingsStoreState(
@@ -44,7 +65,14 @@ export function createGraphSettingsStoreState(
     },
     setQueryLabel: (queryLabel) => setState({ ...state, queryLabel }),
     setMaxDepth: (maxDepth) => setState({ ...state, maxDepth }),
-    setMaxNodes: (maxNodes) => setState({ ...state, maxNodes })
+    setMaxNodes: (maxNodes) => setState({ ...state, maxNodes }),
+    setShowNodeLabels: (showNodeLabels) => setState({ ...state, showNodeLabels }),
+    setShowEdgeLabels: (showEdgeLabels) => setState({ ...state, showEdgeLabels }),
+    setEnableEdgeEvents: (enableEdgeEvents) => setState({ ...state, enableEdgeEvents }),
+    setHideUnselectedEdges: (hideUnselectedEdges) => setState({ ...state, hideUnselectedEdges }),
+    setMinEdgeSize: (minEdgeSize) => setState({ ...state, minEdgeSize }),
+    setMaxEdgeSize: (maxEdgeSize) => setState({ ...state, maxEdgeSize }),
+    setLayoutIterations: (layoutIterations) => setState({ ...state, layoutIterations })
   };
 }
 
