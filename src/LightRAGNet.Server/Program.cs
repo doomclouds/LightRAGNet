@@ -7,6 +7,7 @@ using Microsoft.Extensions.FileProviders;
 using System.Reflection;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +54,18 @@ if (connectionString.StartsWith("Data Source="))
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(connectionString));
+
+builder.Services.Configure<DocumentArtifactStoreOptions>(options =>
+{
+    var workingDir = builder.Configuration["LightRAG:WorkingDir"] ?? "rag_storage";
+    if (!Path.IsPathRooted(workingDir))
+    {
+        workingDir = Path.Combine(baseDir, workingDir);
+    }
+
+    options.RootPath = workingDir;
+});
+builder.Services.AddScoped<IDocumentArtifactStore, FileSystemDocumentArtifactStore>();
 
 builder.Services.AddScoped<MarkdownDocumentDeletionService>();
 builder.Services.AddScoped<DocumentIntakeService>();
