@@ -84,4 +84,64 @@ public class MarkdownDocument
     /// Hash value of the file content (for deduplication)
     /// </summary>
     public string? FileHash { get; set; }
+
+    /// <summary>
+    /// Original uploaded file name before conversion
+    /// </summary>
+    public string? OriginalFileName { get; set; }
+
+    /// <summary>
+    /// Local storage path for the original uploaded file
+    /// </summary>
+    public string? OriginalFilePath { get; set; }
+
+    /// <summary>
+    /// Original uploaded file content type
+    /// </summary>
+    public string? OriginalContentType { get; set; }
+
+    /// <summary>
+    /// Hash value of the original uploaded file
+    /// </summary>
+    public string? OriginalContentHash { get; set; }
+
+    /// <summary>
+    /// Local storage path for the converted Markdown file
+    /// </summary>
+    public string? ConvertedMarkdownPath { get; set; }
+
+    /// <summary>
+    /// Hash value of the converted Markdown content
+    /// </summary>
+    public string? ConvertedMarkdownHash { get; set; }
+
+    /// <summary>
+    /// Document conversion status
+    /// </summary>
+    public string? ConversionStatus { get; set; }
+
+    /// <summary>
+    /// Document conversion error message
+    /// </summary>
+    public string? ConversionErrorMessage { get; set; }
+
+    /// <summary>
+    /// Time when document conversion started
+    /// </summary>
+    public DateTime? ConversionStartedAt { get; set; }
+
+    /// <summary>
+    /// Time when document conversion completed
+    /// </summary>
+    public DateTime? ConversionCompletedAt { get; set; }
+
+    /// <summary>
+    /// Tool used to convert the original file to Markdown
+    /// </summary>
+    public string? ConversionTool { get; set; }
+
+    /// <summary>
+    /// Version of the conversion tool
+    /// </summary>
+    public string? ConversionToolVersion { get; set; }
 }

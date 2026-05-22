@@ -419,6 +419,52 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task GetMarkdownDocuments_ReturnsSafeConversionMetadataWithoutLocalPaths()
+    {
+        using var factory = new LightRagServerFactory();
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 801,
+            FileName = "合同.pdf",
+            Content = "# Converted",
+            FileSize = 128,
+            TrackId = "track-conversion-metadata",
+            OriginalFileName = "合同.pdf",
+            OriginalFilePath = "documents/801/original.pdf",
+            OriginalContentType = "application/pdf",
+            OriginalContentHash = "original-hash",
+            ConvertedMarkdownPath = "documents/801/converted.md",
+            ConvertedMarkdownHash = "markdown-hash",
+            ConversionStatus = DocumentConversionStatus.Completed,
+            ConversionErrorMessage = null,
+            ConversionStartedAt = new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc),
+            ConversionCompletedAt = new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc),
+            ConversionTool = "ManagedCode.MarkItDown",
+            ConversionToolVersion = "10.0.7"
+        });
+        using var client = factory.CreateClient();
+
+        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+            "/api/MarkdownDocuments?page=1&pageSize=10&trackId=track-conversion-metadata");
+
+        result.Should().NotBeNull();
+        var document = result!.Items.Should().ContainSingle(d => d.Id == 801).Subject;
+        document.FileName.Should().Be("合同.pdf");
+        document.OriginalFileName.Should().Be("合同.pdf");
+        document.OriginalContentType.Should().Be("application/pdf");
+        document.OriginalContentHash.Should().Be("original-hash");
+        document.ConvertedMarkdownHash.Should().Be("markdown-hash");
+        document.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
+        document.ConversionErrorMessage.Should().BeNull();
+        document.ConversionTool.Should().Be("ManagedCode.MarkItDown");
+        document.ConversionToolVersion.Should().Be("10.0.7");
+        document.ConversionStartedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc));
+        document.ConversionCompletedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc));
+        typeof(MarkdownDocumentDto).GetProperty("OriginalFilePath").Should().BeNull();
+        typeof(MarkdownDocumentDto).GetProperty("ConvertedMarkdownPath").Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetMarkdownDocuments_WithStatusAndTrackFilters_ReturnsMatchingRowsOnly()
     {
         using var factory = new LightRagServerFactory();

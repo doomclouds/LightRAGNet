@@ -30,6 +30,16 @@ public static class MarkdownModelMapper
             RagDocumentId = model.RagDocumentId,
             FileUrl = model.FileUrl,
             FileHash = model.FileHash,
+            OriginalFileName = model.OriginalFileName,
+            OriginalContentType = model.OriginalContentType,
+            OriginalContentHash = model.OriginalContentHash,
+            ConvertedMarkdownHash = model.ConvertedMarkdownHash,
+            ConversionStatus = model.ConversionStatus,
+            ConversionErrorMessage = model.ConversionErrorMessage,
+            ConversionStartedAt = model.ConversionStartedAt,
+            ConversionCompletedAt = model.ConversionCompletedAt,
+            ConversionTool = model.ConversionTool,
+            ConversionToolVersion = model.ConversionToolVersion,
             Content = model.Content
         };
     }
