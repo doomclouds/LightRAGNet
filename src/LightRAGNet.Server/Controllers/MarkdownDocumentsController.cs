@@ -474,7 +474,8 @@ public class MarkdownDocumentsController(
                 FileSize = file.Length,
                 UploadTime = DateTime.UtcNow,
                 FileUrl = fileUrl,
-                FileHash = fileHash
+                FileHash = fileHash,
+                ConversionStatus = DocumentConversionStatus.NotRequired
             };
 
             context.MarkdownDocuments.Add(document);

@@ -59,6 +59,7 @@ public sealed class DocumentIntakeService(
                     RagCurrentStage = "Accepted",
                     IsInRagSystem = false,
                     RagProgress = 0,
+                    ConversionStatus = DocumentConversionStatus.NotRequired,
                     FileHash = Convert.ToHexStringLower(SHA256.HashData(bytes))
                 };
             })

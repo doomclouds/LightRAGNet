@@ -63,6 +63,15 @@ public sealed class DocumentIntakePipelineApiTests
         body.Documents.Should().HaveCount(2);
         body.Documents.Select(d => d.TrackId).Should().OnlyContain(id => id == body.TrackId);
         body.Documents.Select(d => d.RagStatus).Should().OnlyContain(status => status == "Queued");
+        body.Documents.Select(d => d.ConversionStatus).Should().OnlyContain(status => status == DocumentConversionStatus.NotRequired);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.MarkdownDocuments
+            .Where(d => d.TrackId == body.TrackId)
+            .Select(d => d.ConversionStatus)
+            .Should()
+            .OnlyContain(status => status == DocumentConversionStatus.NotRequired);
     }
 
     [Fact]
@@ -439,7 +448,7 @@ public sealed class DocumentIntakePipelineApiTests
             ConvertedMarkdownPath = "documents/801/converted.md",
             ConvertedMarkdownHash = "markdown-hash",
             ConversionStatus = DocumentConversionStatus.Completed,
-            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md; retry documents\801\original.pdf via /documents/801/original.pdf",
+            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md; retry documents\801\original.pdf via /documents/801/original.pdf; inspect C:\Users\x\My Documents\secret.pdf, /var/app/uploads/secret.pdf, /tmp/lightrag/documents/801/original.pdf, and \\server\share\secret.pdf",
             ConversionStartedAt = new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc),
             ConversionCompletedAt = new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc),
             ConversionTool = "ManagedCode.MarkItDown",
@@ -459,6 +468,11 @@ public sealed class DocumentIntakePipelineApiTests
         rawJson.Should().NotContain("documents/801/converted.md");
         rawJson.Should().NotContain(@"documents\\801\\original.pdf");
         rawJson.Should().NotContain("/documents/801/original.pdf");
+        rawJson.Should().NotContain(@"C:\\Users\\x\\My Documents\\secret.pdf");
+        rawJson.Should().NotContain(@"Documents\\secret.pdf");
+        rawJson.Should().NotContain("/var/app/uploads/secret.pdf");
+        rawJson.Should().NotContain("/tmp/lightrag");
+        rawJson.Should().NotContain(@"\\\\server\\share\\secret.pdf");
         var document = result!.Items.Should().ContainSingle(d => d.Id == 801).Subject;
         document.FileName.Should().Be("合同.pdf");
         document.OriginalFileName.Should().Be("合同.pdf");
@@ -466,7 +480,17 @@ public sealed class DocumentIntakePipelineApiTests
         document.OriginalContentHash.Should().Be("original-hash");
         document.ConvertedMarkdownHash.Should().Be("markdown-hash");
         document.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
-        document.ConversionErrorMessage.Should().Be("Failed to convert [path] from [path] to [path]; retry [path] via [path]");
+        document.ConversionErrorMessage.Should().Contain("[path]");
+        document.ConversionErrorMessage.Should().NotContain(@"C:\WorkSpace\secret\original.pdf");
+        document.ConversionErrorMessage.Should().NotContain("documents/801/original.pdf");
+        document.ConversionErrorMessage.Should().NotContain("documents/801/converted.md");
+        document.ConversionErrorMessage.Should().NotContain(@"documents\801\original.pdf");
+        document.ConversionErrorMessage.Should().NotContain("/documents/801/original.pdf");
+        document.ConversionErrorMessage.Should().NotContain(@"C:\Users\x\My Documents\secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain(@"Documents\secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain("/var/app/uploads/secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain("/tmp/lightrag");
+        document.ConversionErrorMessage.Should().NotContain(@"\\server\share\secret.pdf");
         document.ConversionTool.Should().Be("ManagedCode.MarkItDown");
         document.ConversionToolVersion.Should().Be("10.0.7");
         document.ConversionStartedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc));
@@ -852,6 +876,28 @@ public sealed class DocumentIntakePipelineApiTests
         document.FileUrl.Should().StartWith($"upload://{body.TrackId}/");
         document.FileUrl.Should().NotStartWith("text://");
         queue.EnqueueCalls.Should().ContainSingle().Which.FilePath.Should().Be(document.FileUrl);
+    }
+
+    [Fact]
+    public async Task UploadMarkdownDocument_SetsConversionStatusNotRequired()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent("# legacy"), "file", "legacy.md");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var document = await response.Content.ReadFromJsonAsync<MarkdownDocumentDto>();
+        document.Should().NotBeNull();
+        document!.ConversionStatus.Should().Be(DocumentConversionStatus.NotRequired);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await context.MarkdownDocuments.FindAsync(document.Id);
+        persisted.Should().NotBeNull();
+        persisted!.ConversionStatus.Should().Be(DocumentConversionStatus.NotRequired);
     }
 
     [Fact]
