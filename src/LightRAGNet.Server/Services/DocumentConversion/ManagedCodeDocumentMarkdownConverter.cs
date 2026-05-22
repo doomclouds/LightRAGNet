@@ -15,6 +15,8 @@ public sealed class ManagedCodeDocumentMarkdownConverter(
         string? contentType,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
         if (extension is not ".pdf" and not ".docx")
         {
@@ -23,10 +25,10 @@ public sealed class ManagedCodeDocumentMarkdownConverter(
 
         if (!sourceFile.Exists)
         {
-            throw new FileNotFoundException("Source document file was not found.", sourceFile.FullName);
+            throw new FileNotFoundException("Source document file was not found.");
         }
 
-        logger.LogInformation("Converting document to Markdown: {FileName}", originalFileName);
+        logger.LogInformation("Converting document to Markdown: {FileName}", Path.GetFileName(originalFileName));
 
         var client = new MarkItDownClient();
         await using var result = await client.ConvertAsync(sourceFile.FullName, cancellationToken: cancellationToken);
@@ -38,7 +40,7 @@ public sealed class ManagedCodeDocumentMarkdownConverter(
 
         return new DocumentMarkdownConversionResult(
             markdown,
-            contentType ?? GuessMediaType(extension),
+            GuessMediaType(extension),
             []);
     }
 
