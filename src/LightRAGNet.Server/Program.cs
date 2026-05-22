@@ -8,6 +8,7 @@ using System.Reflection;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Server.Services.DocumentArtifacts;
+using LightRAGNet.Server.Services.DocumentConversion;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -66,6 +67,7 @@ builder.Services.Configure<DocumentArtifactStoreOptions>(options =>
     options.RootPath = workingDir;
 });
 builder.Services.AddScoped<IDocumentArtifactStore, FileSystemDocumentArtifactStore>();
+builder.Services.AddScoped<IDocumentMarkdownConverter, ManagedCodeDocumentMarkdownConverter>();
 
 builder.Services.AddScoped<MarkdownDocumentDeletionService>();
 builder.Services.AddScoped<DocumentIntakeService>();
