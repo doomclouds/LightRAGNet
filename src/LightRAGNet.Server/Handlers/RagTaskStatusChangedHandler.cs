@@ -45,7 +45,7 @@ public class RagTaskStatusChangedHandler(
                 if (task.Status == RagTaskStatus.Completed)
                 {
                     var deletionService = scope.ServiceProvider.GetRequiredService<MarkdownDocumentDeletionService>();
-                    await deletionService.DeleteDocumentArtifactsAsync(document, cancellationToken);
+                    await deletionService.TryDeleteDocumentArtifactsAsync(document, cancellationToken);
                     deletionService.DeleteUploadedFileIfPresent(task.DeleteFilePath);
                     context.MarkdownDocuments.Remove(document);
                     await context.SaveChangesAsync(cancellationToken);

@@ -77,6 +77,11 @@ public sealed class DocumentConversionProcessor(
 
     private async Task ProcessClaimedDocumentAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
+        if (await IsPipelineCancelledAsync(document.Id, cancellationToken))
+        {
+            return;
+        }
+
         string markdown;
         try
         {
@@ -89,8 +94,18 @@ public sealed class DocumentConversionProcessor(
         }
         catch (Exception ex)
         {
+            if (await IsPipelineCancelledAsync(document.Id, CancellationToken.None))
+            {
+                return;
+            }
+
             await MarkConversionFailedAsync(document, GetSafeConversionErrorMessage(ex), cancellationToken);
             logger.LogWarning(ex, "Document conversion failed for document {DocumentId}.", document.Id);
+            return;
+        }
+
+        if (await IsPipelineCancelledAsync(document.Id, cancellationToken))
+        {
             return;
         }
 
@@ -209,6 +224,11 @@ public sealed class DocumentConversionProcessor(
         string markdown,
         CancellationToken cancellationToken)
     {
+        if (await IsPipelineCancelledAsync(document.Id, cancellationToken))
+        {
+            return;
+        }
+
         string? taskId;
         try
         {
@@ -238,6 +258,11 @@ public sealed class DocumentConversionProcessor(
 
         if (string.IsNullOrWhiteSpace(taskId))
         {
+            if (await IsPipelineCancelledAsync(document.Id, CancellationToken.None))
+            {
+                return;
+            }
+
             var activeTask = await GetActiveIndexTaskByDocumentIdAsync(document.Id);
             if (activeTask is not null)
             {
@@ -251,13 +276,51 @@ public sealed class DocumentConversionProcessor(
             return;
         }
 
-        document.RagStatus = DocumentIntakeStatus.Queued;
-        document.RagCurrentStage = "Indexing";
-        document.ActiveRagTaskId = taskId;
-        document.RagProgress = 0;
-        document.RagErrorMessage = null;
+        var affectedRows = await dbContext.MarkdownDocuments
+            .Where(candidate =>
+                candidate.Id == document.Id &&
+                candidate.RagStatus == DocumentIntakeStatus.Processing &&
+                candidate.ConversionStatus == DocumentConversionStatus.Completed &&
+                candidate.ActiveRagTaskId == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(candidate => candidate.RagStatus, DocumentIntakeStatus.Queued)
+                .SetProperty(candidate => candidate.RagCurrentStage, "Indexing")
+                .SetProperty(candidate => candidate.ActiveRagTaskId, taskId)
+                .SetProperty(candidate => candidate.RagProgress, 0)
+                .SetProperty(candidate => candidate.RagErrorMessage, (string?)null),
+                CancellationToken.None);
 
-        await dbContext.SaveChangesAsync(CancellationToken.None);
+        if (affectedRows == 0)
+        {
+            await TryCancelQueuedIndexTaskAsync(taskId, document.Id);
+        }
+    }
+
+    private async Task<bool> IsPipelineCancelledAsync(int documentId, CancellationToken cancellationToken)
+    {
+        var status = await dbContext.MarkdownDocuments
+            .AsNoTracking()
+            .Where(document => document.Id == documentId)
+            .Select(document => document.RagStatus)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return status == DocumentIntakeStatus.Cancelled;
+    }
+
+    private async Task TryCancelQueuedIndexTaskAsync(string taskId, int documentId)
+    {
+        try
+        {
+            await ragTaskQueue.CancelTaskAsync(taskId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Document pipeline was cancelled after queue handoff for document {DocumentId}, but queued task {TaskId} could not be cancelled.",
+                documentId,
+                taskId);
+        }
     }
 
     private async Task<RagTask?> GetActiveIndexTaskByDocumentIdAsync(int documentId)

@@ -90,6 +90,22 @@ public sealed class MarkdownDocumentDeletionService(
         await artifactStore.DeleteArtifactsAsync(document, cancellationToken);
     }
 
+    public async Task<bool> TryDeleteDocumentArtifactsAsync(
+        MarkdownDocument document,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DeleteDocumentArtifactsAsync(document, cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Error occurred while deleting document artifacts: {DocumentId}", document.Id);
+            return false;
+        }
+    }
+
     private static bool AuthorityMatchesRequestHost(Uri uri, HostString requestHost)
     {
         var hostMatches = string.Equals(uri.Host, requestHost.Host, StringComparison.OrdinalIgnoreCase);

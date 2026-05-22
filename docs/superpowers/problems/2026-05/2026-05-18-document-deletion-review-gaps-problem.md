@@ -8,7 +8,7 @@
 
 ## Symptom
 
-`document-deletion-parity` 的全量测试和初次最终审查前置验证都通过后，最终代码审查仍发现三类高风险缺口：跨文档 retained relation 可能被 Neo4j `DETACH DELETE` 连带删除，`clear-all` 仍保留手拼 `FileUrl` 的路径穿越风险，后台任务只被标记 `Failed` 但没有真实取消。后续运行还暴露出第四类旁路：RAG 侧 `doc_status` 已不存在时，后台删除任务把 `Document not found` 当失败，或者把任务当完成但跳过真实 RAG 清理，导致 `full_docs`、chunk KV 和 Neo4j 节点关系残留。
+`document-deletion-parity` 的全量测试和初次最终审查前置验证都通过后，最终代码审查仍发现三类高风险缺口：跨文档 retained relation 可能被 Neo4j `DETACH DELETE` 连带删除，`clear-all` 仍保留手拼 `FileUrl` 的路径穿越风险，后台任务只被标记 `Failed` 但没有真实取消。后续运行还暴露出第四类旁路：RAG 侧 `doc_status` 已不存在时，后台删除任务把 `Document not found` 当失败，或者把任务当完成但跳过真实 RAG 清理，导致 `full_docs`、chunk KV 和 Neo4j 节点关系残留。ManagedCode document intake 后续审查又暴露同类 server cleanup 旁路：artifact 目录清理异常会阻断 local-only delete 或 delete-task completed handler 的 legacy uploads cleanup 与 DB row 删除，让文档卡在 `Deleting`。
 
 ## Trigger / Context
 
@@ -16,7 +16,7 @@
 
 ## Root Cause
 
-实现和测试过早围绕“当前文档自己的索引”收敛：实体保护只看当前 `full_relations`，没有继续从 graph edges / `relation_chunks` 识别其它文档仍保留的关系。文件删除安全也只修了单文档 delete 路径，`clear-all` 仍有第二套字符串拼接逻辑。任务停止只更新队列状态，没有给正在执行的 processor 一个可取消 token。删除入口还把 `doc_status` 当成唯一真相；当 `doc_status` 为空但 `full_docs`、`text_chunks`、`full_entities`、`full_relations` 仍存在时，删除计划直接返回 not found，无法清理残留图谱和 KV 数据。
+实现和测试过早围绕“当前文档自己的索引”收敛：实体保护只看当前 `full_relations`，没有继续从 graph edges / `relation_chunks` 识别其它文档仍保留的关系。文件删除安全也只修了单文档 delete 路径，`clear-all` 仍有第二套字符串拼接逻辑。任务停止只更新队列状态，没有给正在执行的 processor 一个可取消 token。删除入口还把 `doc_status` 当成唯一真相；当 `doc_status` 为空但 `full_docs`、`text_chunks`、`full_entities`、`full_relations` 仍存在时，删除计划直接返回 not found，无法清理残留图谱和 KV 数据。后续 artifact cleanup 接入时，异常边界又默认沿用“清理失败即抛出”的强一致语义，没有区分可重试的 artifact 垃圾清理与必须继续完成的本地 row / legacy upload 删除链路。
 
 ## Fix
 
@@ -29,6 +29,8 @@
 - 补上 `RagTaskProcessorServiceTests.ProcessDeleteTaskAsync_MissingRagDocument_CompletesTask`，覆盖 RAG 侧目标已缺失时的队列幂等删除语义。
 - `LightRAG.DeleteDocumentAsync` 在 `doc_status` 缺失时回退读取 `full_docs[docId].chunks_list`，只要 `full_docs` 仍存在就继续走 `DocumentDeletionService` 清理 chunk vectors、text chunks、full document metadata、entity/relation metadata 和图谱引用。
 - 补上 `LightRAGLifecycleIntegrationTests.DeleteDocumentAsync_MissingLifecycleStatusButFullDocExists_DeletesStorage`，覆盖 `doc_status` 丢失但 RAG 元数据仍存在的恢复删除场景。
+- `MarkdownDocumentDeletionService` 增加 best-effort artifact cleanup 包装，local-only delete、delete-task completed handler 和 clear-all 复用同一 warning-and-continue 语义；legacy uploads cleanup 与 DB row 删除不再被 artifact cleanup 异常阻断。
+- 补上 artifact cleanup 抛异常时 direct delete 仍返回 `204 NoContent` 并移除 row、delete-task completed 仍删除 legacy upload 并移除 row 的回归测试。
 
 ## Why This Fix
 
@@ -44,6 +46,7 @@
 - SQLite `MarkdownDocuments` 已为空、Qdrant 点数为 0，但 `rag_storage/full_docs.json`、`text_chunks.json`、`entity_chunks.json` 或 Neo4j 仍保留同一文档的 `file_path/source_id`。
 - `doc_status.json` 为 `{}`，但其它 RAG JSON 文件仍含同一个 `doc--...`。
 - 代码评审发现“测试都绿，但旁路没有复用主路径安全/一致性合同”。
+- Artifact cleanup 只是删除 `documents/{id}` 目录，却在 local-only delete 或 `RagTaskStatusChangedHandler` 的 completed delete path 里位于 legacy upload cleanup / row remove 之前且没有局部 `try/catch`。
 
 ## Applicability / Non-Applicability
 
@@ -74,6 +77,8 @@
 - Code or Test:
   - [DocumentDeletionService.cs](../../../../src/LightRAGNet/Services/DocumentDeletion/DocumentDeletionService.cs)
   - [MarkdownDocumentsController.cs](../../../../src/LightRAGNet.Server/Controllers/MarkdownDocumentsController.cs)
+  - [MarkdownDocumentDeletionService.cs](../../../../src/LightRAGNet.Server/Services/MarkdownDocumentDeletionService.cs)
+  - [RagTaskStatusChangedHandler.cs](../../../../src/LightRAGNet.Server/Handlers/RagTaskStatusChangedHandler.cs)
   - [RagTaskCancellationRegistry.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskCancellationRegistry.cs)
   - [RagTaskProcessorService.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs)
   - [LightRAG.cs](../../../../src/LightRAGNet/LightRAG.cs)
@@ -81,3 +86,4 @@
   - [LightRAGLifecycleIntegrationTests.cs](../../../../tests/LightRAGNet.Tests/DocumentLifecycle/LightRAGLifecycleIntegrationTests.cs)
   - [RagTaskProcessorServiceTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskProcessorServiceTests.cs)
   - [MarkdownDocumentsControllerTests.cs](../../../../tests/LightRAGNet.Server.Tests/MarkdownDocumentsControllerTests.cs)
+  - [DocumentDeletionApiTests.cs](../../../../tests/LightRAGNet.Server.Tests/DocumentDeletionApiTests.cs)

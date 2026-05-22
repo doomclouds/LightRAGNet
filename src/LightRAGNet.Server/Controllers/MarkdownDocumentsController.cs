@@ -534,7 +534,7 @@ public class MarkdownDocumentsController(
         if (!document.IsInRagSystem && document.RagStatus != "DeletionFailed")
         {
             var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
-            await documentDeletionService.DeleteDocumentArtifactsAsync(document, cancellationToken);
+            await documentDeletionService.TryDeleteDocumentArtifactsAsync(document, cancellationToken);
             documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
             context.MarkdownDocuments.Remove(document);
             await context.SaveChangesAsync(cancellationToken);
@@ -723,14 +723,7 @@ public class MarkdownDocumentsController(
             var documentCount = documents.Count;
             foreach (var document in documents)
             {
-                try
-                {
-                    await documentDeletionService.DeleteDocumentArtifactsAsync(document, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Error occurred while deleting document artifacts: {DocumentId}", document.Id);
-                }
+                await documentDeletionService.TryDeleteDocumentArtifactsAsync(document, CancellationToken.None);
 
                 // Delete file from file system
                 if (!string.IsNullOrEmpty(document.FileUrl))

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using FluentAssertions;
 using LightRAGNet.Models;
@@ -233,6 +234,40 @@ public sealed class DocumentConversionProcessorTests
         document.ConversionCompletedAt.Should().BeNull();
         document.ConversionErrorMessage.Should().BeNull();
         document.RagErrorMessage.Should().BeNull();
+        document.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_WhenPipelineCancelledAfterClaim_DoesNotEnqueueRagTask()
+    {
+        var converterStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseConverter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var converter = new FakeDocumentMarkdownConverter
+        {
+            Markdown = "# Converted\n\nShould not enqueue",
+            Started = converterStarted,
+            WaitBeforeReturning = releaseConverter.Task
+        };
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = CreateFactory(converter, queue);
+        var documentId = await SeedDocumentWithOriginalArtifactAsync(factory, "claim-cancel.pdf", DocumentConversionStatus.Queued, DocumentIntakeStatus.Queued);
+        using var client = factory.CreateClient();
+
+        var processingTask = Task.Run(() => ProcessNextBatchAsync(factory, maxDocuments: 10));
+        await converterStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var cancelResponse = await client.PostAsync($"/api/MarkdownDocuments/{documentId}/cancel", null);
+        cancelResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        releaseConverter.SetResult();
+        var processed = await processingTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        processed.Should().Be(1);
+        queue.EnqueueCalls.Should().BeEmpty();
+        var document = await FindDocumentAsync(factory, documentId);
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Cancelled);
+        document.RagCurrentStage.Should().Be(DocumentIntakeStatus.Cancelled);
+        document.PipelineCancelledAt.Should().NotBeNull();
         document.ActiveRagTaskId.Should().BeNull();
     }
 
@@ -545,11 +580,15 @@ public sealed class DocumentConversionProcessorTests
 
         public CancellationTokenSource? CancelBeforeThrow { get; init; }
 
+        public TaskCompletionSource? Started { get; init; }
+
+        public Task? WaitBeforeReturning { get; init; }
+
         private int callCount;
 
         public int CallCount => callCount;
 
-        public Task<DocumentMarkdownConversionResult> ConvertAsync(
+        public async Task<DocumentMarkdownConversionResult> ConvertAsync(
             FileInfo sourceFile,
             string originalFileName,
             string? contentType,
@@ -569,7 +608,13 @@ public sealed class DocumentConversionProcessorTests
                 throw Exception;
             }
 
-            return Task.FromResult(new DocumentMarkdownConversionResult(Markdown));
+            Started?.SetResult();
+            if (WaitBeforeReturning is not null)
+            {
+                await WaitBeforeReturning.WaitAsync(cancellationToken);
+            }
+
+            return new DocumentMarkdownConversionResult(Markdown);
         }
     }
 

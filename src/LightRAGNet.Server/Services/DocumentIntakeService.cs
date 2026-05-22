@@ -433,11 +433,16 @@ public sealed class DocumentIntakeService(
         if (document.ConversionStatus is DocumentConversionStatus.Queued or DocumentConversionStatus.Processing &&
             string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
         {
-            document.RagStatus = DocumentIntakeStatus.Cancelled;
-            document.RagCurrentStage = DocumentIntakeStatus.Cancelled;
-            document.PipelineCancelledAt = DateTime.UtcNow;
-            document.ActiveRagTaskId = null;
-            return true;
+            if (await TryCancelConversionOnlyDocumentAsync(document.Id, cancellationToken))
+            {
+                return true;
+            }
+
+            await context.Entry(document).ReloadAsync(cancellationToken);
+            if (!DocumentIntakeStatus.IsCancellable(document.RagStatus))
+            {
+                return false;
+            }
         }
 
         var taskId = document.ActiveRagTaskId;
@@ -468,6 +473,33 @@ public sealed class DocumentIntakeService(
         document.PipelineCancelledAt = DateTime.UtcNow;
         document.ActiveRagTaskId = null;
         return true;
+    }
+
+    private async Task<bool> TryCancelConversionOnlyDocumentAsync(int documentId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var affectedRows = await context.MarkdownDocuments
+            .Where(document =>
+                document.Id == documentId &&
+                document.ActiveRagTaskId == null &&
+                (document.RagStatus == DocumentIntakeStatus.Queued ||
+                 document.RagStatus == DocumentIntakeStatus.Processing ||
+                 document.RagStatus == "Pending") &&
+                (document.ConversionStatus == DocumentConversionStatus.Queued ||
+                 document.ConversionStatus == DocumentConversionStatus.Processing))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(document => document.RagStatus, DocumentIntakeStatus.Cancelled)
+                .SetProperty(document => document.RagCurrentStage, DocumentIntakeStatus.Cancelled)
+                .SetProperty(document => document.PipelineCancelledAt, now)
+                .SetProperty(document => document.ActiveRagTaskId, (string?)null)
+                .SetProperty(document => document.ConversionStatus, DocumentConversionStatus.Queued)
+                .SetProperty(document => document.ConversionStartedAt, (DateTime?)null)
+                .SetProperty(document => document.ConversionCompletedAt, (DateTime?)null)
+                .SetProperty(document => document.ConversionErrorMessage, (string?)null)
+                .SetProperty(document => document.RagErrorMessage, (string?)null),
+                cancellationToken);
+
+        return affectedRows == 1;
     }
 
     private static bool IsSupportedUploadExtension(string? extension)
