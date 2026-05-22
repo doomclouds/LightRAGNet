@@ -68,6 +68,7 @@ builder.Services.Configure<DocumentArtifactStoreOptions>(options =>
 });
 builder.Services.AddScoped<IDocumentArtifactStore, FileSystemDocumentArtifactStore>();
 builder.Services.AddScoped<IDocumentMarkdownConverter, ManagedCodeDocumentMarkdownConverter>();
+builder.Services.AddSingleton<DocumentConversionCoordinator>();
 builder.Services.AddScoped<DocumentConversionProcessor>();
 builder.Services.AddHostedService<DocumentConversionWorker>();
 

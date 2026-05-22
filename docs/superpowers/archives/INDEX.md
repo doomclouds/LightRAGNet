@@ -3,6 +3,7 @@
 ## 2026-05
 
 - [2026-05-22-graph-workbench-python-parity-archives.md](./2026-05/2026-05-22-graph-workbench-python-parity-archives.md): 将 Knowledge Graph tab 收敛为 Python LightRAG 风格的 React Sigma 图谱工作台，补齐浮层控件、节点/边语义缩放、Settings、Label、Fullscreen、relationships 和可配置 max nodes 边界。
+- [2026-05-22-managedcode-markitdown-document-intake-archives.md](./2026-05/2026-05-22-managedcode-markitdown-document-intake-archives.md): 为 PDF/DOCX 增加离线上传、原始文件 artifact、`Add to RAG` 触发转换、`converted.md` 持久化和 Web 批量上传入口。
 - [2026-05-21-document-intake-pipeline-parity-archives.md](./2026-05/2026-05-21-document-intake-pipeline-parity-archives.md): 将 Markdown/text 文档接入升级为带 `track_id`、后台队列、状态追踪、retry/cancel 和 Web 基础操作的 intake pipeline。
 - [2026-05-21-graph-curation-react-workbench-archives.md](./2026-05/2026-05-21-graph-curation-react-workbench-archives.md): 引入 React/Vite 图谱工作台和图谱治理 API，对齐 Python LightRAG 图谱编辑、属性面板和实体合并语义，并保留参考来源声明。
 - [2026-05-21-kg-context-builder-parity-archives.md](./2026-05/2026-05-21-kg-context-builder-parity-archives.md): 将 KG query context 收口到结构化 builder，统一 JSON section、`reference_id` 引用锚点和按最终输出形态计算的 token budget。

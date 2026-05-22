@@ -156,6 +156,17 @@ public sealed class MarkdownDocumentsSourceTests
         source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.UserAction)");
     }
 
+    [Fact]
+    public void MarkdownDocuments_DownloadButton_IsHiddenForInternalUploadUris()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("CanDownloadFile(context.FileUrl)");
+        source.Should().Contain("fileUrl.StartsWith(\"/uploads/\", StringComparison.OrdinalIgnoreCase)");
+        source.Should().Contain("uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps");
+        source.Should().NotContain("@if (!string.IsNullOrEmpty(context.FileUrl))");
+    }
+
     private static string ReadPageSource()
     {
         var repositoryRoot = FindRepositoryRoot();

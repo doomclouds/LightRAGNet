@@ -112,7 +112,7 @@
                                        OnClick="@(() => ViewDocument(context.Id))" 
                                        Size="Size.Small" />
                     </MudTooltip>
-                    @if (!string.IsNullOrEmpty(context.FileUrl))
+                    @if (CanDownloadFile(context.FileUrl))
                     {
                         <MudTooltip Text="Download">
                             <MudIconButton Color="Color.Info"
@@ -618,9 +618,31 @@
             return "#";
         }
 
+        if (Uri.TryCreate(fileUrl, UriKind.Absolute, out var absoluteUri) &&
+            (absoluteUri.Scheme == Uri.UriSchemeHttp || absoluteUri.Scheme == Uri.UriSchemeHttps))
+        {
+            return absoluteUri.ToString();
+        }
+
         // Get API base URL (from ApiClient's BaseAddress)
         var baseUrl = ApiClient.GetBaseAddress();
         return $"{baseUrl.TrimEnd('/')}{fileUrl}";
+    }
+
+    private static bool CanDownloadFile(string? fileUrl)
+    {
+        if (string.IsNullOrWhiteSpace(fileUrl))
+        {
+            return false;
+        }
+
+        if (fileUrl.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(fileUrl, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
     }
 
     private string? ApplyTaskStatusUpdate(TaskStatusUpdate update)

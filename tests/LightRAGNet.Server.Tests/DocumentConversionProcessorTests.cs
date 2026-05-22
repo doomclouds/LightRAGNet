@@ -195,6 +195,7 @@ public sealed class DocumentConversionProcessorTests
                     context,
                     artifactStore,
                     converter,
+                    new DocumentConversionCoordinator(),
                     queue,
                     NullLogger<DocumentConversionProcessor>.Instance);
                 return await processor.ProcessNextBatchAsync(10, CancellationToken.None);

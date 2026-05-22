@@ -9,6 +9,7 @@ using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Hubs;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentConversion;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
@@ -26,6 +27,7 @@ public class MarkdownDocumentsController(
     IRagTaskQueueService taskQueueService,
     DocumentIntakeService documentIntakeService,
     MarkdownDocumentDeletionService documentDeletionService,
+    DocumentConversionCoordinator documentConversionCoordinator,
     IRagExternalStorageCleaner externalStorageCleaner,
     IServiceProvider serviceProvider)
     : ControllerBase
@@ -710,6 +712,7 @@ public class MarkdownDocumentsController(
         try
         {
             var results = new List<string>();
+            await using var conversionLease = await documentConversionCoordinator.AcquireAsync(HttpContext.RequestAborted);
 
             // 1. Stop all tasks before clearing rows or storage.
             var stoppedCount = await taskQueueService.StopAllTasksAsync();

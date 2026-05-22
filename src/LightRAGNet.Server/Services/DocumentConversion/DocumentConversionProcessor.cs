@@ -11,6 +11,7 @@ public sealed class DocumentConversionProcessor(
     AppDbContext dbContext,
     IDocumentArtifactStore artifactStore,
     IDocumentMarkdownConverter converter,
+    DocumentConversionCoordinator coordinator,
     IRagTaskQueueService ragTaskQueue,
     ILogger<DocumentConversionProcessor> logger)
 {
@@ -26,6 +27,8 @@ public sealed class DocumentConversionProcessor(
         {
             return 0;
         }
+
+        await using var lease = await coordinator.AcquireAsync(cancellationToken);
 
         var candidates = await dbContext.MarkdownDocuments
             .AsNoTracking()

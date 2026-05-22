@@ -6,6 +6,7 @@ using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Server.Services.DocumentArtifacts;
+using LightRAGNet.Server.Services.DocumentConversion;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using Microsoft.Extensions.DependencyInjection;
@@ -107,6 +108,63 @@ public sealed class MarkdownDocumentsControllerTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         Directory.Exists(artifactPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ClearAllData_WhenConversionIsRunning_WaitsBeforeRemovingRowsAndArtifacts()
+    {
+        var converter = new BlockingDocumentMarkdownConverter();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IDocumentMarkdownConverter>();
+            services.AddSingleton<IDocumentMarkdownConverter>(converter);
+        });
+        string documentDirectory;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            var document = new MarkdownDocument
+            {
+                Id = 46,
+                FileName = "running.pdf",
+                OriginalFileName = "running.pdf",
+                OriginalContentType = "application/pdf",
+                Content = string.Empty,
+                ConversionStatus = DocumentConversionStatus.Queued,
+                RagStatus = DocumentIntakeStatus.Queued,
+                RagCurrentStage = "Accepted",
+                UploadTime = DateTime.UtcNow
+            };
+            context.MarkdownDocuments.Add(document);
+            await context.SaveChangesAsync();
+
+            await using var original = new MemoryStream("pdf bytes"u8.ToArray());
+            var saved = await store.SaveOriginalAsync(document.Id, original, "running.pdf", CancellationToken.None);
+            document.OriginalFilePath = saved.RelativePath;
+            await context.SaveChangesAsync();
+            documentDirectory = store.GetFileInfo(saved.RelativePath).Directory!.FullName;
+        }
+
+        using var processorScope = factory.Services.CreateScope();
+        var processor = processorScope.ServiceProvider.GetRequiredService<DocumentConversionProcessor>();
+        var processingTask = processor.ProcessNextBatchAsync(1, CancellationToken.None);
+        await converter.WaitForCallAsync();
+        using var client = factory.CreateClient();
+
+        var clearTask = client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+        var earlyCompletion = await Task.WhenAny(clearTask, Task.Delay(200));
+
+        earlyCompletion.Should().NotBe(clearTask);
+        converter.Release();
+        var response = await clearTask;
+        await processingTask;
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Directory.Exists(documentDirectory).Should().BeFalse();
+        using var verificationScope = factory.Services.CreateScope();
+        var verificationContext = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        verificationContext.MarkdownDocuments.Should().BeEmpty();
     }
 
     [Fact]
@@ -349,6 +407,33 @@ public sealed class MarkdownDocumentsControllerTests
             cancellationToken.ThrowIfCancellationRequested();
             CallCount++;
             return Task.FromResult<IReadOnlyList<string>>(["External cleaner invoked"]);
+        }
+    }
+
+    private sealed class BlockingDocumentMarkdownConverter : IDocumentMarkdownConverter
+    {
+        private readonly TaskCompletionSource called = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<DocumentMarkdownConversionResult> ConvertAsync(
+            FileInfo sourceFile,
+            string fileName,
+            string? contentType,
+            CancellationToken cancellationToken)
+        {
+            called.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return new DocumentMarkdownConversionResult("# Converted");
+        }
+
+        public Task WaitForCallAsync()
+        {
+            return called.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        public void Release()
+        {
+            release.TrySetResult();
         }
     }
 }
