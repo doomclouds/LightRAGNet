@@ -356,6 +356,48 @@ public sealed class DocumentConversionProcessorTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_WhenCompletedHandoffArtifactReadFailsAndActiveTaskExists_ReconcilesWithoutFailing()
+    {
+        var converter = new FakeDocumentMarkdownConverter
+        {
+            Markdown = "# Should Not Be Used"
+        };
+        var queue = new RecordingRagTaskQueueService
+        {
+            ActiveTaskByDocumentId = documentId => new RagTask
+            {
+                TaskId = "existing-task",
+                DocumentId = documentId,
+                OperationType = RagTaskOperationType.IndexDocument,
+                Status = RagTaskStatus.Processing,
+                CurrentStage = TaskStage.ProcessingChunks,
+                Progress = 42
+            }
+        };
+        using var factory = CreateFactory(converter, queue);
+        var documentId = await SeedCompletedConversionAsync(factory, "missing-artifact-active.docx", "# Saved\n\nMarkdown");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var artifactStore = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            var document = await FindDocumentAsync(factory, documentId);
+            artifactStore.GetFileInfo(document!.ConvertedMarkdownPath!).Delete();
+        }
+
+        var processed = await ProcessNextBatchAsync(factory, maxDocuments: 10);
+
+        processed.Should().Be(1);
+        converter.CallCount.Should().Be(0);
+        queue.EnqueueCalls.Should().BeEmpty();
+        var documentAfterProcessing = await FindDocumentAsync(factory, documentId);
+        documentAfterProcessing!.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
+        documentAfterProcessing.RagStatus.Should().Be(DocumentIntakeStatus.Processing);
+        documentAfterProcessing.RagCurrentStage.Should().Be(TaskStage.ProcessingChunks.ToString());
+        documentAfterProcessing.ActiveRagTaskId.Should().Be("existing-task");
+        documentAfterProcessing.RagProgress.Should().Be(42);
+        documentAfterProcessing.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_WhenRagQueueThrows_AfterConversionKeepsConversionCompleted()
     {
         var converter = new FakeDocumentMarkdownConverter

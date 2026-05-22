@@ -187,6 +187,14 @@ public sealed class DocumentConversionProcessor(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Converted document artifact could not be read for document {DocumentId}.", document.Id);
+            var activeTask = await GetActiveIndexTaskByDocumentIdAsync(document.Id);
+            if (activeTask is not null)
+            {
+                ApplyActiveTask(document, activeTask);
+                await dbContext.SaveChangesAsync(CancellationToken.None);
+                return true;
+            }
+
             await MarkRagHandoffFailedAsync(document, CancellationToken.None);
             return true;
         }

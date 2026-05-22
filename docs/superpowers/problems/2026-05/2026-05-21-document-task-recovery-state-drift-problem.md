@@ -8,7 +8,7 @@
 
 ## Symptom
 
-文档 intake pipeline 的恢复路径看起来通过了主流程测试，但 code review 发现两个状态漂移风险：host shutdown 取消正在处理的任务时可能把任务写回 `Pending`，和启动恢复“Processing -> Failed，需要显式 retry”的语义冲突；同时 terminal snapshot 可能被 document-id active lookup 当成仍活跃的任务，导致重启后文档状态查询或取消/重试判断拿到过期终态。
+文档 intake pipeline 的恢复路径看起来通过了主流程测试，但 code review 发现多个状态漂移风险：host shutdown 取消正在处理的任务时可能把任务写回 `Pending`，和启动恢复“Processing -> Failed，需要显式 retry”的语义冲突；terminal snapshot 可能被 document-id active lookup 当成仍活跃的任务，导致重启后文档状态查询或取消/重试判断拿到过期终态；completed conversion handoff 在 `converted.md` artifact 丢失时也可能绕过已有 active `IndexDocument` task 对账，直接把文档标成 RAG failed。
 
 ## Trigger / Context
 
@@ -16,10 +16,11 @@
 - `RagTaskProcessorService` 在 host shutdown、startup recovery、进度 drain、终态发布之间有多条异常/取消路径。
 - Document intake pipeline 依赖 `GetTaskByDocumentIdAsync` / `GetTasksByDocumentIdsAsync` 判断当前文档是否存在 active task。
 - Terminal snapshot 仍需要保留给 retry-by-task-id，但不能污染“按 document id 查当前活跃任务”的语义。
+- Document conversion worker 可能在保存 converted artifact、入队 RAG task、回写 `ActiveRagTaskId` 之间中断；恢复 handoff 时 artifact 和 queue 状态可能不一致。
 
 ## Root Cause
 
-恢复语义没有在所有入口保持同一个 source of truth。startup recovery 已经把中断在 `Processing` 的任务标记为 `Failed`，但 host shutdown 的 `OperationCanceledException` 分支仍沿用旧的取消/重排思路，可能把正在处理的任务重新暴露为 `Pending`。另一边，terminal snapshot 是为了保存删除失败后的终态证据，但 document-id lookup 没过滤 terminal status，于是“历史终态快照”和“当前活跃任务”被同一查询混在一起。
+恢复语义没有在所有入口保持同一个 source of truth。startup recovery 已经把中断在 `Processing` 的任务标记为 `Failed`，但 host shutdown 的 `OperationCanceledException` 分支仍沿用旧的取消/重排思路，可能把正在处理的任务重新暴露为 `Pending`。另一边，terminal snapshot 是为了保存删除失败后的终态证据，但 document-id lookup 没过滤 terminal status，于是“历史终态快照”和“当前活跃任务”被同一查询混在一起。conversion handoff 的 artifact read failure 分支也先判定本地 artifact，不先查 queue active task，导致“已成功入队但文档行没来得及保存 task id”的恢复窗口被误标为失败。
 
 ## Fix
 
@@ -28,6 +29,7 @@
 - 让 `GetTaskByDocumentIdAsync` 和 `GetTasksByDocumentIdsAsync` 过滤 `Completed` / `Failed` / `Cancelled` terminal snapshots，只返回 `Pending` / `Processing` active task。
 - 保留 `GetTaskAsync(taskId)` 对 terminal snapshot 的读取能力，确保 failed/cancelled task 仍可按 task id retry。
 - 增加回归测试覆盖 host shutdown interrupted processing 不再发布 `Pending`，以及 terminal snapshot + pending task coexist 时 document-id lookup 只返回 active task。
+- 在 completed conversion handoff 的 converted artifact 读取失败分支里先调用 active task 对账；存在 active `IndexDocument` task 时回写 `ActiveRagTaskId`、状态、stage 和 progress，不 reconvert、不重新 enqueue，也不标记 RAG failed。
 
 ## Why This Fix
 
@@ -39,6 +41,7 @@
 - 文档状态显示仍有 active task，但对应 task status 已经是 `Completed`、`Failed` 或 `Cancelled`。
 - `GetTaskAsync(taskId)` 能查到 terminal snapshot，`GetTaskByDocumentIdAsync(documentId)` 也返回同一个终态任务。
 - retry/cancel、track status 或 Web 状态筛选在重启后表现得像有幽灵任务，尤其是 state file 删除失败后出现 terminal snapshot fallback。
+- PDF/DOCX 已完成 conversion 且 `RagStatus=Processing`、`ActiveRagTaskId=null`，但 queue 已有 active `IndexDocument` task；若 `converted.md` 丢失或路径不可读，恢复 worker 不应优先标 Failed。
 
 ## Applicability / Non-Applicability
 
@@ -65,5 +68,7 @@
 - Code or Test:
   - [RagTaskProcessorService.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskProcessorService.cs)
   - [RagTaskQueueService.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskQueueService.cs)
+  - [DocumentConversionProcessor.cs](../../../../src/LightRAGNet.Server/Services/DocumentConversion/DocumentConversionProcessor.cs)
   - [RagTaskProcessorServiceTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskProcessorServiceTests.cs)
   - [RagTaskQueueServiceTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskQueueServiceTests.cs)
+  - [DocumentConversionProcessorTests.cs](../../../../tests/LightRAGNet.Server.Tests/DocumentConversionProcessorTests.cs)
