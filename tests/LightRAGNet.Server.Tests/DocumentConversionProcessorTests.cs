@@ -261,6 +261,101 @@ public sealed class DocumentConversionProcessorTests
     }
 
     [Fact]
+    public async Task ProcessNextBatchAsync_WhenCompletedHandoffFindsExistingActiveTask_ReconcilesDocumentWithoutFailing()
+    {
+        var converter = new FakeDocumentMarkdownConverter
+        {
+            Markdown = "# Should Not Be Used"
+        };
+        var queue = new RecordingRagTaskQueueService
+        {
+            RejectEnqueue = true,
+            ActiveTaskByDocumentId = documentId => new RagTask
+            {
+                TaskId = "existing-task",
+                DocumentId = documentId,
+                Status = RagTaskStatus.Processing,
+                CurrentStage = TaskStage.ProcessingChunks,
+                Progress = 37
+            }
+        };
+        using var factory = CreateFactory(converter, queue);
+        var documentId = await SeedCompletedConversionAsync(factory, "handoff-race.docx", "# Saved\n\nMarkdown");
+
+        var processed = await ProcessNextBatchAsync(factory, maxDocuments: 10);
+
+        processed.Should().Be(1);
+        converter.CallCount.Should().Be(0);
+        queue.EnqueueCalls.Should().ContainSingle();
+        var document = await FindDocumentAsync(factory, documentId);
+        document!.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
+        document.RagStatus.Should().Be(DocumentIntakeStatus.Processing);
+        document.RagCurrentStage.Should().Be(TaskStage.ProcessingChunks.ToString());
+        document.ActiveRagTaskId.Should().Be("existing-task");
+        document.RagProgress.Should().Be(37);
+        document.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_WhenCancellationArrivesAfterQueueAccepted_PersistsActiveTaskWithoutResettingConversion()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var converter = new FakeDocumentMarkdownConverter
+        {
+            Markdown = "# Converted\n\nHello"
+        };
+        var queue = new RecordingRagTaskQueueService
+        {
+            CancelBeforeReturningTask = cancellation
+        };
+        using var factory = CreateFactory(converter, queue);
+        var documentId = await SeedDocumentWithOriginalArtifactAsync(factory, "cancel-after-enqueue.pdf", DocumentConversionStatus.Queued, DocumentIntakeStatus.Queued);
+
+        var processed = await ProcessNextBatchAsync(factory, maxDocuments: 10, cancellation.Token);
+
+        processed.Should().Be(1);
+        queue.EnqueueCalls.Should().ContainSingle();
+        var document = await FindDocumentAsync(factory, documentId);
+        document!.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
+        document.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.RagCurrentStage.Should().Be("Indexing");
+        document.ActiveRagTaskId.Should().Be("task-1");
+        document.ConversionStartedAt.Should().NotBeNull();
+        document.ConversionCompletedAt.Should().NotBeNull();
+        document.RagErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessNextBatchAsync_WhenCompletedHandoffArtifactReadFails_MarksRagFailedWithoutRequeueingConversion()
+    {
+        var converter = new FakeDocumentMarkdownConverter
+        {
+            Markdown = "# Should Not Be Used"
+        };
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = CreateFactory(converter, queue);
+        var documentId = await SeedCompletedConversionAsync(factory, "missing-artifact.docx", "# Saved\n\nMarkdown");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var artifactStore = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            var document = await FindDocumentAsync(factory, documentId);
+            artifactStore.GetFileInfo(document!.ConvertedMarkdownPath!).Delete();
+        }
+
+        var processed = await ProcessNextBatchAsync(factory, maxDocuments: 10);
+
+        processed.Should().Be(1);
+        converter.CallCount.Should().Be(0);
+        queue.EnqueueCalls.Should().BeEmpty();
+        var failed = await FindDocumentAsync(factory, documentId);
+        failed!.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
+        failed.RagStatus.Should().Be(DocumentIntakeStatus.Failed);
+        failed.RagCurrentStage.Should().Be("Indexing");
+        failed.RagErrorMessage.Should().Be("Document could not be queued for indexing.");
+        failed.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ProcessNextBatchAsync_WhenRagQueueThrows_AfterConversionKeepsConversionCompleted()
     {
         var converter = new FakeDocumentMarkdownConverter
@@ -444,6 +539,10 @@ public sealed class DocumentConversionProcessorTests
 
         public Exception? ThrowOnEnqueue { get; init; }
 
+        public CancellationTokenSource? CancelBeforeReturningTask { get; init; }
+
+        public Func<int, RagTask?>? ActiveTaskByDocumentId { get; init; }
+
         public List<EnqueueCall> EnqueueCalls { get; } = [];
 
         public Task<string?> EnqueueTaskAsync(
@@ -458,6 +557,7 @@ public sealed class DocumentConversionProcessorTests
                 throw ThrowOnEnqueue;
             }
 
+            CancelBeforeReturningTask?.Cancel();
             return Task.FromResult(RejectEnqueue ? null : $"task-{++nextTaskId}");
         }
 
@@ -488,7 +588,7 @@ public sealed class DocumentConversionProcessorTests
 
         public Task<RagTask?> GetTaskByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<RagTask?>(null);
+            return Task.FromResult(ActiveTaskByDocumentId?.Invoke(documentId));
         }
 
         public Task<Dictionary<int, RagTask>> GetTasksByDocumentIdsAsync(

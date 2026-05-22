@@ -1,3 +1,4 @@
+using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services.DocumentArtifacts;
@@ -99,7 +100,6 @@ public sealed class DocumentConversionProcessor(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await ResetClaimedDocumentAsync(document.Id);
             throw;
         }
     }
@@ -175,7 +175,22 @@ public sealed class DocumentConversionProcessor(
             return false;
         }
 
-        var markdown = await artifactStore.ReadConvertedMarkdownAsync(document.ConvertedMarkdownPath!, cancellationToken);
+        string markdown;
+        try
+        {
+            markdown = await artifactStore.ReadConvertedMarkdownAsync(document.ConvertedMarkdownPath!, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Converted document artifact could not be read for document {DocumentId}.", document.Id);
+            await MarkRagHandoffFailedAsync(document, CancellationToken.None);
+            return true;
+        }
+
         document.Content = markdown;
         await QueueConvertedMarkdownForIndexingAsync(document, markdown, cancellationToken);
         return true;
@@ -197,6 +212,14 @@ public sealed class DocumentConversionProcessor(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            var activeTask = await GetActiveIndexTaskByDocumentIdAsync(document.Id);
+            if (activeTask is not null)
+            {
+                ApplyActiveTask(document, activeTask);
+                await dbContext.SaveChangesAsync(CancellationToken.None);
+                return;
+            }
+
             throw;
         }
         catch (Exception ex)
@@ -207,20 +230,74 @@ public sealed class DocumentConversionProcessor(
 
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            document.RagStatus = DocumentIntakeStatus.Failed;
-            document.RagCurrentStage = "Indexing";
-            document.RagErrorMessage = RagQueueFailureMessage;
-            document.ActiveRagTaskId = null;
-        }
-        else
-        {
-            document.RagStatus = DocumentIntakeStatus.Queued;
-            document.RagCurrentStage = "Indexing";
-            document.ActiveRagTaskId = taskId;
-            document.RagProgress = 0;
+            var activeTask = await GetActiveIndexTaskByDocumentIdAsync(document.Id);
+            if (activeTask is not null)
+            {
+                ApplyActiveTask(document, activeTask);
+                await dbContext.SaveChangesAsync(CancellationToken.None);
+                return;
+            }
+
+            ApplyRagHandoffFailure(document);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
         }
 
+        document.RagStatus = DocumentIntakeStatus.Queued;
+        document.RagCurrentStage = "Indexing";
+        document.ActiveRagTaskId = taskId;
+        document.RagProgress = 0;
+        document.RagErrorMessage = null;
+
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+    }
+
+    private async Task<RagTask?> GetActiveIndexTaskByDocumentIdAsync(int documentId)
+    {
+        try
+        {
+            var task = await ragTaskQueue.GetTaskByDocumentIdAsync(documentId, CancellationToken.None);
+            return task is
+            {
+                OperationType: RagTaskOperationType.IndexDocument,
+                Status: RagTaskStatus.Pending or RagTaskStatus.Processing
+            }
+                ? task
+                : null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Document RAG queue reconciliation failed for document {DocumentId}.", documentId);
+            return null;
+        }
+    }
+
+    private static void ApplyActiveTask(MarkdownDocument document, RagTask task)
+    {
+        document.RagStatus = task.Status switch
+        {
+            RagTaskStatus.Pending => DocumentIntakeStatus.Queued,
+            RagTaskStatus.Processing => DocumentIntakeStatus.Processing,
+            _ => document.RagStatus
+        };
+        document.RagCurrentStage = task.CurrentStage?.ToString() ?? "Indexing";
+        document.ActiveRagTaskId = task.TaskId;
+        document.RagProgress = task.Progress;
+        document.RagErrorMessage = null;
+    }
+
+    private async Task MarkRagHandoffFailedAsync(MarkdownDocument document, CancellationToken cancellationToken)
+    {
+        ApplyRagHandoffFailure(document);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void ApplyRagHandoffFailure(MarkdownDocument document)
+    {
+        document.RagStatus = DocumentIntakeStatus.Failed;
+        document.RagCurrentStage = "Indexing";
+        document.RagErrorMessage = RagQueueFailureMessage;
+        document.ActiveRagTaskId = null;
     }
 
     private async Task ResetClaimedDocumentAsync(int documentId)
