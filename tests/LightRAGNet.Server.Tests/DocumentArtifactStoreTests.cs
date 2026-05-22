@@ -41,6 +41,32 @@ public sealed class DocumentArtifactStoreTests
     }
 
     [Fact]
+    public async Task SaveConvertedMarkdownAsync_WritesUtf8WithoutBom()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+
+        var result = await store.SaveConvertedMarkdownAsync(8, "中文 markdown", CancellationToken.None);
+        var bytes = await File.ReadAllBytesAsync(result.AbsolutePath, CancellationToken.None);
+
+        var startsWithUtf8Bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        startsWithUtf8Bom.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveOriginalAsync_AcceptsDocxAndWritesOriginalDocx()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("docx bytes"));
+
+        var result = await store.SaveOriginalAsync(43, stream, "sample.docx", CancellationToken.None);
+
+        result.RelativePath.Should().Be(Path.Combine("documents", "43", "original.docx"));
+        File.Exists(result.AbsolutePath).Should().BeTrue();
+    }
+
+    [Fact]
     public void GetFileInfo_WhenPathEscapesRoot_Throws()
     {
         using var tempRoot = new TemporaryDirectory();
@@ -55,6 +81,19 @@ public sealed class DocumentArtifactStoreTests
     }
 
     [Fact]
+    public void Exists_WhenPathIsNullWhitespaceOrTraversal_ReturnsFalse()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+        var escapedPath = Path.Combine("documents", "..", "..", "secret.pdf");
+
+        store.Exists(null).Should().BeFalse();
+        store.Exists("").Should().BeFalse();
+        store.Exists("   ").Should().BeFalse();
+        store.Exists(escapedPath).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task DeleteArtifactsAsync_RemovesDocumentDirectory()
     {
         using var tempRoot = new TemporaryDirectory();
@@ -66,6 +105,23 @@ public sealed class DocumentArtifactStoreTests
         await store.DeleteArtifactsAsync(new MarkdownDocument { Id = 99 }, CancellationToken.None);
 
         Directory.Exists(Path.Combine(tempRoot.Path, "documents", "99")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteArtifactsAsync_RemovesOnlyTargetDocumentDirectory()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+        await using var targetStream = new MemoryStream(Encoding.UTF8.GetBytes("pdf bytes"));
+        await using var siblingStream = new MemoryStream(Encoding.UTF8.GetBytes("sibling"));
+        await store.SaveOriginalAsync(100, targetStream, "target.pdf", CancellationToken.None);
+        var siblingResult = await store.SaveOriginalAsync(101, siblingStream, "sibling.pdf", CancellationToken.None);
+
+        await store.DeleteArtifactsAsync(new MarkdownDocument { Id = 100 }, CancellationToken.None);
+
+        Directory.Exists(Path.Combine(tempRoot.Path, "documents", "100")).Should().BeFalse();
+        Directory.Exists(Path.Combine(tempRoot.Path, "documents", "101")).Should().BeTrue();
+        File.Exists(siblingResult.AbsolutePath).Should().BeTrue();
     }
 
     [Fact]
