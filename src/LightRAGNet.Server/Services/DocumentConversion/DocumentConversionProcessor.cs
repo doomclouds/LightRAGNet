@@ -26,26 +26,56 @@ public sealed class DocumentConversionProcessor(
             return 0;
         }
 
-        var documents = await dbContext.MarkdownDocuments
+        var candidates = await dbContext.MarkdownDocuments
+            .AsNoTracking()
             .Where(document =>
-                document.ConversionStatus == DocumentConversionStatus.Queued &&
-                document.RagStatus == DocumentIntakeStatus.Queued)
+                (document.ConversionStatus == DocumentConversionStatus.Queued &&
+                 document.RagStatus == DocumentIntakeStatus.Queued) ||
+                (document.ConversionStatus == DocumentConversionStatus.Completed &&
+                 document.RagStatus == DocumentIntakeStatus.Processing &&
+                 document.ConvertedMarkdownPath != null &&
+                 document.ConvertedMarkdownPath != string.Empty &&
+                 document.ActiveRagTaskId == null))
             .OrderBy(document => document.UploadTime)
             .Take(maxDocuments)
+            .Select(document => new DocumentConversionCandidate(
+                document.Id,
+                document.ConversionStatus == DocumentConversionStatus.Completed))
             .ToListAsync(cancellationToken);
 
-        foreach (var document in documents)
+        var processed = 0;
+        foreach (var candidate in candidates)
         {
-            await ProcessDocumentAsync(document, cancellationToken);
+            if (candidate.IsInterruptedHandoff)
+            {
+                if (await ProcessInterruptedHandoffAsync(candidate.Id, cancellationToken))
+                {
+                    processed++;
+                }
+
+                continue;
+            }
+
+            if (!await TryClaimQueuedDocumentAsync(candidate.Id, cancellationToken))
+            {
+                continue;
+            }
+
+            var document = await dbContext.MarkdownDocuments.FindAsync([candidate.Id], cancellationToken);
+            if (document is null)
+            {
+                continue;
+            }
+
+            await ProcessClaimedDocumentAsync(document, cancellationToken);
+            processed++;
         }
 
-        return documents.Count;
+        return processed;
     }
 
-    private async Task ProcessDocumentAsync(MarkdownDocument document, CancellationToken cancellationToken)
+    private async Task ProcessClaimedDocumentAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
-        await ClaimDocumentAsync(document, cancellationToken);
-
         string markdown;
         try
         {
@@ -53,6 +83,7 @@ public sealed class DocumentConversionProcessor(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            await ResetClaimedDocumentAsync(document.Id);
             throw;
         }
         catch (Exception ex)
@@ -62,21 +93,36 @@ public sealed class DocumentConversionProcessor(
             return;
         }
 
-        await EnqueueRagIndexingAsync(document, markdown, cancellationToken);
+        try
+        {
+            await QueueConvertedMarkdownForIndexingAsync(document, markdown, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await ResetClaimedDocumentAsync(document.Id);
+            throw;
+        }
     }
 
-    private async Task ClaimDocumentAsync(MarkdownDocument document, CancellationToken cancellationToken)
+    private async Task<bool> TryClaimQueuedDocumentAsync(int documentId, CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
-        document.RagStatus = DocumentIntakeStatus.Processing;
-        document.RagCurrentStage = "Converting";
-        document.ConversionStatus = DocumentConversionStatus.Processing;
-        document.ConversionStartedAt = now;
-        document.ConversionCompletedAt = null;
-        document.ConversionErrorMessage = null;
-        document.RagErrorMessage = null;
+        var affectedRows = await dbContext.MarkdownDocuments
+            .Where(document =>
+                document.Id == documentId &&
+                document.ConversionStatus == DocumentConversionStatus.Queued &&
+                document.RagStatus == DocumentIntakeStatus.Queued)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(document => document.RagStatus, DocumentIntakeStatus.Processing)
+                .SetProperty(document => document.RagCurrentStage, "Converting")
+                .SetProperty(document => document.ConversionStatus, DocumentConversionStatus.Processing)
+                .SetProperty(document => document.ConversionStartedAt, now)
+                .SetProperty(document => document.ConversionCompletedAt, (DateTime?)null)
+                .SetProperty(document => document.ConversionErrorMessage, (string?)null)
+                .SetProperty(document => document.RagErrorMessage, (string?)null),
+                cancellationToken);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        return affectedRows == 1;
     }
 
     private async Task<string> ConvertAndPersistMarkdownAsync(MarkdownDocument document, CancellationToken cancellationToken)
@@ -112,7 +158,30 @@ public sealed class DocumentConversionProcessor(
         return markdown;
     }
 
-    private async Task EnqueueRagIndexingAsync(
+    private async Task<bool> ProcessInterruptedHandoffAsync(int documentId, CancellationToken cancellationToken)
+    {
+        var document = await dbContext.MarkdownDocuments
+            .Where(document =>
+                document.Id == documentId &&
+                document.ConversionStatus == DocumentConversionStatus.Completed &&
+                document.RagStatus == DocumentIntakeStatus.Processing &&
+                document.ConvertedMarkdownPath != null &&
+                document.ConvertedMarkdownPath != string.Empty &&
+                document.ActiveRagTaskId == null)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (document is null)
+        {
+            return false;
+        }
+
+        var markdown = await artifactStore.ReadConvertedMarkdownAsync(document.ConvertedMarkdownPath!, cancellationToken);
+        document.Content = markdown;
+        await QueueConvertedMarkdownForIndexingAsync(document, markdown, cancellationToken);
+        return true;
+    }
+
+    private async Task QueueConvertedMarkdownForIndexingAsync(
         MarkdownDocument document,
         string markdown,
         CancellationToken cancellationToken)
@@ -154,6 +223,34 @@ public sealed class DocumentConversionProcessor(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task ResetClaimedDocumentAsync(int documentId)
+    {
+        try
+        {
+            dbContext.ChangeTracker.Clear();
+            var document = await dbContext.MarkdownDocuments.FindAsync([documentId], CancellationToken.None);
+            if (document is null)
+            {
+                return;
+            }
+
+            document.RagStatus = DocumentIntakeStatus.Queued;
+            document.RagCurrentStage = "Accepted";
+            document.ConversionStatus = DocumentConversionStatus.Queued;
+            document.ConversionStartedAt = null;
+            document.ConversionCompletedAt = null;
+            document.ConversionErrorMessage = null;
+            document.RagErrorMessage = null;
+            document.ActiveRagTaskId = null;
+
+            await dbContext.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to reset cancelled document conversion claim for document {DocumentId}.", documentId);
+        }
+    }
+
     private async Task MarkConversionFailedAsync(
         MarkdownDocument document,
         string errorMessage,
@@ -176,4 +273,6 @@ public sealed class DocumentConversionProcessor(
             ? EmptyMarkdownMessage
             : GenericConversionFailureMessage;
     }
+
+    private sealed record DocumentConversionCandidate(int Id, bool IsInterruptedHandoff);
 }
