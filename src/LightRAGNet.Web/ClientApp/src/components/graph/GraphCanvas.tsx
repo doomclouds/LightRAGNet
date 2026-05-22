@@ -227,21 +227,22 @@ function GraphCameraFocus() {
       return;
     }
 
-    const graph = sigma.getGraph();
-    if (!graph.hasNode(selectedNodeId)) {
+    if (!sigma.getGraph().hasNode(selectedNodeId)) {
       useGraphStore.setMoveToSelectedNode(false);
       return;
     }
 
-    const x = graph.getNodeAttribute(selectedNodeId, "x");
-    const y = graph.getNodeAttribute(selectedNodeId, "y");
-    if (typeof x !== "number" || typeof y !== "number") {
-      useGraphStore.setMoveToSelectedNode(false);
-      return;
-    }
+    const frame = window.requestAnimationFrame(() => {
+      const nodeDisplayData = sigma.getNodeDisplayData(selectedNodeId);
+      if (nodeDisplayData) {
+        sigma.setCustomBBox(null);
+        sigma.getCamera().animate({ x: nodeDisplayData.x, y: nodeDisplayData.y }, { duration: 420 });
+      }
 
-    sigma.getCamera().animate({ x, y, ratio: 0.55 }, { duration: 420 });
-    useGraphStore.setMoveToSelectedNode(false);
+      useGraphStore.setMoveToSelectedNode(false);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, [moveToSelectedNode, selectedNodeId, sigma]);
 
   return null;

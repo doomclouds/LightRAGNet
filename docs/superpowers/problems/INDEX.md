@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-22-graph-workbench-camera-focus-coordinate-race-problem.md](./2026-05/2026-05-22-graph-workbench-camera-focus-coordinate-race-problem.md): React Sigma 选中节点后必须等 refresh 完成再读取 display coordinates，否则相机会拿原始 graph 坐标跳出视野，表现为搜索结果点击后图谱消失。
 - [2026-05-22-graph-workbench-sigma-settings-instability-problem.md](./2026-05/2026-05-22-graph-workbench-sigma-settings-instability-problem.md): React Sigma renderer settings 必须保持稳定引用，避免 program class 在 render 中重建导致 Sigma 实例反复销毁、WebGL context 被清理并出现知识图谱白屏。
 - [2026-05-22-neo4j-labels-unwind-filter-problem.md](./2026-05/2026-05-22-neo4j-labels-unwind-filter-problem.md): Neo4j `UNWIND labels(n)` 后过滤 workspace label 前必须先 `WITH label`，否则 `/api/graph/labels` 会因 Cypher parse error 返回 500。
 - [2026-05-21-di-constructor-activation-boundary-problem.md](./2026-05/2026-05-21-di-constructor-activation-boundary-problem.md): internal 构造器、`InternalsVisibleTo` 和默认 DI 类型激活不是同一件事；迁移 coordinator 依赖时不要用 `object` 桥接隐藏编译期遗漏，应使用强类型构造器、Hosting factory 和 ServiceProvider 回归测试。

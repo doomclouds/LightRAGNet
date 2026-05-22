@@ -50,6 +50,43 @@ public sealed class GraphWorkbenchHostSourceTests
         source.Should().NotContain("curvedNoArrow: createEdgeCurveProgram()");
     }
 
+    [Fact]
+    public void GraphCanvas_CameraFocusUsesSigmaDisplayCoordinates()
+    {
+        var source = ReadRepositoryFile(
+            "src",
+            "LightRAGNet.Web",
+            "ClientApp",
+            "src",
+            "components",
+            "graph",
+            "GraphCanvas.tsx");
+
+        source.Should().Contain("sigma.getNodeDisplayData(selectedNodeId)");
+        source.Should().Contain("window.requestAnimationFrame");
+        source.Should().Contain("sigma.getCamera().animate({ x: nodeDisplayData.x, y: nodeDisplayData.y }");
+        source.Should().NotContain("graph.getNodeAttribute(selectedNodeId, \"x\")");
+        source.Should().NotContain("graph.getNodeAttribute(selectedNodeId, \"y\")");
+        source.Should().NotContain("ratio: 0.55");
+    }
+
+    [Fact]
+    public void GraphSearchBox_ClosesResultsAfterSelectingNode()
+    {
+        var source = ReadRepositoryFile(
+            "src",
+            "LightRAGNet.Web",
+            "ClientApp",
+            "src",
+            "components",
+            "graph",
+            "GraphSearchBox.tsx");
+
+        source.Should().Contain("const [resultsOpen, setResultsOpen] = useState(false);");
+        source.Should().Contain("resultsOpen && matches.length > 0");
+        source.Should().Contain("setResultsOpen(false);");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();

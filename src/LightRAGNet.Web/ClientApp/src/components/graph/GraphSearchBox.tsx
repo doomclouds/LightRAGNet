@@ -21,6 +21,7 @@ function getNodeSearchText(node: GraphNodeDto): string {
 export function GraphSearchBox() {
   const rawGraph = useGraphStore((state) => state.rawGraph);
   const [query, setQuery] = useState("");
+  const [resultsOpen, setResultsOpen] = useState(false);
   const trimmedQuery = query.trim().toLowerCase();
   const matches = useMemo(() => {
     if (!rawGraph || trimmedQuery.length === 0) {
@@ -39,19 +40,26 @@ export function GraphSearchBox() {
         type="search"
         value={query}
         onBlur={() => useGraphStore.focusNode(null)}
-        onChange={(event) => setQuery(event.currentTarget.value)}
+        onChange={(event) => {
+          setQuery(event.currentTarget.value);
+          setResultsOpen(true);
+        }}
+        onFocus={() => setResultsOpen(true)}
       />
-      {matches.length > 0 ? (
+      {resultsOpen && matches.length > 0 ? (
         <div className="graph-workbench__search-results">
           {matches.map((node) => (
             <button
               key={node.id}
               type="button"
+              onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => useGraphStore.focusNode(node.id)}
               onFocus={() => useGraphStore.focusNode(node.id)}
               onClick={() => {
                 useGraphStore.selectNode(node.id, true);
                 setQuery(node.label || node.id);
+                setResultsOpen(false);
+                useGraphStore.focusNode(null);
               }}
             >
               <span style={{ backgroundColor: node.color }} />
