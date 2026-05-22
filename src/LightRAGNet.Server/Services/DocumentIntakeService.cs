@@ -119,40 +119,47 @@ public sealed class DocumentIntakeService(
             throw new ArgumentException("At least one file is required.", nameof(files));
         }
 
-        foreach (var file in files)
+        var safeFileNames = files
+            .Select(file => GetSafeUploadedFileName(file.FileName))
+            .ToList();
+
+        for (var i = 0; i < files.Count; i++)
         {
-            ValidateUploadedDocument(file);
+            ValidateUploadedDocument(files[i], safeFileNames[i]);
         }
 
         var trackId = CreateTrackId();
         var now = DateTime.UtcNow;
         var documents = files
-            .Select(file => new MarkdownDocument
+            .Select((file, index) =>
             {
-                FileName = file.FileName,
-                OriginalFileName = file.FileName,
-                OriginalContentType = string.IsNullOrWhiteSpace(file.ContentType)
-                    ? GuessContentType(file.FileName)
-                    : file.ContentType,
-                Content = string.Empty,
-                FileSize = file.Length,
-                UploadTime = now,
-                FileUrl = CreateSourceUri("upload", trackId, file.FileName),
-                TrackId = trackId,
-                RagStatus = null,
-                RagCurrentStage = null,
-                ActiveRagTaskId = null,
-                ConversionStatus = DocumentConversionStatus.NotStarted,
-                IsInRagSystem = false,
-                RagProgress = 0
+                var safeFileName = safeFileNames[index];
+                return new MarkdownDocument
+                {
+                    FileName = safeFileName,
+                    OriginalFileName = safeFileName,
+                    OriginalContentType = GuessContentType(safeFileName),
+                    Content = string.Empty,
+                    FileSize = file.Length,
+                    UploadTime = now,
+                    FileUrl = CreateSourceUri("upload", trackId, safeFileName),
+                    TrackId = trackId,
+                    RagStatus = null,
+                    RagCurrentStage = null,
+                    ActiveRagTaskId = null,
+                    ConversionStatus = DocumentConversionStatus.NotStarted,
+                    IsInRagSystem = false,
+                    RagProgress = 0
+                };
             })
             .ToList();
 
-        context.MarkdownDocuments.AddRange(documents);
-        await context.SaveChangesAsync(cancellationToken);
-
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            context.MarkdownDocuments.AddRange(documents);
+            await context.SaveChangesAsync(cancellationToken);
+
             for (var i = 0; i < documents.Count; i++)
             {
                 var document = documents[i];
@@ -160,7 +167,7 @@ public sealed class DocumentIntakeService(
                 var savedArtifact = await artifactStore.SaveOriginalAsync(
                     document.Id,
                     stream,
-                    files[i].FileName,
+                    safeFileNames[i],
                     cancellationToken);
 
                 document.OriginalFilePath = savedArtifact.RelativePath;
@@ -170,16 +177,26 @@ public sealed class DocumentIntakeService(
             }
 
             await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (Exception ex)
         {
+            await transaction.RollbackAsync(CancellationToken.None);
+
             foreach (var document in documents)
             {
-                await artifactStore.DeleteArtifactsAsync(document, CancellationToken.None);
+                try
+                {
+                    await artifactStore.DeleteArtifactsAsync(document, CancellationToken.None);
+                }
+                catch (Exception deleteEx)
+                {
+                    logger.LogWarning(
+                        deleteEx,
+                        "Failed to delete document artifacts after upload intake failure for document {DocumentId}.",
+                        document.Id);
+                }
             }
-
-            context.MarkdownDocuments.RemoveRange(documents);
-            await context.SaveChangesAsync(CancellationToken.None);
 
             throw new ArgumentException("Original file could not be saved.", nameof(files), ex);
         }
@@ -334,8 +351,13 @@ public sealed class DocumentIntakeService(
         return status is DocumentIntakeStatus.Queued or "Pending";
     }
 
-    private static void ValidateUploadedDocument(IFormFile file)
+    private static void ValidateUploadedDocument(IFormFile file, string safeFileName)
     {
+        if (string.IsNullOrWhiteSpace(safeFileName))
+        {
+            throw new ArgumentException("Every file requires a file name.", "files");
+        }
+
         if (file.Length == 0)
         {
             throw new ArgumentException("File cannot be empty.", "files");
@@ -346,7 +368,7 @@ public sealed class DocumentIntakeService(
             throw new ArgumentException("File size cannot exceed 10MB.", "files");
         }
 
-        if (!IsSupportedUploadExtension(Path.GetExtension(file.FileName)))
+        if (!IsSupportedUploadExtension(Path.GetExtension(safeFileName)))
         {
             throw new ArgumentException("Only .pdf and .docx files are supported.", "files");
         }
@@ -387,6 +409,12 @@ public sealed class DocumentIntakeService(
     private static bool IsSupportedUploadExtension(string? extension)
     {
         return extension?.ToLowerInvariant() is ".pdf" or ".docx";
+    }
+
+    private static string GetSafeUploadedFileName(string fileName)
+    {
+        var normalizedFileName = fileName.Replace('\\', '/');
+        return Path.GetFileName(normalizedFileName);
     }
 
     private static string GuessContentType(string fileName)

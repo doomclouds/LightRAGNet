@@ -9,6 +9,7 @@ using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Migrations;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using MediatR;
@@ -884,6 +885,110 @@ public sealed class DocumentIntakePipelineApiTests
         documents.Select(d => d.OriginalContentHash).Should().OnlyContain(hash => !string.IsNullOrWhiteSpace(hash));
     }
 
+    [Fact]
+    public async Task UploadDocumentsBatch_WhenFileNameContainsPathAndContentTypeSpoofed_StoresSafeMetadata()
+    {
+        var artifactStore = new FailingDocumentArtifactStore(failOnSaveCall: 0);
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(artifactStore);
+        });
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        using var pdfContent = new ByteArrayContent("pdf bytes"u8.ToArray());
+        pdfContent.Headers.ContentType = new("text/plain");
+        content.Add(pdfContent, "files", @"C:\fake\folder\合同.pdf");
+        using var docxContent = new ByteArrayContent("docx bytes"u8.ToArray());
+        docxContent.Headers.ContentType = new("application/pdf");
+        content.Add(docxContent, "files", "../说明书.docx");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
+        body.Should().NotBeNull();
+        body!.Documents.Select(d => d.FileName).Should().BeEquivalentTo(["合同.pdf", "说明书.docx"]);
+        body.Documents.Should().ContainSingle(d =>
+            d.FileName == "合同.pdf" &&
+            d.OriginalFileName == "合同.pdf" &&
+            d.FileUrl == $"upload://{body.TrackId}/%E5%90%88%E5%90%8C.pdf" &&
+            d.OriginalContentType == "application/pdf");
+        body.Documents.Should().ContainSingle(d =>
+            d.FileName == "说明书.docx" &&
+            d.OriginalFileName == "说明书.docx" &&
+            d.FileUrl == $"upload://{body.TrackId}/%E8%AF%B4%E6%98%8E%E4%B9%A6.docx" &&
+            d.OriginalContentType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        artifactStore.SavedOriginalFileNames.Should().BeEquivalentTo(["合同.pdf", "说明书.docx"]);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = context.MarkdownDocuments.ToList();
+        persisted.Should().HaveCount(2);
+        persisted.Should().ContainSingle(d =>
+            d.FileName == "合同.pdf" &&
+            d.OriginalFileName == "合同.pdf" &&
+            d.FileUrl == $"upload://{body.TrackId}/%E5%90%88%E5%90%8C.pdf" &&
+            d.OriginalContentType == "application/pdf");
+        persisted.Should().ContainSingle(d =>
+            d.FileName == "说明书.docx" &&
+            d.OriginalFileName == "说明书.docx" &&
+            d.FileUrl == $"upload://{body.TrackId}/%E8%AF%B4%E6%98%8E%E4%B9%A6.docx" &&
+            d.OriginalContentType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+
+    [Fact]
+    public async Task UploadDocumentsBatch_WhenSecondArtifactSaveFails_RollsBackRowsAndDeletesSavedArtifacts()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        var artifactStore = new FailingDocumentArtifactStore(failOnSaveCall: 2);
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(artifactStore);
+        });
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent("pdf bytes"u8.ToArray()), "files", "first.pdf");
+        content.Add(new ByteArrayContent("docx bytes"u8.ToArray()), "files", "second.docx");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        queue.EnqueueCalls.Should().BeEmpty();
+        artifactStore.DeletedDocumentIds.Should().Contain(artifactStore.SavedDocumentIds.Single());
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.MarkdownDocuments.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task UploadDocumentsBatch_WhenArtifactDeleteFailsStillRollsBackRows()
+    {
+        var artifactStore = new FailingDocumentArtifactStore(failOnSaveCall: 2, failDelete: true);
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(artifactStore);
+        });
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent("pdf bytes"u8.ToArray()), "files", "first.pdf");
+        content.Add(new ByteArrayContent("docx bytes"u8.ToArray()), "files", "second.docx");
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        artifactStore.DeleteAttempts.Should().NotBeEmpty();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.MarkdownDocuments.Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("notes.md")]
     [InlineData("notes.txt")]
@@ -1285,4 +1390,71 @@ public sealed class DocumentIntakePipelineApiTests
         [property: JsonPropertyName("cancelledCount")] int CancelledCount);
 
     private sealed record EnqueueCall(int DocumentId, string Content, string FilePath);
+
+    private sealed class FailingDocumentArtifactStore(int failOnSaveCall, bool failDelete = false) : IDocumentArtifactStore
+    {
+        private int saveCalls;
+
+        public List<int> SavedDocumentIds { get; } = [];
+        public List<string> SavedOriginalFileNames { get; } = [];
+        public List<int> DeleteAttempts { get; } = [];
+        public List<int> DeletedDocumentIds { get; } = [];
+
+        public Task<DocumentArtifactWriteResult> SaveOriginalAsync(
+            int documentId,
+            Stream source,
+            string originalFileName,
+            CancellationToken cancellationToken)
+        {
+            saveCalls++;
+            if (saveCalls == failOnSaveCall)
+            {
+                throw new InvalidOperationException("artifact save failed");
+            }
+
+            SavedDocumentIds.Add(documentId);
+            SavedOriginalFileNames.Add(originalFileName);
+            var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+            return Task.FromResult(new DocumentArtifactWriteResult(
+                Path.Combine("root", "documents", documentId.ToString(), $"original{extension}"),
+                Path.Combine("documents", documentId.ToString(), $"original{extension}"),
+                $"hash-{documentId}",
+                source.Length));
+        }
+
+        public Task<DocumentArtifactWriteResult> SaveConvertedMarkdownAsync(
+            int documentId,
+            string markdown,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<string> ReadConvertedMarkdownAsync(string relativePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public FileInfo GetFileInfo(string relativePath)
+        {
+            throw new NotSupportedException();
+        }
+
+        public bool Exists(string? relativePath)
+        {
+            return false;
+        }
+
+        public Task DeleteArtifactsAsync(MarkdownDocument document, CancellationToken cancellationToken)
+        {
+            DeleteAttempts.Add(document.Id);
+            if (failDelete)
+            {
+                throw new IOException("artifact delete failed");
+            }
+
+            DeletedDocumentIds.Add(document.Id);
+            return Task.CompletedTask;
+        }
+    }
 }
