@@ -4,6 +4,7 @@ using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ namespace LightRAGNet.Server.Services;
 public sealed class DocumentIntakeService(
     AppDbContext context,
     IRagTaskQueueService taskQueueService,
+    IDocumentArtifactStore artifactStore,
     ILogger<DocumentIntakeService> logger)
 {
     private const long MaxUploadFileSize = 10 * 1024 * 1024;
@@ -117,42 +119,76 @@ public sealed class DocumentIntakeService(
             throw new ArgumentException("At least one file is required.", nameof(files));
         }
 
-        var documents = new List<TextDocumentInput>(files.Count);
         foreach (var file in files)
         {
-            if (file.Length == 0)
-            {
-                throw new ArgumentException("File cannot be empty.", nameof(files));
-            }
-
-            if (file.Length > MaxUploadFileSize)
-            {
-                throw new ArgumentException("File size cannot exceed 10MB.", nameof(files));
-            }
-
-            var extension = Path.GetExtension(file.FileName);
-            if (!IsSupportedUploadExtension(extension))
-            {
-                throw new ArgumentException("Only .md, .markdown, or .txt files are supported.", nameof(files));
-            }
-
-            await using var stream = file.OpenReadStream();
-            using var reader = new StreamReader(
-                stream,
-                Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true);
-
-            documents.Add(new TextDocumentInput
-            {
-                FileName = file.FileName,
-                Content = await reader.ReadToEndAsync(cancellationToken)
-            });
+            ValidateUploadedDocument(file);
         }
 
-        return await SubmitDocumentsAsync(
-            new SubmitTextDocumentsRequest { Documents = documents },
-            "upload",
-            cancellationToken);
+        var trackId = CreateTrackId();
+        var now = DateTime.UtcNow;
+        var documents = files
+            .Select(file => new MarkdownDocument
+            {
+                FileName = file.FileName,
+                OriginalFileName = file.FileName,
+                OriginalContentType = string.IsNullOrWhiteSpace(file.ContentType)
+                    ? GuessContentType(file.FileName)
+                    : file.ContentType,
+                Content = string.Empty,
+                FileSize = file.Length,
+                UploadTime = now,
+                FileUrl = CreateSourceUri("upload", trackId, file.FileName),
+                TrackId = trackId,
+                RagStatus = null,
+                RagCurrentStage = null,
+                ActiveRagTaskId = null,
+                ConversionStatus = DocumentConversionStatus.NotStarted,
+                IsInRagSystem = false,
+                RagProgress = 0
+            })
+            .ToList();
+
+        context.MarkdownDocuments.AddRange(documents);
+        await context.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            for (var i = 0; i < documents.Count; i++)
+            {
+                var document = documents[i];
+                await using var stream = files[i].OpenReadStream();
+                var savedArtifact = await artifactStore.SaveOriginalAsync(
+                    document.Id,
+                    stream,
+                    files[i].FileName,
+                    cancellationToken);
+
+                document.OriginalFilePath = savedArtifact.RelativePath;
+                document.OriginalContentHash = savedArtifact.Hash;
+                document.FileHash = savedArtifact.Hash;
+                document.FileSize = savedArtifact.Size;
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            foreach (var document in documents)
+            {
+                await artifactStore.DeleteArtifactsAsync(document, CancellationToken.None);
+            }
+
+            context.MarkdownDocuments.RemoveRange(documents);
+            await context.SaveChangesAsync(CancellationToken.None);
+
+            throw new ArgumentException("Original file could not be saved.", nameof(files), ex);
+        }
+
+        return new DocumentSubmissionResponse
+        {
+            TrackId = trackId,
+            Documents = documents.Select(d => d.ToDto()).ToList()
+        };
     }
 
     public async Task<DocumentTrackStatusResponse?> GetTrackStatusAsync(
@@ -298,6 +334,24 @@ public sealed class DocumentIntakeService(
         return status is DocumentIntakeStatus.Queued or "Pending";
     }
 
+    private static void ValidateUploadedDocument(IFormFile file)
+    {
+        if (file.Length == 0)
+        {
+            throw new ArgumentException("File cannot be empty.", "files");
+        }
+
+        if (file.Length > MaxUploadFileSize)
+        {
+            throw new ArgumentException("File size cannot exceed 10MB.", "files");
+        }
+
+        if (!IsSupportedUploadExtension(Path.GetExtension(file.FileName)))
+        {
+            throw new ArgumentException("Only .pdf and .docx files are supported.", "files");
+        }
+    }
+
     private async Task<bool> CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
         var taskId = document.ActiveRagTaskId;
@@ -332,7 +386,17 @@ public sealed class DocumentIntakeService(
 
     private static bool IsSupportedUploadExtension(string? extension)
     {
-        return extension?.ToLowerInvariant() is ".md" or ".markdown" or ".txt";
+        return extension?.ToLowerInvariant() is ".pdf" or ".docx";
+    }
+
+    private static string GuessContentType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => "application/octet-stream"
+        };
     }
 
     private static void MarkQueueFailed(MarkdownDocument document, string errorMessage)

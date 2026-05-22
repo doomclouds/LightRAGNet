@@ -848,26 +848,7 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
-    public async Task UploadMarkdownDocumentsBatch_CreatesOneTrackForAllFiles()
-    {
-        using var factory = new LightRagServerFactory();
-        using var client = factory.CreateClient();
-        using var content = new MultipartFormDataContent();
-        content.Add(new StringContent("alpha"), "files", "alpha.md");
-        content.Add(new StringContent("beta"), "files", "beta.md");
-
-        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
-        var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
-        body.Should().NotBeNull();
-        body!.Documents.Should().HaveCount(2);
-        body.Documents.Select(d => d.TrackId).Should().OnlyContain(id => id == body.TrackId);
-        body.Documents.Select(d => d.RagStatus).Should().OnlyContain(status => status == "Queued");
-    }
-
-    [Fact]
-    public async Task UploadMarkdownDocumentsBatch_UsesUploadSourceUriForFileUrlAndQueuePath()
+    public async Task UploadDocumentsBatch_WhenPdfAndDocx_SavesOriginalsButDoesNotQueueRag()
     {
         var queue = new RecordingRagTaskQueueService();
         using var factory = new LightRagServerFactory(services =>
@@ -877,17 +858,50 @@ public sealed class DocumentIntakePipelineApiTests
         });
         using var client = factory.CreateClient();
         using var content = new MultipartFormDataContent();
-        content.Add(new StringContent("alpha"), "files", "alpha.md");
+        content.Add(new ByteArrayContent("pdf bytes"u8.ToArray()), "files", "合同.pdf");
+        content.Add(new ByteArrayContent("docx bytes"u8.ToArray()), "files", "说明书.docx");
 
         var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
         body.Should().NotBeNull();
-        var document = body!.Documents.Should().ContainSingle().Subject;
-        document.FileUrl.Should().StartWith($"upload://{body.TrackId}/");
-        document.FileUrl.Should().NotStartWith("text://");
-        queue.EnqueueCalls.Should().ContainSingle().Which.FilePath.Should().Be(document.FileUrl);
+        body!.TrackId.Should().NotBeNullOrWhiteSpace();
+        body.Documents.Should().HaveCount(2);
+        body.Documents.Select(d => d.FileName).Should().BeEquivalentTo(["合同.pdf", "说明书.docx"]);
+        body.Documents.Select(d => d.RagStatus).Should().OnlyContain(status => status == null);
+        body.Documents.Select(d => d.RagCurrentStage).Should().OnlyContain(stage => stage == null);
+        body.Documents.Select(d => d.ConversionStatus).Should().OnlyContain(status => status == DocumentConversionStatus.NotStarted);
+        body.Documents.Select(d => d.IsInRagSystem).Should().OnlyContain(value => value == false);
+        queue.EnqueueCalls.Should().BeEmpty();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var documents = context.MarkdownDocuments.OrderBy(d => d.FileName).ToList();
+        documents.Should().HaveCount(2);
+        documents[0].OriginalFilePath.Should().EndWith(Path.Combine("documents", documents[0].Id.ToString(), "original.pdf"));
+        documents[1].OriginalFilePath.Should().EndWith(Path.Combine("documents", documents[1].Id.ToString(), "original.docx"));
+        documents.Select(d => d.OriginalContentHash).Should().OnlyContain(hash => !string.IsNullOrWhiteSpace(hash));
+    }
+
+    [Theory]
+    [InlineData("notes.md")]
+    [InlineData("notes.txt")]
+    [InlineData("slides.pptx")]
+    [InlineData("legacy.doc")]
+    [InlineData("program.exe")]
+    public async Task UploadDocumentsBatch_WhenExtensionUnsupported_ReturnsBadRequest(string fileName)
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent("unsupported"u8.ToArray()), "files", fileName);
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("Only .pdf and .docx files are supported.");
     }
 
     [Fact]
@@ -920,7 +934,7 @@ public sealed class DocumentIntakePipelineApiTests
         using var content = new MultipartFormDataContent();
         var oversizedBytes = new byte[(10 * 1024 * 1024) + 1];
         using var fileContent = new ByteArrayContent(oversizedBytes);
-        content.Add(fileContent, "files", "large.md");
+        content.Add(fileContent, "files", "large.pdf");
 
         var response = await client.PostAsync("/api/MarkdownDocuments/upload", content);
 
