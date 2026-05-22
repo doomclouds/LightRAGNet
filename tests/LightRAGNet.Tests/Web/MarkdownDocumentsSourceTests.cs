@@ -66,6 +66,16 @@ public sealed class MarkdownDocumentsSourceTests
     }
 
     [Fact]
+    public void ApiClient_UploadDocument_UsesBatchUploadEndpointAndFilesField()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("api/MarkdownDocuments/upload");
+        source.Should().Contain("content.Add(streamContent, \"files\", file.Name)");
+        source.Should().NotContain("PostAsync(\"api/MarkdownDocuments\", content");
+    }
+
+    [Fact]
     public void MarkdownDocuments_StatusFilter_IsSentThroughServerReload()
     {
         var source = NormalizeLineEndings(ReadPageSource());

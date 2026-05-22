@@ -79,34 +79,44 @@ public class ApiClient(HttpClient httpClient)
     }
 
     /// <summary>
-    /// Upload Markdown document
+    /// Upload a source document.
     /// </summary>
     /// <param name="file">File to upload</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Upload result, containing document information and error information</returns>
-    public async Task<UploadResult> UploadMarkdownDocumentAsync(
-        IBrowserFile file, 
+    public async Task<UploadResult> UploadDocumentAsync(
+        IBrowserFile file,
         CancellationToken cancellationToken = default)
     {
         using var content = new MultipartFormDataContent();
         await using var fileStream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024, cancellationToken: cancellationToken); // 10MB
         using var streamContent = new StreamContent(fileStream);
-        
-        streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/markdown");
-        content.Add(streamContent, "file", file.Name);
-        
-        var response = await httpClient.PostAsync("api/MarkdownDocuments", content, cancellationToken);
-        
+
+        streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            file.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+                ? "application/pdf"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        content.Add(streamContent, "files", file.Name);
+
+        var response = await httpClient.PostAsync("api/MarkdownDocuments/upload", content, cancellationToken);
+
         if (response.IsSuccessStatusCode)
         {
-            var document = await response.Content.ReadFromJsonAsync<MarkdownDocumentDto>(cancellationToken: cancellationToken);
-            return new UploadResult { Success = true, Document = document };
+            var submission = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>(
+                cancellationToken: cancellationToken);
+
+            return new UploadResult
+            {
+                Success = true,
+                Document = submission?.Documents.FirstOrDefault(),
+                TrackId = submission?.TrackId
+            };
         }
 
-        var errorMessage = await response.Content.ReadAsStringAsync(cancellationToken);
-        return new UploadResult 
-        { 
-            Success = false, 
+        var errorMessage = await ReadErrorMessageAsync(response.Content, cancellationToken);
+        return new UploadResult
+        {
+            Success = false,
             ErrorMessage = errorMessage,
             IsDuplicate = response.StatusCode == System.Net.HttpStatusCode.BadRequest && errorMessage.Contains("already exists")
         };
@@ -392,6 +402,7 @@ public class UploadResult
 {
     public bool Success { get; set; }
     public MarkdownDocumentDto? Document { get; set; }
+    public string? TrackId { get; set; }
     public string? ErrorMessage { get; set; }
     public bool IsDuplicate { get; set; }
 }

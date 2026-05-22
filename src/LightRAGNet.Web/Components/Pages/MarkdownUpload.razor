@@ -4,17 +4,17 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
-<PageTitle>Upload Markdown Document</PageTitle>
+<PageTitle>Upload Document</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium">
-    <MudText Typo="Typo.h4" Class="mb-4">Upload Markdown Document</MudText>
+    <MudText Typo="Typo.h4" Class="mb-4">Upload Document</MudText>
 
     <MudCard Elevation="2">
         <MudCardContent>
             <MudForm @bind-IsValid="@_isValid" @bind-Errors="@_errors">
                 <MudStack Spacing="3">
                     <MudFileUpload T="IReadOnlyList<IBrowserFile>" 
-                                   Accept=".md,.markdown" 
+                                   Accept=".pdf,.docx"
                                    MaximumFileCount="10"
                                    OnFilesChanged="@OnFilesChanged"
                                    Disabled="@_uploading">
@@ -78,11 +78,11 @@
         <MudText Typo="Typo.body2">
             <strong>Tips:</strong>
             <ul style="margin: 0; padding-left: 20px;">
-                <li>Only .md or .markdown files are supported</li>
+                <li>Only PDF or DOCX files are supported</li>
                 <li>Maximum 10MB per file</li>
                 <li>Maximum 10 files can be uploaded at once</li>
                 <li>The system will automatically detect duplicate files (based on file content hash), duplicate files cannot be uploaded</li>
-                <li>After successful upload, please click the "Add to RAG" button on the document list page to add the document to the RAG processing queue</li>
+                <li>After upload, click "Add to RAG" on the document list page; Add to RAG starts processing conversion and indexing</li>
             </ul>
         </MudText>
     </MudAlert>
@@ -126,7 +126,7 @@
             {
                 // Validate file extension
                 var extension = Path.GetExtension(file.Name).ToLowerInvariant();
-                if (extension != ".md" && extension != ".markdown")
+                if (extension != ".pdf" && extension != ".docx")
                 {
                     invalidFiles.Add($"{file.Name} (unsupported file type)");
                     continue;
@@ -188,7 +188,7 @@
         foreach (var file in _selectedFiles)
         {
             var extension = Path.GetExtension(file.Name).ToLowerInvariant();
-            if (extension != ".md" && extension != ".markdown")
+            if (extension != ".pdf" && extension != ".docx")
             {
                 invalidFiles.Add(file);
                 continue;
@@ -229,7 +229,7 @@
             {
                 try
                 {
-                    var result = await ApiClient.UploadMarkdownDocumentAsync(file);
+                    var result = await ApiClient.UploadDocumentAsync(file);
 
                     if (result.Success && result.Document != null)
                     {
@@ -265,7 +265,7 @@
             // Display upload results
             if (successCount > 0)
             {
-                Snackbar.Add($"Successfully uploaded {successCount} file(s), automatically added to RAG processing queue", Severity.Success);
+                Snackbar.Add($"Successfully uploaded {successCount} file(s). Use Add to RAG from the document list when ready.", Severity.Success);
             }
 
             if (failCount > 0)
