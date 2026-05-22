@@ -60,6 +60,6 @@ public static partial class MarkdownModelMapper
     [GeneratedRegex(@"[A-Za-z]:\\[^\s""'<>),;]+")]
     private static partial Regex WindowsPathPattern();
 
-    [GeneratedRegex(@"(?<![\w/\\.-])documents/[^\s""'<>),;]+")]
+    [GeneratedRegex(@"(?<![\w.-])[/\\]?documents[/\\][^\s""'<>),;]+")]
     private static partial Regex ArtifactPathPattern();
 }

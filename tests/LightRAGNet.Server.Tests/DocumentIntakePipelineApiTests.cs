@@ -439,7 +439,7 @@ public sealed class DocumentIntakePipelineApiTests
             ConvertedMarkdownPath = "documents/801/converted.md",
             ConvertedMarkdownHash = "markdown-hash",
             ConversionStatus = DocumentConversionStatus.Completed,
-            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md",
+            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md; retry documents\801\original.pdf via /documents/801/original.pdf",
             ConversionStartedAt = new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc),
             ConversionCompletedAt = new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc),
             ConversionTool = "ManagedCode.MarkItDown",
@@ -457,6 +457,8 @@ public sealed class DocumentIntakePipelineApiTests
         rawJson.Should().NotContain(@"C:\\WorkSpace\\secret\\original.pdf");
         rawJson.Should().NotContain("documents/801/original.pdf");
         rawJson.Should().NotContain("documents/801/converted.md");
+        rawJson.Should().NotContain(@"documents\\801\\original.pdf");
+        rawJson.Should().NotContain("/documents/801/original.pdf");
         var document = result!.Items.Should().ContainSingle(d => d.Id == 801).Subject;
         document.FileName.Should().Be("合同.pdf");
         document.OriginalFileName.Should().Be("合同.pdf");
@@ -464,7 +466,7 @@ public sealed class DocumentIntakePipelineApiTests
         document.OriginalContentHash.Should().Be("original-hash");
         document.ConvertedMarkdownHash.Should().Be("markdown-hash");
         document.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
-        document.ConversionErrorMessage.Should().Be("Failed to convert [path] from [path] to [path]");
+        document.ConversionErrorMessage.Should().Be("Failed to convert [path] from [path] to [path]; retry [path] via [path]");
         document.ConversionTool.Should().Be("ManagedCode.MarkItDown");
         document.ConversionToolVersion.Should().Be("10.0.7");
         document.ConversionStartedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc));
