@@ -1202,6 +1202,83 @@ public sealed class DocumentIntakePipelineApiTests
         document.ActiveRagTaskId.Should().Be("task-1");
     }
 
+    [Fact]
+    public async Task AddToRagSystem_WhenUploadedPdf_QueuesConversionButDoesNotQueueRagTask()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 901,
+            FileName = "合同.pdf",
+            Content = string.Empty,
+            OriginalFileName = "合同.pdf",
+            OriginalFilePath = Path.Combine("documents", "901", "original.pdf"),
+            OriginalContentType = "application/pdf",
+            ConversionStatus = DocumentConversionStatus.NotStarted,
+            IsInRagSystem = false,
+            RagStatus = null
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/901/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        queue.EnqueueCalls.Should().BeEmpty();
+        var body = await response.Content.ReadFromJsonAsync<MarkdownDocumentDto>();
+        body.Should().NotBeNull();
+        body!.FileName.Should().Be("合同.pdf");
+        body.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        body.RagCurrentStage.Should().Be("Accepted");
+        body.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        body.ActiveRagTaskId.Should().BeNull();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(901);
+        document.Should().NotBeNull();
+        document!.FileName.Should().Be("合同.pdf");
+        document.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.RagCurrentStage.Should().Be("Accepted");
+        document.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        document.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AddToRagSystem_WhenMarkdownDocument_EnqueuesRagTaskImmediately()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 902,
+            FileName = "notes.md",
+            Content = "# Notes",
+            FileUrl = "/uploads/notes.md",
+            ConversionStatus = DocumentConversionStatus.NotRequired,
+            IsInRagSystem = false
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/902/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        queue.EnqueueCalls.Should().ContainSingle().Which.Content.Should().Be("# Notes");
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(902);
+        document!.RagStatus.Should().Be("Pending");
+        document.ActiveRagTaskId.Should().Be("task-1");
+    }
+
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
     {
         using var scope = factory.Services.CreateScope();

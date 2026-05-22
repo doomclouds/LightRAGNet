@@ -613,6 +613,16 @@ public class MarkdownDocumentsController(
             return BadRequest(new { error = "Document is being processed", message = "This document is currently in the RAG processing queue, please wait for processing to complete." });
         }
 
+        if (RequiresDocumentConversion(document))
+        {
+            QueueDocumentConversion(document);
+            await context.SaveChangesAsync(HttpContext.RequestAborted);
+
+            logger.LogInformation("Document conversion queued from Add to RAG: DocumentId={DocumentId}", document.Id);
+
+            return Ok(document.ToDto());
+        }
+
         try
         {
             // Ensure FileUrl is a full URL (handle legacy relative paths)
@@ -652,6 +662,34 @@ public class MarkdownDocumentsController(
             logger.LogError(ex, "Failed to create RAG task: DocumentId={DocumentId}", document.Id);
             return StatusCode(500, new { error = "Failed to add to RAG system", message = ex.Message });
         }
+    }
+
+    private static bool RequiresDocumentConversion(MarkdownDocument document)
+    {
+        if (string.IsNullOrWhiteSpace(document.OriginalFilePath))
+        {
+            return false;
+        }
+
+        var extension = Path.GetExtension(document.OriginalFileName ?? document.FileName);
+        return extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".docx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void QueueDocumentConversion(MarkdownDocument document)
+    {
+        document.RagStatus = DocumentIntakeStatus.Queued;
+        document.RagCurrentStage = "Accepted";
+        document.RagProgress = 0;
+        document.RagErrorMessage = null;
+        document.ActiveRagTaskId = null;
+        document.PipelineStartedAt = null;
+        document.PipelineCompletedAt = null;
+        document.PipelineCancelledAt = null;
+        document.ConversionStatus = DocumentConversionStatus.Queued;
+        document.ConversionErrorMessage = null;
+        document.ConversionStartedAt = null;
+        document.ConversionCompletedAt = null;
     }
 
     /// <summary>
