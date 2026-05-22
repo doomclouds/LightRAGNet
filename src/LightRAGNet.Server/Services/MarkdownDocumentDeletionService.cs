@@ -1,9 +1,11 @@
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using Microsoft.AspNetCore.Http;
 
 namespace LightRAGNet.Server.Services;
 
 public sealed class MarkdownDocumentDeletionService(
+    IDocumentArtifactStore artifactStore,
     ILogger<MarkdownDocumentDeletionService> logger)
 {
     private const string UploadsPrefix = "/uploads/";
@@ -78,6 +80,29 @@ public sealed class MarkdownDocumentDeletionService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Error occurred while deleting uploaded file: {UploadReference}", trustedUploadReference);
+        }
+    }
+
+    public async Task DeleteDocumentArtifactsAsync(
+        MarkdownDocument document,
+        CancellationToken cancellationToken)
+    {
+        await artifactStore.DeleteArtifactsAsync(document, cancellationToken);
+    }
+
+    public async Task<bool> TryDeleteDocumentArtifactsAsync(
+        MarkdownDocument document,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DeleteDocumentArtifactsAsync(document, cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Error occurred while deleting document artifacts: {DocumentId}", document.Id);
+            return false;
         }
     }
 

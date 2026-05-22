@@ -29,6 +29,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(e => e.RagErrorMessage).HasMaxLength(2000);
             entity.Property(e => e.FileUrl).HasMaxLength(500);
             entity.Property(e => e.FileHash).HasMaxLength(64);
+            entity.Property(e => e.OriginalFileName).HasMaxLength(255);
+            entity.Property(e => e.OriginalFilePath).HasMaxLength(1024);
+            entity.Property(e => e.OriginalContentType).HasMaxLength(128);
+            entity.Property(e => e.OriginalContentHash).HasMaxLength(128);
+            entity.Property(e => e.ConvertedMarkdownPath).HasMaxLength(1024);
+            entity.Property(e => e.ConvertedMarkdownHash).HasMaxLength(128);
+            entity.Property(e => e.ConversionStatus).HasMaxLength(32);
+            entity.Property(e => e.ConversionErrorMessage).HasMaxLength(2048);
+            entity.Property(e => e.ConversionTool).HasMaxLength(128);
+            entity.Property(e => e.ConversionToolVersion).HasMaxLength(64);
             entity.HasIndex(e => e.FileName);
             entity.HasIndex(e => e.IsInRagSystem);
             entity.HasIndex(e => e.TrackId);
@@ -36,6 +46,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(e => e.ActiveRagTaskId);
             entity.HasIndex(e => e.RagDocumentId);
             entity.HasIndex(e => e.FileHash);
+            entity.HasIndex(e => e.ConversionStatus);
         });
     }
 }

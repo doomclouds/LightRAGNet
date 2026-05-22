@@ -9,6 +9,7 @@ using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Hubs;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentConversion;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
@@ -26,6 +27,7 @@ public class MarkdownDocumentsController(
     IRagTaskQueueService taskQueueService,
     DocumentIntakeService documentIntakeService,
     MarkdownDocumentDeletionService documentDeletionService,
+    DocumentConversionCoordinator documentConversionCoordinator,
     IRagExternalStorageCleaner externalStorageCleaner,
     IServiceProvider serviceProvider)
     : ControllerBase
@@ -474,7 +476,8 @@ public class MarkdownDocumentsController(
                 FileSize = file.Length,
                 UploadTime = DateTime.UtcNow,
                 FileUrl = fileUrl,
-                FileHash = fileHash
+                FileHash = fileHash,
+                ConversionStatus = DocumentConversionStatus.NotRequired
             };
 
             context.MarkdownDocuments.Add(document);
@@ -533,6 +536,7 @@ public class MarkdownDocumentsController(
         if (!document.IsInRagSystem && document.RagStatus != "DeletionFailed")
         {
             var trustedUploadReference = documentDeletionService.CreateTrustedUploadReference(document, Request.Host);
+            await documentDeletionService.TryDeleteDocumentArtifactsAsync(document, cancellationToken);
             documentDeletionService.DeleteUploadedFileIfPresent(trustedUploadReference);
             context.MarkdownDocuments.Remove(document);
             await context.SaveChangesAsync(cancellationToken);
@@ -612,6 +616,21 @@ public class MarkdownDocumentsController(
             return BadRequest(new { error = "Document is being processed", message = "This document is currently in the RAG processing queue, please wait for processing to complete." });
         }
 
+        if (RequiresDocumentConversion(document))
+        {
+            QueueDocumentConversion(document);
+            await context.SaveChangesAsync(HttpContext.RequestAborted);
+
+            logger.LogInformation("Document conversion queued from Add to RAG: DocumentId={DocumentId}", document.Id);
+
+            return Ok(document.ToDto());
+        }
+
+        if (string.IsNullOrWhiteSpace(document.Content))
+        {
+            return BadRequest(new { error = "Document content is empty and cannot be added to RAG." });
+        }
+
         try
         {
             // Ensure FileUrl is a full URL (handle legacy relative paths)
@@ -653,6 +672,34 @@ public class MarkdownDocumentsController(
         }
     }
 
+    private static bool RequiresDocumentConversion(MarkdownDocument document)
+    {
+        if (string.IsNullOrWhiteSpace(document.OriginalFilePath))
+        {
+            return false;
+        }
+
+        var extension = Path.GetExtension(document.OriginalFileName ?? document.FileName);
+        return extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".docx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void QueueDocumentConversion(MarkdownDocument document)
+    {
+        document.RagStatus = DocumentIntakeStatus.Queued;
+        document.RagCurrentStage = "Accepted";
+        document.RagProgress = 0;
+        document.RagErrorMessage = null;
+        document.ActiveRagTaskId = null;
+        document.PipelineStartedAt = null;
+        document.PipelineCompletedAt = null;
+        document.PipelineCancelledAt = null;
+        document.ConversionStatus = DocumentConversionStatus.Queued;
+        document.ConversionErrorMessage = null;
+        document.ConversionStartedAt = null;
+        document.ConversionCompletedAt = null;
+    }
+
     /// <summary>
     /// Clear all data (including documents, tasks, RAG storage content, etc.)
     /// </summary>
@@ -665,6 +712,7 @@ public class MarkdownDocumentsController(
         try
         {
             var results = new List<string>();
+            await using var conversionLease = await documentConversionCoordinator.AcquireAsync(HttpContext.RequestAborted);
 
             // 1. Stop all tasks before clearing rows or storage.
             var stoppedCount = await taskQueueService.StopAllTasksAsync();
@@ -678,6 +726,8 @@ public class MarkdownDocumentsController(
             var documentCount = documents.Count;
             foreach (var document in documents)
             {
+                await documentDeletionService.TryDeleteDocumentArtifactsAsync(document, CancellationToken.None);
+
                 // Delete file from file system
                 if (!string.IsNullOrEmpty(document.FileUrl))
                 {

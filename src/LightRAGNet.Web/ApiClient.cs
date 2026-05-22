@@ -79,36 +79,88 @@ public class ApiClient(HttpClient httpClient)
     }
 
     /// <summary>
-    /// Upload Markdown document
+    /// Upload a source document.
     /// </summary>
     /// <param name="file">File to upload</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Upload result, containing document information and error information</returns>
-    public async Task<UploadResult> UploadMarkdownDocumentAsync(
-        IBrowserFile file, 
+    public async Task<UploadResult> UploadDocumentAsync(
+        IBrowserFile file,
+        CancellationToken cancellationToken = default)
+    {
+        return await UploadDocumentsAsync([file], cancellationToken);
+    }
+
+    /// <summary>
+    /// Upload source documents as a single batch.
+    /// </summary>
+    /// <param name="files">Files to upload</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Upload result, containing document information and error information</returns>
+    public async Task<UploadResult> UploadDocumentsAsync(
+        IReadOnlyList<IBrowserFile> files,
         CancellationToken cancellationToken = default)
     {
         using var content = new MultipartFormDataContent();
-        await using var fileStream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024, cancellationToken: cancellationToken); // 10MB
-        using var streamContent = new StreamContent(fileStream);
-        
-        streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/markdown");
-        content.Add(streamContent, "file", file.Name);
-        
-        var response = await httpClient.PostAsync("api/MarkdownDocuments", content, cancellationToken);
-        
-        if (response.IsSuccessStatusCode)
+
+        if (files.Count == 0)
         {
-            var document = await response.Content.ReadFromJsonAsync<MarkdownDocumentDto>(cancellationToken: cancellationToken);
-            return new UploadResult { Success = true, Document = document };
+            return new UploadResult
+            {
+                Success = false,
+                ErrorMessage = "No files selected"
+            };
         }
 
-        var errorMessage = await response.Content.ReadAsStringAsync(cancellationToken);
-        return new UploadResult 
-        { 
-            Success = false, 
-            ErrorMessage = errorMessage,
-            IsDuplicate = response.StatusCode == System.Net.HttpStatusCode.BadRequest && errorMessage.Contains("already exists")
+        foreach (var file in files)
+        {
+            var contentType = GetUploadContentType(file.Name);
+            if (contentType is null)
+            {
+                return new UploadResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Unsupported file type: {file.Name}. Only PDF or DOCX files are supported."
+                };
+            }
+
+            var fileStream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024, cancellationToken: cancellationToken); // 10MB
+            var streamContent = new StreamContent(fileStream);
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+            content.Add(streamContent, "files", file.Name);
+        }
+
+        var response = await httpClient.PostAsync("api/MarkdownDocuments/upload", content, cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            var submission = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>(
+                cancellationToken: cancellationToken);
+
+            return new UploadResult
+            {
+                Success = true,
+                Document = submission?.Documents.FirstOrDefault(),
+                Documents = submission?.Documents ?? [],
+                TrackId = submission?.TrackId
+            };
+        }
+
+        var errorMessage = await ReadErrorMessageAsync(response.Content, cancellationToken);
+        return new UploadResult
+        {
+            Success = false,
+            ErrorMessage = errorMessage
+        };
+    }
+
+    private static string? GetUploadContentType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => null
         };
     }
 
@@ -392,6 +444,7 @@ public class UploadResult
 {
     public bool Success { get; set; }
     public MarkdownDocumentDto? Document { get; set; }
+    public IReadOnlyList<MarkdownDocumentDto> Documents { get; set; } = [];
+    public string? TrackId { get; set; }
     public string? ErrorMessage { get; set; }
-    public bool IsDuplicate { get; set; }
 }

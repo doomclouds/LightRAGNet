@@ -66,6 +66,42 @@ public sealed class MarkdownDocumentsSourceTests
     }
 
     [Fact]
+    public void ApiClient_UploadDocument_UsesBatchUploadEndpointAndFilesField()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("Task<UploadResult> UploadDocumentsAsync(");
+        source.Should().Contain("IReadOnlyList<IBrowserFile> files");
+        source.Should().Contain("foreach (var file in files)");
+        source.Should().Contain("api/MarkdownDocuments/upload");
+        source.Should().Contain("content.Add(streamContent, \"files\", file.Name)");
+        source.Should().Contain("UploadDocumentsAsync([file], cancellationToken)");
+        source.Should().NotContain("PostAsync(\"api/MarkdownDocuments\", content");
+    }
+
+    [Fact]
+    public void ApiClient_UploadDocuments_RejectsUnsupportedExtensionsBeforeContentType()
+    {
+        var source = NormalizeLineEndings(ReadApiClientSource());
+
+        source.Should().Contain("GetUploadContentType(file.Name)");
+        source.Should().Contain("Path.GetExtension(fileName)");
+        source.Should().Contain("\".pdf\" => \"application/pdf\"");
+        source.Should().Contain("\".docx\" => \"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"");
+        source.Should().Contain("_ => null");
+        source.Should().NotContain("? \"application/pdf\"\n                : \"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"");
+    }
+
+    [Fact]
+    public void MarkdownUpload_UsesSingleBatchUploadRequest()
+    {
+        var source = NormalizeLineEndings(ReadUploadPageSource());
+
+        source.Should().Contain("ApiClient.UploadDocumentsAsync(_selectedFiles");
+        source.Should().NotContain("ApiClient.UploadDocumentAsync(file");
+    }
+
+    [Fact]
     public void MarkdownDocuments_StatusFilter_IsSentThroughServerReload()
     {
         var source = NormalizeLineEndings(ReadPageSource());
@@ -120,6 +156,17 @@ public sealed class MarkdownDocumentsSourceTests
         source.Should().Contain("RefreshDocumentsAsync(DocumentRefreshReason.UserAction)");
     }
 
+    [Fact]
+    public void MarkdownDocuments_DownloadButton_IsHiddenForInternalUploadUris()
+    {
+        var source = NormalizeLineEndings(ReadPageSource());
+
+        source.Should().Contain("CanDownloadFile(context.FileUrl)");
+        source.Should().Contain("fileUrl.StartsWith(\"/uploads/\", StringComparison.OrdinalIgnoreCase)");
+        source.Should().Contain("uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps");
+        source.Should().NotContain("@if (!string.IsNullOrEmpty(context.FileUrl))");
+    }
+
     private static string ReadPageSource()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -144,6 +191,20 @@ public sealed class MarkdownDocumentsSourceTests
             "ApiClient.cs");
 
         return File.ReadAllText(clientPath);
+    }
+
+    private static string ReadUploadPageSource()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var pagePath = Path.Combine(
+            repositoryRoot,
+            "src",
+            "LightRAGNet.Web",
+            "Components",
+            "Pages",
+            "MarkdownUpload.razor");
+
+        return File.ReadAllText(pagePath);
     }
 
     private static string FindRepositoryRoot()

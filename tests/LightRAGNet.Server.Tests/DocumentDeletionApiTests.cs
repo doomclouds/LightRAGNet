@@ -4,11 +4,14 @@ using FluentAssertions;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace LightRAGNet.Server.Tests;
 
@@ -39,6 +42,65 @@ public sealed class DocumentDeletionApiTests
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var document = await context.MarkdownDocuments.FindAsync(1);
+        document.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithArtifacts_RemovesArtifactDirectory()
+    {
+        using var factory = new LightRagServerFactory();
+        string artifactPath;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            await using var original = new MemoryStream("pdf bytes"u8.ToArray());
+            await store.SaveOriginalAsync(19, original, "local.pdf", CancellationToken.None);
+            var converted = await store.SaveConvertedMarkdownAsync(19, "# Converted", CancellationToken.None);
+            artifactPath = store.GetFileInfo(converted.RelativePath).Directory!.FullName;
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 19,
+                FileName = "local.pdf",
+                Content = string.Empty,
+                OriginalFileName = "local.pdf",
+                OriginalFilePath = Path.Combine("documents", "19", "original.pdf"),
+                ConvertedMarkdownPath = converted.RelativePath,
+                ConversionStatus = DocumentConversionStatus.Completed
+            });
+            await context.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/19");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        Directory.Exists(artifactPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWhenArtifactCleanupThrows_ReturnsNoContentAndRemovesRow()
+    {
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(new ThrowingDeleteDocumentArtifactStore());
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 21,
+            FileName = "cleanup-throws.md",
+            Content = "content"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/21");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(21);
         document.Should().BeNull();
     }
 
@@ -451,6 +513,95 @@ public sealed class DocumentDeletionApiTests
     }
 
     [Fact]
+    public async Task DeleteMarkdownDocument_DeleteTaskCompleted_RemovesArtifactDirectory()
+    {
+        using var factory = new LightRagServerFactory();
+        string artifactPath;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            await using var original = new MemoryStream("docx bytes"u8.ToArray());
+            await store.SaveOriginalAsync(20, original, "indexed.docx", CancellationToken.None);
+            var converted = await store.SaveConvertedMarkdownAsync(20, "# Converted", CancellationToken.None);
+            artifactPath = store.GetFileInfo(converted.RelativePath).Directory!.FullName;
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 20,
+                FileName = "indexed.docx",
+                Content = "# Converted",
+                OriginalFileName = "indexed.docx",
+                OriginalFilePath = Path.Combine("documents", "20", "original.docx"),
+                ConvertedMarkdownPath = converted.RelativePath,
+                IsInRagSystem = true,
+                RagDocumentId = "doc-indexed-artifact",
+                RagStatus = "Deleting",
+                ConversionStatus = DocumentConversionStatus.Completed
+            });
+            await context.SaveChangesAsync();
+        }
+        using var scopeForHandler = factory.Services.CreateScope();
+        var handler = scopeForHandler.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            DocumentId = 20,
+            RagDocumentId = "doc-indexed-artifact",
+            OperationType = RagTaskOperationType.DeleteDocument,
+            Status = RagTaskStatus.Completed
+        }), CancellationToken.None);
+
+        Directory.Exists(artifactPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteTaskCompleted_WhenArtifactCleanupThrows_RemovesMarkdownRowAndUploadedFile()
+    {
+        var fileName = CreateUniqueUploadFileName("completed-cleanup-throws");
+        var filePath = await CreateUploadedFileAsync(fileName);
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(new ThrowingDeleteDocumentArtifactStore());
+        });
+        try
+        {
+            await SeedDocumentAsync(factory, new MarkdownDocument
+            {
+                Id = 22,
+                FileName = fileName,
+                Content = "content",
+                FileUrl = $"/uploads/{fileName}",
+                IsInRagSystem = true,
+                RagDocumentId = "doc-cleanup-throws",
+                RagStatus = "Deleting"
+            });
+            using var scope = factory.Services.CreateScope();
+            var handler = scope.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+            await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+            {
+                DocumentId = 22,
+                RagDocumentId = "doc-cleanup-throws",
+                DeleteFilePath = $"/uploads/{fileName}",
+                OperationType = RagTaskOperationType.DeleteDocument,
+                Status = RagTaskStatus.Completed
+            }), CancellationToken.None);
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.ChangeTracker.Clear();
+            var document = await context.MarkdownDocuments.FindAsync(22);
+            document.Should().BeNull();
+            File.Exists(filePath).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteFileIfExists(filePath);
+        }
+    }
+
+    [Fact]
     public async Task DeleteTaskCompleted_WithExternalUploadsUrl_RemovesRowButKeepsLocalFile()
     {
         var fileName = CreateUniqueUploadFileName("completed-external");
@@ -564,6 +715,46 @@ public sealed class DocumentDeletionApiTests
         if (File.Exists(filePath))
         {
             File.Delete(filePath);
+        }
+    }
+
+    private sealed class ThrowingDeleteDocumentArtifactStore : IDocumentArtifactStore
+    {
+        public Task<DocumentArtifactWriteResult> SaveOriginalAsync(
+            int documentId,
+            Stream source,
+            string originalFileName,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<DocumentArtifactWriteResult> SaveConvertedMarkdownAsync(
+            int documentId,
+            string markdown,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<string> ReadConvertedMarkdownAsync(string relativePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public FileInfo GetFileInfo(string relativePath)
+        {
+            throw new NotSupportedException();
+        }
+
+        public bool Exists(string? relativePath)
+        {
+            return false;
+        }
+
+        public Task DeleteArtifactsAsync(MarkdownDocument document, CancellationToken cancellationToken)
+        {
+            throw new IOException("artifact cleanup failed");
         }
     }
 }

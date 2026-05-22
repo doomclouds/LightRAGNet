@@ -4,6 +4,7 @@ using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Extensions;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ namespace LightRAGNet.Server.Services;
 public sealed class DocumentIntakeService(
     AppDbContext context,
     IRagTaskQueueService taskQueueService,
+    IDocumentArtifactStore artifactStore,
     ILogger<DocumentIntakeService> logger)
 {
     private const long MaxUploadFileSize = 10 * 1024 * 1024;
@@ -59,6 +61,7 @@ public sealed class DocumentIntakeService(
                     RagCurrentStage = "Accepted",
                     IsInRagSystem = false,
                     RagProgress = 0,
+                    ConversionStatus = DocumentConversionStatus.NotRequired,
                     FileHash = Convert.ToHexStringLower(SHA256.HashData(bytes))
                 };
             })
@@ -116,42 +119,93 @@ public sealed class DocumentIntakeService(
             throw new ArgumentException("At least one file is required.", nameof(files));
         }
 
-        var documents = new List<TextDocumentInput>(files.Count);
-        foreach (var file in files)
+        var safeFileNames = files
+            .Select(file => GetSafeUploadedFileName(file.FileName))
+            .ToList();
+
+        for (var i = 0; i < files.Count; i++)
         {
-            if (file.Length == 0)
-            {
-                throw new ArgumentException("File cannot be empty.", nameof(files));
-            }
-
-            if (file.Length > MaxUploadFileSize)
-            {
-                throw new ArgumentException("File size cannot exceed 10MB.", nameof(files));
-            }
-
-            var extension = Path.GetExtension(file.FileName);
-            if (!IsSupportedUploadExtension(extension))
-            {
-                throw new ArgumentException("Only .md, .markdown, or .txt files are supported.", nameof(files));
-            }
-
-            await using var stream = file.OpenReadStream();
-            using var reader = new StreamReader(
-                stream,
-                Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true);
-
-            documents.Add(new TextDocumentInput
-            {
-                FileName = file.FileName,
-                Content = await reader.ReadToEndAsync(cancellationToken)
-            });
+            ValidateUploadedDocument(files[i], safeFileNames[i]);
         }
 
-        return await SubmitDocumentsAsync(
-            new SubmitTextDocumentsRequest { Documents = documents },
-            "upload",
-            cancellationToken);
+        var trackId = CreateTrackId();
+        var now = DateTime.UtcNow;
+        var documents = files
+            .Select((file, index) =>
+            {
+                var safeFileName = safeFileNames[index];
+                return new MarkdownDocument
+                {
+                    FileName = safeFileName,
+                    OriginalFileName = safeFileName,
+                    OriginalContentType = GuessContentType(safeFileName),
+                    Content = string.Empty,
+                    FileSize = file.Length,
+                    UploadTime = now,
+                    FileUrl = CreateSourceUri("upload", trackId, safeFileName),
+                    TrackId = trackId,
+                    RagStatus = null,
+                    RagCurrentStage = null,
+                    ActiveRagTaskId = null,
+                    ConversionStatus = DocumentConversionStatus.NotStarted,
+                    IsInRagSystem = false,
+                    RagProgress = 0
+                };
+            })
+            .ToList();
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            context.MarkdownDocuments.AddRange(documents);
+            await context.SaveChangesAsync(cancellationToken);
+
+            for (var i = 0; i < documents.Count; i++)
+            {
+                var document = documents[i];
+                await using var stream = files[i].OpenReadStream();
+                var savedArtifact = await artifactStore.SaveOriginalAsync(
+                    document.Id,
+                    stream,
+                    safeFileNames[i],
+                    cancellationToken);
+
+                document.OriginalFilePath = savedArtifact.RelativePath;
+                document.OriginalContentHash = savedArtifact.Hash;
+                document.FileHash = savedArtifact.Hash;
+                document.FileSize = savedArtifact.Size;
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+
+            foreach (var document in documents)
+            {
+                try
+                {
+                    await artifactStore.DeleteArtifactsAsync(document, CancellationToken.None);
+                }
+                catch (Exception deleteEx)
+                {
+                    logger.LogWarning(
+                        deleteEx,
+                        "Failed to delete document artifacts after upload intake failure for document {DocumentId}.",
+                        document.Id);
+                }
+            }
+
+            throw new ArgumentException("Original file could not be saved.", nameof(files), ex);
+        }
+
+        return new DocumentSubmissionResponse
+        {
+            TrackId = trackId,
+            Documents = documents.Select(d => d.ToDto()).ToList()
+        };
     }
 
     public async Task<DocumentTrackStatusResponse?> GetTrackStatusAsync(
@@ -197,9 +251,63 @@ public sealed class DocumentIntakeService(
             throw new InvalidOperationException("Document is not retryable.");
         }
 
+        if (document.ConversionStatus == DocumentConversionStatus.Failed ||
+            RequiresReconversion(document))
+        {
+            document.RagRetryCount++;
+            document.RagErrorMessage = null;
+            document.ConversionErrorMessage = null;
+            document.RagStatus = DocumentIntakeStatus.Queued;
+            document.RagCurrentStage = "Accepted";
+            document.RagProgress = 0;
+            document.PipelineStartedAt = null;
+            document.PipelineCompletedAt = null;
+            document.PipelineCancelledAt = null;
+            document.ActiveRagTaskId = null;
+            document.ConversionStatus = DocumentConversionStatus.Queued;
+            document.ConversionStartedAt = null;
+            document.ConversionCompletedAt = null;
+            await context.SaveChangesAsync(cancellationToken);
+
+            return new DocumentPipelineActionResult
+            {
+                Accepted = true,
+                DocumentId = document.Id,
+                Status = DocumentIntakeStatus.Queued,
+                Message = "Document conversion retry has been queued."
+            };
+        }
+
+        var content = document.Content;
+        if (document.ConversionStatus == DocumentConversionStatus.Completed &&
+            !string.IsNullOrWhiteSpace(document.ConvertedMarkdownPath))
+        {
+            try
+            {
+                content = await artifactStore.ReadConvertedMarkdownAsync(
+                    document.ConvertedMarkdownPath,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Converted markdown artifact could not be read.", ex);
+            }
+
+            document.Content = content;
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new InvalidOperationException("Document content is empty and cannot be retried.");
+        }
+
         var taskId = await taskQueueService.EnqueueTaskAsync(
             document.Id,
-            document.Content,
+            content,
             document.FileUrl ?? document.FileName,
             cancellationToken);
 
@@ -297,8 +405,46 @@ public sealed class DocumentIntakeService(
         return status is DocumentIntakeStatus.Queued or "Pending";
     }
 
+    private static void ValidateUploadedDocument(IFormFile file, string safeFileName)
+    {
+        if (string.IsNullOrWhiteSpace(safeFileName))
+        {
+            throw new ArgumentException("Every file requires a file name.", "files");
+        }
+
+        if (file.Length == 0)
+        {
+            throw new ArgumentException("File cannot be empty.", "files");
+        }
+
+        if (file.Length > MaxUploadFileSize)
+        {
+            throw new ArgumentException("File size cannot exceed 10MB.", "files");
+        }
+
+        if (!IsSupportedUploadExtension(Path.GetExtension(safeFileName)))
+        {
+            throw new ArgumentException("Only .pdf and .docx files are supported.", "files");
+        }
+    }
+
     private async Task<bool> CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
+        if (document.ConversionStatus is DocumentConversionStatus.Queued or DocumentConversionStatus.Processing &&
+            string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
+        {
+            if (await TryCancelConversionOnlyDocumentAsync(document.Id, cancellationToken))
+            {
+                return true;
+            }
+
+            await context.Entry(document).ReloadAsync(cancellationToken);
+            if (!DocumentIntakeStatus.IsCancellable(document.RagStatus))
+            {
+                return false;
+            }
+        }
+
         var taskId = document.ActiveRagTaskId;
         if (string.IsNullOrWhiteSpace(taskId))
         {
@@ -329,9 +475,58 @@ public sealed class DocumentIntakeService(
         return true;
     }
 
+    private async Task<bool> TryCancelConversionOnlyDocumentAsync(int documentId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var affectedRows = await context.MarkdownDocuments
+            .Where(document =>
+                document.Id == documentId &&
+                document.ActiveRagTaskId == null &&
+                (document.RagStatus == DocumentIntakeStatus.Queued ||
+                 document.RagStatus == DocumentIntakeStatus.Processing ||
+                 document.RagStatus == "Pending") &&
+                (document.ConversionStatus == DocumentConversionStatus.Queued ||
+                 document.ConversionStatus == DocumentConversionStatus.Processing))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(document => document.RagStatus, DocumentIntakeStatus.Cancelled)
+                .SetProperty(document => document.RagCurrentStage, DocumentIntakeStatus.Cancelled)
+                .SetProperty(document => document.PipelineCancelledAt, now)
+                .SetProperty(document => document.ActiveRagTaskId, (string?)null)
+                .SetProperty(document => document.ConversionStatus, DocumentConversionStatus.Queued)
+                .SetProperty(document => document.ConversionStartedAt, (DateTime?)null)
+                .SetProperty(document => document.ConversionCompletedAt, (DateTime?)null)
+                .SetProperty(document => document.ConversionErrorMessage, (string?)null)
+                .SetProperty(document => document.RagErrorMessage, (string?)null),
+                cancellationToken);
+
+        return affectedRows == 1;
+    }
+
     private static bool IsSupportedUploadExtension(string? extension)
     {
-        return extension?.ToLowerInvariant() is ".md" or ".markdown" or ".txt";
+        return extension?.ToLowerInvariant() is ".pdf" or ".docx";
+    }
+
+    private bool RequiresReconversion(MarkdownDocument document)
+    {
+        return document.ConversionStatus == DocumentConversionStatus.Completed &&
+               !artifactStore.Exists(document.ConvertedMarkdownPath);
+    }
+
+    private static string GetSafeUploadedFileName(string fileName)
+    {
+        var normalizedFileName = fileName.Replace('\\', '/');
+        return Path.GetFileName(normalizedFileName);
+    }
+
+    private static string GuessContentType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => "application/octet-stream"
+        };
     }
 
     private static void MarkQueueFailed(MarkdownDocument document, string errorMessage)
