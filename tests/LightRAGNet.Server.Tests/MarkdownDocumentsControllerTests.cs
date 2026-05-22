@@ -5,6 +5,7 @@ using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.TaskQueue;
 using Microsoft.Extensions.DependencyInjection;
@@ -72,6 +73,40 @@ public sealed class MarkdownDocumentsControllerTests
                 File.Delete(outsideFile);
             }
         }
+    }
+
+    [Fact]
+    public async Task ClearAllData_WithDocumentArtifacts_RemovesArtifactDirectory()
+    {
+        using var factory = new LightRagServerFactory();
+        string artifactPath;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            await using var original = new MemoryStream("pdf bytes"u8.ToArray());
+            await store.SaveOriginalAsync(45, original, "clear.pdf", CancellationToken.None);
+            var converted = await store.SaveConvertedMarkdownAsync(45, "# Converted", CancellationToken.None);
+            artifactPath = store.GetFileInfo(converted.RelativePath).Directory!.FullName;
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 45,
+                FileName = "clear.pdf",
+                Content = "# Converted",
+                OriginalFileName = "clear.pdf",
+                OriginalFilePath = Path.Combine("documents", "45", "original.pdf"),
+                ConvertedMarkdownPath = converted.RelativePath,
+                ConversionStatus = DocumentConversionStatus.Completed
+            });
+            await context.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/clear-all", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Directory.Exists(artifactPath).Should().BeFalse();
     }
 
     [Fact]

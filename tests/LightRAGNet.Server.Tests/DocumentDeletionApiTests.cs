@@ -4,6 +4,8 @@ using FluentAssertions;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Models;
+using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using LightRAGNet.Storage;
@@ -40,6 +42,40 @@ public sealed class DocumentDeletionApiTests
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var document = await context.MarkdownDocuments.FindAsync(1);
         document.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_LocalOnlyWithArtifacts_RemovesArtifactDirectory()
+    {
+        using var factory = new LightRagServerFactory();
+        string artifactPath;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            await using var original = new MemoryStream("pdf bytes"u8.ToArray());
+            await store.SaveOriginalAsync(19, original, "local.pdf", CancellationToken.None);
+            var converted = await store.SaveConvertedMarkdownAsync(19, "# Converted", CancellationToken.None);
+            artifactPath = store.GetFileInfo(converted.RelativePath).Directory!.FullName;
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 19,
+                FileName = "local.pdf",
+                Content = string.Empty,
+                OriginalFileName = "local.pdf",
+                OriginalFilePath = Path.Combine("documents", "19", "original.pdf"),
+                ConvertedMarkdownPath = converted.RelativePath,
+                ConversionStatus = DocumentConversionStatus.Completed
+            });
+            await context.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/MarkdownDocuments/19");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        Directory.Exists(artifactPath).Should().BeFalse();
     }
 
     [Fact]
@@ -448,6 +484,49 @@ public sealed class DocumentDeletionApiTests
         {
             DeleteFileIfExists(filePath);
         }
+    }
+
+    [Fact]
+    public async Task DeleteMarkdownDocument_DeleteTaskCompleted_RemovesArtifactDirectory()
+    {
+        using var factory = new LightRagServerFactory();
+        string artifactPath;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            await using var original = new MemoryStream("docx bytes"u8.ToArray());
+            await store.SaveOriginalAsync(20, original, "indexed.docx", CancellationToken.None);
+            var converted = await store.SaveConvertedMarkdownAsync(20, "# Converted", CancellationToken.None);
+            artifactPath = store.GetFileInfo(converted.RelativePath).Directory!.FullName;
+
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 20,
+                FileName = "indexed.docx",
+                Content = "# Converted",
+                OriginalFileName = "indexed.docx",
+                OriginalFilePath = Path.Combine("documents", "20", "original.docx"),
+                ConvertedMarkdownPath = converted.RelativePath,
+                IsInRagSystem = true,
+                RagDocumentId = "doc-indexed-artifact",
+                RagStatus = "Deleting",
+                ConversionStatus = DocumentConversionStatus.Completed
+            });
+            await context.SaveChangesAsync();
+        }
+        using var scopeForHandler = factory.Services.CreateScope();
+        var handler = scopeForHandler.ServiceProvider.GetRequiredService<INotificationHandler<RagTaskStatusChangedEvent>>();
+
+        await handler.Handle(new RagTaskStatusChangedEvent(new RagTask
+        {
+            DocumentId = 20,
+            RagDocumentId = "doc-indexed-artifact",
+            OperationType = RagTaskOperationType.DeleteDocument,
+            Status = RagTaskStatus.Completed
+        }), CancellationToken.None);
+
+        Directory.Exists(artifactPath).Should().BeFalse();
     }
 
     [Fact]

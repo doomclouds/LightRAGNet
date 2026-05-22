@@ -251,9 +251,63 @@ public sealed class DocumentIntakeService(
             throw new InvalidOperationException("Document is not retryable.");
         }
 
+        if (document.ConversionStatus == DocumentConversionStatus.Failed ||
+            RequiresReconversion(document))
+        {
+            document.RagRetryCount++;
+            document.RagErrorMessage = null;
+            document.ConversionErrorMessage = null;
+            document.RagStatus = DocumentIntakeStatus.Queued;
+            document.RagCurrentStage = "Accepted";
+            document.RagProgress = 0;
+            document.PipelineStartedAt = null;
+            document.PipelineCompletedAt = null;
+            document.PipelineCancelledAt = null;
+            document.ActiveRagTaskId = null;
+            document.ConversionStatus = DocumentConversionStatus.Queued;
+            document.ConversionStartedAt = null;
+            document.ConversionCompletedAt = null;
+            await context.SaveChangesAsync(cancellationToken);
+
+            return new DocumentPipelineActionResult
+            {
+                Accepted = true,
+                DocumentId = document.Id,
+                Status = DocumentIntakeStatus.Queued,
+                Message = "Document conversion retry has been queued."
+            };
+        }
+
+        var content = document.Content;
+        if (document.ConversionStatus == DocumentConversionStatus.Completed &&
+            !string.IsNullOrWhiteSpace(document.ConvertedMarkdownPath))
+        {
+            try
+            {
+                content = await artifactStore.ReadConvertedMarkdownAsync(
+                    document.ConvertedMarkdownPath,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Converted markdown artifact could not be read.", ex);
+            }
+
+            document.Content = content;
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new InvalidOperationException("Document content is empty and cannot be retried.");
+        }
+
         var taskId = await taskQueueService.EnqueueTaskAsync(
             document.Id,
-            document.Content,
+            content,
             document.FileUrl ?? document.FileName,
             cancellationToken);
 
@@ -376,6 +430,16 @@ public sealed class DocumentIntakeService(
 
     private async Task<bool> CancelDocumentCoreAsync(MarkdownDocument document, CancellationToken cancellationToken)
     {
+        if (document.ConversionStatus is DocumentConversionStatus.Queued or DocumentConversionStatus.Processing &&
+            string.IsNullOrWhiteSpace(document.ActiveRagTaskId))
+        {
+            document.RagStatus = DocumentIntakeStatus.Cancelled;
+            document.RagCurrentStage = DocumentIntakeStatus.Cancelled;
+            document.PipelineCancelledAt = DateTime.UtcNow;
+            document.ActiveRagTaskId = null;
+            return true;
+        }
+
         var taskId = document.ActiveRagTaskId;
         if (string.IsNullOrWhiteSpace(taskId))
         {
@@ -409,6 +473,12 @@ public sealed class DocumentIntakeService(
     private static bool IsSupportedUploadExtension(string? extension)
     {
         return extension?.ToLowerInvariant() is ".pdf" or ".docx";
+    }
+
+    private bool RequiresReconversion(MarkdownDocument document)
+    {
+        return document.ConversionStatus == DocumentConversionStatus.Completed &&
+               !artifactStore.Exists(document.ConvertedMarkdownPath);
     }
 
     private static string GetSafeUploadedFileName(string fileName)

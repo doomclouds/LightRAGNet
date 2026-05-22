@@ -611,6 +611,188 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task RetryDocument_WhenConversionFailed_RequeuesConversionWithoutRagTask()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 910,
+            FileName = "failed.pdf",
+            Content = string.Empty,
+            OriginalFileName = "failed.pdf",
+            OriginalFilePath = Path.Combine("documents", "910", "original.pdf"),
+            RagStatus = DocumentIntakeStatus.Failed,
+            RagCurrentStage = "Converting",
+            ConversionStatus = DocumentConversionStatus.Failed,
+            ConversionErrorMessage = "Document conversion failed.",
+            RagErrorMessage = "Document conversion failed.",
+            RagRetryCount = 2
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/910/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.EnqueueCalls.Should().BeEmpty();
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(910);
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.RagCurrentStage.Should().Be("Accepted");
+        document.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        document.ConversionErrorMessage.Should().BeNull();
+        document.RagErrorMessage.Should().BeNull();
+        document.RagRetryCount.Should().Be(3);
+        document.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RetryDocument_WhenIndexingFailedAfterConversion_ReusesConvertedMarkdown()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        using (var scope = factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentArtifactStore>();
+            var saved = await store.SaveConvertedMarkdownAsync(911, "# Existing\n\nMarkdown", CancellationToken.None);
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.MarkdownDocuments.Add(new MarkdownDocument
+            {
+                Id = 911,
+                FileName = "indexed.docx",
+                Content = "# Existing\n\nMarkdown",
+                OriginalFileName = "indexed.docx",
+                OriginalFilePath = Path.Combine("documents", "911", "original.docx"),
+                ConvertedMarkdownPath = saved.RelativePath,
+                ConvertedMarkdownHash = saved.Hash,
+                RagStatus = DocumentIntakeStatus.Failed,
+                RagCurrentStage = "ProcessingChunks",
+                ConversionStatus = DocumentConversionStatus.Completed,
+                RagErrorMessage = "index failed"
+            });
+            await context.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/911/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.EnqueueCalls.Should().ContainSingle();
+        queue.EnqueueCalls[0].Content.Should().Be("# Existing\n\nMarkdown");
+        using var verifyScope = factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await verifyContext.MarkdownDocuments.FindAsync(911);
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.RagCurrentStage.Should().Be("Accepted");
+        document.ActiveRagTaskId.Should().Be("task-1");
+    }
+
+    [Fact]
+    public async Task RetryDocument_WhenConversionCompletedButArtifactMissing_RequeuesConversionWithoutRagTask()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 913,
+            FileName = "missing.docx",
+            Content = "# Missing",
+            OriginalFileName = "missing.docx",
+            OriginalFilePath = Path.Combine("documents", "913", "original.docx"),
+            ConvertedMarkdownPath = Path.Combine("documents", "913", "converted.md"),
+            RagStatus = DocumentIntakeStatus.Failed,
+            RagCurrentStage = "ProcessingChunks",
+            ConversionStatus = DocumentConversionStatus.Completed,
+            RagErrorMessage = "index failed",
+            RagRetryCount = 1
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/913/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.EnqueueCalls.Should().BeEmpty();
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(913);
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Queued);
+        document.RagCurrentStage.Should().Be("Accepted");
+        document.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        document.RagRetryCount.Should().Be(2);
+        document.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RetryDocument_WhenConvertedArtifactReadFails_ReturnsConflictAndDoesNotEnqueue()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+            services.RemoveAll<IDocumentArtifactStore>();
+            services.AddSingleton<IDocumentArtifactStore>(new UnreadableExistingDocumentArtifactStore());
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 915,
+            FileName = "unreadable.docx",
+            Content = "# Stale",
+            OriginalFileName = "unreadable.docx",
+            OriginalFilePath = Path.Combine("documents", "915", "original.docx"),
+            ConvertedMarkdownPath = Path.Combine("documents", "915", "converted.md"),
+            RagStatus = DocumentIntakeStatus.Failed,
+            ConversionStatus = DocumentConversionStatus.Completed,
+            RagErrorMessage = "index failed"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/915/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        queue.EnqueueCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RetryDocument_WhenMarkdownContentEmpty_ReturnsConflictAndDoesNotEnqueue()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 914,
+            FileName = "empty.md",
+            Content = "   ",
+            RagStatus = DocumentIntakeStatus.Failed,
+            ConversionStatus = DocumentConversionStatus.NotRequired,
+            RagErrorMessage = "old error"
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/914/retry", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        queue.EnqueueCalls.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CancelDocument_WhenQueued_MarksCancelledAndDoesNotProcess()
     {
         using var factory = new LightRagServerFactory(services =>
@@ -636,6 +818,38 @@ public sealed class DocumentIntakePipelineApiTests
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var document = await context.MarkdownDocuments.FindAsync(402);
         document!.RagStatus.Should().Be("Cancelled");
+        document.PipelineCancelledAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CancelDocument_WhenConversionQueued_MarksCancelledWithoutQueueCall()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 912,
+            FileName = "queued.pdf",
+            Content = string.Empty,
+            OriginalFilePath = Path.Combine("documents", "912", "original.pdf"),
+            RagStatus = DocumentIntakeStatus.Queued,
+            RagCurrentStage = "Accepted",
+            ConversionStatus = DocumentConversionStatus.Queued
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/912/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        queue.CancelCalls.Should().BeEmpty();
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(912);
+        document!.RagStatus.Should().Be(DocumentIntakeStatus.Cancelled);
         document.PipelineCancelledAt.Should().NotBeNull();
     }
 
@@ -1609,6 +1823,46 @@ public sealed class DocumentIntakePipelineApiTests
             }
 
             DeletedDocumentIds.Add(document.Id);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class UnreadableExistingDocumentArtifactStore : IDocumentArtifactStore
+    {
+        public Task<DocumentArtifactWriteResult> SaveOriginalAsync(
+            int documentId,
+            Stream source,
+            string originalFileName,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<DocumentArtifactWriteResult> SaveConvertedMarkdownAsync(
+            int documentId,
+            string markdown,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<string> ReadConvertedMarkdownAsync(string relativePath, CancellationToken cancellationToken)
+        {
+            throw new IOException("converted artifact is unreadable");
+        }
+
+        public FileInfo GetFileInfo(string relativePath)
+        {
+            throw new NotSupportedException();
+        }
+
+        public bool Exists(string? relativePath)
+        {
+            return true;
+        }
+
+        public Task DeleteArtifactsAsync(MarkdownDocument document, CancellationToken cancellationToken)
+        {
             return Task.CompletedTask;
         }
     }
