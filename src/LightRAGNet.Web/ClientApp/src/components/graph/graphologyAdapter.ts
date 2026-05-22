@@ -16,6 +16,45 @@ function getEdgeLabel(edge: GraphEdgeDto): string {
   return readString(edge.properties?.description) ?? edge.type ?? `${edge.source} - ${edge.target}`;
 }
 
+function hashString(value: string): number {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
+function seededUnit(hash: number, salt: number): number {
+  let value = hash + Math.imul(salt, 0x9e3779b9);
+  value ^= value >>> 16;
+  value = Math.imul(value, 0x7feb352d);
+  value ^= value >>> 15;
+  value = Math.imul(value, 0x846ca68b);
+  value ^= value >>> 16;
+  return (value >>> 0) / 4294967295;
+}
+
+function getInitialPosition(nodeId: string, count: number) {
+  const hash = hashString(nodeId);
+  const spread = Math.max(2, Math.sqrt(Math.max(count, 1)) * 3);
+
+  return {
+    x: (seededUnit(hash, 1) - 0.5) * spread,
+    y: (seededUnit(hash, 2) - 0.5) * spread
+  };
+}
+
+function getEdgeKey(edge: GraphEdgeDto, index: number): string {
+  return edge.id.trim().length > 0 ? edge.id : `${edge.source}->${edge.target}:${index}`;
+}
+
+function getEdgeColor(edge: GraphEdgeDto): string {
+  return edge.color.toLowerCase() === "#cccccc" ? "#8a98a8" : edge.color;
+}
+
 export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId?: string, selectedEdgeId?: string) {
   const sigmaGraph = new MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes>();
 
@@ -24,15 +63,14 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
   }
 
   const count = graph.nodes.length;
-  const radius = Math.max(3, count * 0.9);
 
-  graph.nodes.forEach((node, index) => {
-    const angle = count === 0 ? 0 : (index / count) * Math.PI * 2;
+  graph.nodes.forEach((node) => {
+    const position = getInitialPosition(node.id, count);
     const isSelected = selectedNodeId === node.id;
 
     sigmaGraph.addNode(node.id, {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
+      x: position.x,
+      y: position.y,
       label: getNodeLabel(node),
       size: isSelected ? Math.max(node.size + 4, 13) : Math.max(node.size, 8),
       color: isSelected ? "#0f766e" : node.color,
@@ -41,16 +79,18 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
     });
   });
 
-  graph.edges.forEach((edge) => {
-    if (!sigmaGraph.hasNode(edge.source) || !sigmaGraph.hasNode(edge.target) || sigmaGraph.hasEdge(edge.id)) {
+  graph.edges.forEach((edge, index) => {
+    const edgeKey = getEdgeKey(edge, index);
+
+    if (!sigmaGraph.hasNode(edge.source) || !sigmaGraph.hasNode(edge.target) || sigmaGraph.hasEdge(edgeKey)) {
       return;
     }
 
-    const isSelected = selectedEdgeId === edge.id;
-    sigmaGraph.addUndirectedEdgeWithKey(edge.id, edge.source, edge.target, {
+    const isSelected = selectedEdgeId === edgeKey || selectedEdgeId === edge.id;
+    sigmaGraph.addUndirectedEdgeWithKey(edgeKey, edge.source, edge.target, {
       label: getEdgeLabel(edge),
-      size: isSelected ? Math.max(edge.size + 2, 4) : Math.max(edge.size, 1),
-      color: isSelected ? "#dc2626" : edge.color,
+      size: isSelected ? Math.max(edge.size + 2, 4) : Math.max(edge.size, 1.75),
+      color: isSelected ? "#dc2626" : getEdgeColor(edge),
       domainType: edge.type ?? undefined,
       properties: edge.properties ?? {}
     });

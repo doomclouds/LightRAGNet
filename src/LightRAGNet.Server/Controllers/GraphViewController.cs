@@ -136,7 +136,7 @@ public class GraphViewController(
         // Convert edges
         var edges = graph.Edges.Select((edge, index) => new GraphEdgeDto
         {
-            Id = edge.Id ?? $"edge_{index}",
+            Id = string.IsNullOrWhiteSpace(edge.Id) ? $"{edge.Source}->{edge.Target}:{index}" : edge.Id,
             Source = edge.Source,
             Target = edge.Target,
             Type = edge.Type ?? "DIRECTED",

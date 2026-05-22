@@ -1,5 +1,6 @@
 import { SigmaContainer, useLoadGraph, useRegisterEvents } from "@react-sigma/core";
 import "@react-sigma/core/lib/style.css";
+import { useLayoutForceAtlas2 } from "@react-sigma/layout-forceatlas2";
 import type { MultiUndirectedGraph } from "graphology";
 import { useEffect, useMemo } from "react";
 
@@ -45,6 +46,31 @@ function GraphLoader({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttribut
   return null;
 }
 
+function GraphAutoLayout({ graph }: { graph: MultiUndirectedGraph<SigmaGraphAttributes, SigmaGraphAttributes> }) {
+  const { assign } = useLayoutForceAtlas2({
+    iterations: 220,
+    settings: {
+      barnesHutOptimize: graph.order > 60,
+      edgeWeightInfluence: 0.7,
+      gravity: 0.04,
+      linLogMode: true,
+      scalingRatio: 28,
+      slowDown: 2
+    }
+  });
+
+  useEffect(() => {
+    if (graph.order === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => assign());
+    return () => window.cancelAnimationFrame(frame);
+  }, [assign, graph]);
+
+  return null;
+}
+
 export function GraphCanvas({ graph, isFetching, errorMessage }: GraphCanvasProps) {
   const selectedNodeId = useGraphStore((state) => state.selectedNode?.id);
   const selectedEdgeId = useGraphStore((state) => state.selectedEdge?.id);
@@ -62,12 +88,14 @@ export function GraphCanvas({ graph, isFetching, errorMessage }: GraphCanvasProp
           allowInvalidContainer: true,
           defaultEdgeType: "line",
           enableEdgeEvents: true,
-          labelDensity: 0.08,
-          labelRenderedSizeThreshold: 9,
-          renderEdgeLabels: true
+          labelDensity: 0.35,
+          labelRenderedSizeThreshold: 7,
+          renderEdgeLabels: false,
+          renderLabels: true
         }}
       >
         <GraphLoader graph={graphologyGraph} />
+        <GraphAutoLayout graph={graphologyGraph} />
         <GraphEvents />
       </SigmaContainer>
 

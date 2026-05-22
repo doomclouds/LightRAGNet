@@ -195,6 +195,7 @@ public sealed class GraphControllerTests
 
         graph.Should().NotBeNull();
         graph!.Edges.Should().ContainSingle();
+        graph.Edges[0].Id.Should().NotBeNullOrWhiteSpace();
         graph.Edges[0].Properties.Should().ContainKey("description")
             .WhoseValue.Should().Match<object>(value => ReadJsonValue(value) == "Alpha knows beta");
         graph.Edges[0].Properties.Should().ContainKey("keywords")

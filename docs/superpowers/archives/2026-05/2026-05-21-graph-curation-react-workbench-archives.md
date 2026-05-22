@@ -79,3 +79,6 @@
 - `2026-05-22`: 修复真实图谱数据中 `node.type = "concept"` / `edge.type = "related"` 被直接传给 Sigma renderer `type` 后导致 Knowledge Graph tab 空白的问题；业务类型改存为 Graphology `domainType`，Sigma 的视觉 renderer type 保持默认。
 - 同步修复 `scripts/dev-start.ps1` 的 ready 等待逻辑：启动脚本现在会轮询 Server/Web URL，并接受 Server 根路径 `404` 作为“进程已可响应”的 ready 信号，避免过早打印可访问地址。
 - 追加验证：`npm test` (`23/23`)、`npm run build`、`dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore --verbosity minimal` (`27/27`)、Playwright 访问 `http://localhost:5241/graph-view` 后无 Sigma console error，且 `graph-workbench` / Sigma container / canvas 已挂载。
+- `2026-05-22`: 继续修复用户验收反馈中的“图谱像圆环/散点图，不像知识图谱”问题；对齐 Python LightRAG 的 ForceAtlas2 布局方向，引入 `@react-sigma/layout-forceatlas2`，将圆周初始布局改为稳定随机撒点后自动 ForceAtlas2 布局，并加深/加粗边、降低节点标签显示阈值。
+- 同步修复后端 `GraphViewController` 只处理 `null` edge id、不处理空字符串的问题；真实 API 中空 edge id 会导致前端 Graphology edge key 冲突，最终大量边被跳过。现在后端为空 edge id 生成稳定 `source->target:index`，前端也做同样兜底。
+- 追加验证：TDD 红灯覆盖圆周布局和空 edge id 两类问题；`npm test` (`25/25`)、`npm run build`、`dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphControllerTests"` (`11/11`)、`dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore --verbosity minimal` (`27/27`) 通过；Playwright 截图确认 `http://localhost:5241/graph-view` 已显示节点、边和标签。
