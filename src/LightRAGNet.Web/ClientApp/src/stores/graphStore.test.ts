@@ -261,6 +261,7 @@ describe("graphSettingsStore", () => {
       queryLabel: "ALPHA",
       maxDepth: 4,
       maxNodes: 250,
+      maxNodesLimit: 2000,
       showNodeLabels: true,
       showEdgeLabels: false,
       enableEdgeEvents: true,
@@ -279,6 +280,7 @@ describe("graphSettingsStore", () => {
       queryLabel: "*",
       maxDepth: 2,
       maxNodes: 100,
+      maxNodesLimit: 2000,
       showNodeLabels: true,
       showEdgeLabels: false,
       enableEdgeEvents: true,
@@ -308,6 +310,17 @@ describe("graphSettingsStore", () => {
       minEdgeSize: 2,
       maxEdgeSize: 8,
       layoutIterations: 120
+    });
+  });
+
+  test("setMaxNodesLimit updates the query bound and clamps current max nodes", () => {
+    const store = createGraphSettingsStoreState({ maxNodes: 1800, maxNodesLimit: 2000 });
+
+    store.setMaxNodesLimit(1200);
+
+    expect(store.getState()).toMatchObject({
+      maxNodes: 1200,
+      maxNodesLimit: 1200
     });
   });
 });

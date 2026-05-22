@@ -205,6 +205,69 @@ public sealed class GraphControllerTests
     }
 
     [Fact]
+    public async Task Query_WhenMaxNodesLimitConfigured_AllowsConfiguredLimit()
+    {
+        var graphStore = new InMemoryGraphStore();
+        for (var index = 0; index < 1500; index++)
+        {
+            var nodeId = $"NODE_{index:D4}";
+            graphStore.SeedNode(nodeId, new()
+            {
+                ["entity_id"] = nodeId,
+                ["description"] = nodeId
+            });
+        }
+
+        await using var factory = CreateFactory(
+            graphStore,
+            new Dictionary<string, string?>
+            {
+                ["GraphView:MaxNodesLimit"] = "2000"
+            });
+        var client = factory.CreateClient();
+
+        var graph = await client.GetFromJsonAsync<GraphViewDto>(
+            "/api/graph/query?label=*&maxDepth=2&maxNodes=1500");
+
+        graph.Should().NotBeNull();
+        graph!.Nodes.Should().HaveCount(1500);
+        graphStore.GraphQueryMaxNodesCalls.Should().ContainSingle().Which.Should().Be(1500);
+    }
+
+    [Fact]
+    public async Task Query_WhenMaxNodesExceedsConfiguredLimit_ReturnsValidationError()
+    {
+        await using var factory = CreateFactory(
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["GraphView:MaxNodesLimit"] = "2000"
+            });
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/graph/query?label=*&maxDepth=2&maxNodes=2001");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await ReadCurationResponseAsync(response);
+        body.Message.Should().Be("maxNodes must be between 1 and 2000.");
+    }
+
+    [Fact]
+    public async Task Config_ReturnsConfiguredMaxNodesLimit()
+    {
+        await using var factory = CreateFactory(
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["GraphView:MaxNodesLimit"] = "2500"
+            });
+        var client = factory.CreateClient();
+
+        var config = await client.GetFromJsonAsync<GraphViewConfigDto>("/api/graph/config");
+
+        config.Should().NotBeNull();
+        config!.MaxNodesLimit.Should().Be(2500);
+    }
+
+    [Fact]
     public async Task DeleteEntity_WhenMissing_ReturnsNotFound()
     {
         await using var factory = CreateFactory();
@@ -257,21 +320,25 @@ public sealed class GraphControllerTests
         return body!;
     }
 
-    private static LightRagServerFactory CreateFactory(InMemoryGraphStore? graphStore = null)
+    private static LightRagServerFactory CreateFactory(
+        InMemoryGraphStore? graphStore = null,
+        IReadOnlyDictionary<string, string?>? configurationOverrides = null)
     {
         graphStore ??= new InMemoryGraphStore();
         var vectorStore = new InMemoryVectorStore();
         var embeddingService = new FakeEmbeddingService();
 
-        return new LightRagServerFactory(services =>
-        {
-            services.RemoveAll<IGraphStore>();
-            services.RemoveAll<IVectorStore>();
-            services.RemoveAll<IEmbeddingService>();
-            services.AddSingleton<IGraphStore>(graphStore);
-            services.AddSingleton<IVectorStore>(vectorStore);
-            services.AddSingleton<IEmbeddingService>(embeddingService);
-        });
+        return new LightRagServerFactory(
+            services =>
+            {
+                services.RemoveAll<IGraphStore>();
+                services.RemoveAll<IVectorStore>();
+                services.RemoveAll<IEmbeddingService>();
+                services.AddSingleton<IGraphStore>(graphStore);
+                services.AddSingleton<IVectorStore>(vectorStore);
+                services.AddSingleton<IEmbeddingService>(embeddingService);
+            },
+            configurationOverrides);
     }
 
     private sealed class FakeEmbeddingService : IEmbeddingService
@@ -409,6 +476,7 @@ public sealed class GraphControllerTests
 
         public List<string> PopularLabels { get; set; } = [];
         public List<int> PopularLabelsCalls { get; } = [];
+        public List<int> GraphQueryMaxNodesCalls { get; } = [];
         public int AllLabelsCallCount { get; private set; }
 
         public void SeedNode(string nodeId, Dictionary<string, object> properties)
@@ -542,6 +610,7 @@ public sealed class GraphControllerTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            GraphQueryMaxNodesCalls.Add(maxNodes);
             var graph = new KnowledgeGraph
             {
                 Nodes = nodes.Values

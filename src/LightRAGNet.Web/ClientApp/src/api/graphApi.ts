@@ -5,6 +5,10 @@ import type {
   GraphViewDto
 } from "../types/graph";
 
+export type GraphViewConfig = {
+  maxNodesLimit: number;
+};
+
 type ErrorLikeResponse = {
   message?: string;
   error?: string;
@@ -49,6 +53,11 @@ export async function queryGraph(
   });
   const response = await fetch(buildUrl(apiBase, `/api/graph/query?${query.toString()}`), { method: "GET" });
   return readJson<GraphViewDto>(response);
+}
+
+export async function getGraphConfig(apiBase: string): Promise<GraphViewConfig> {
+  const response = await fetch(buildUrl(apiBase, "/api/graph/config"), { method: "GET" });
+  return readJson<GraphViewConfig>(response);
 }
 
 export async function getGraphLabels(apiBase: string): Promise<string[]> {

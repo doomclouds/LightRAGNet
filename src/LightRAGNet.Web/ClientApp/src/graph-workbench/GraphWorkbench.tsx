@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { queryGraph } from "../api/graphApi";
+import { getGraphConfig, queryGraph } from "../api/graphApi";
 import { GraphCanvas } from "../components/graph/GraphCanvas";
 import { GraphLayoutControls } from "../components/graph/GraphLayoutControls";
 import { GraphLegend } from "../components/graph/GraphLegend";
@@ -23,6 +23,25 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [legendVisible, setLegendVisible] = useState(false);
   const initialLoadStarted = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getGraphConfig(apiBase)
+      .then((config) => {
+        if (!cancelled) {
+          useGraphSettingsStore.setMaxNodesLimit(config.maxNodesLimit);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          useGraphSettingsStore.setMaxNodesLimit(2000);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   const loadGraph = useCallback(async () => {
     useGraphStore.setIsFetching(true);

@@ -20,15 +20,19 @@ namespace LightRAGNet.Server.Tests;
 internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
 {
     private readonly Action<IServiceCollection>? configureTestServices;
+    private readonly IReadOnlyDictionary<string, string?> configurationOverrides;
     private readonly SqliteConnection connection = new("Data Source=:memory:");
     private readonly string workingDirectory = Path.Combine(
         Path.GetTempPath(),
         "LightRAGNet.Server.Tests",
         Guid.NewGuid().ToString("N"));
 
-    public LightRagServerFactory(Action<IServiceCollection>? configureTestServices = null)
+    public LightRagServerFactory(
+        Action<IServiceCollection>? configureTestServices = null,
+        IReadOnlyDictionary<string, string?>? configurationOverrides = null)
     {
         this.configureTestServices = configureTestServices;
+        this.configurationOverrides = configurationOverrides ?? new Dictionary<string, string?>();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -40,7 +44,7 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
 
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
-            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            var testConfiguration = new Dictionary<string, string?>
             {
                 ["LLM:ApiKey"] = "test-key",
                 ["Embedding:ApiKey"] = "test-key",
@@ -49,7 +53,14 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
                 ["Neo4j:User"] = "neo4j",
                 ["Neo4j:Password"] = "test-password",
                 ["LightRAG:WorkingDir"] = workingDirectory
-            });
+            };
+
+            foreach (var (key, value) in configurationOverrides)
+            {
+                testConfiguration[key] = value;
+            }
+
+            configuration.AddInMemoryCollection(testConfiguration);
         });
 
         builder.ConfigureTestServices(services =>

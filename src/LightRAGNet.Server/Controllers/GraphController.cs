@@ -10,8 +10,18 @@ namespace LightRAGNet.Server.Controllers;
 public sealed class GraphController(
     IGraphStore graphStore,
     GraphCurationService graphCurationService,
+    IConfiguration configuration,
     ILogger<GraphController> logger) : ControllerBase
 {
+    private const int DefaultMaxNodesLimit = 2000;
+
+    [HttpGet("config")]
+    [ProducesResponseType<GraphViewConfigDto>(StatusCodes.Status200OK)]
+    public ActionResult<GraphViewConfigDto> GetConfig()
+    {
+        return Ok(new GraphViewConfigDto(GetMaxNodesLimit()));
+    }
+
     [HttpGet("query")]
     [ProducesResponseType<GraphViewDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<GraphCurationResponse>(StatusCodes.Status400BadRequest)]
@@ -22,9 +32,10 @@ public sealed class GraphController(
         [FromQuery] int maxNodes = 100,
         CancellationToken cancellationToken = default)
     {
-        if (maxNodes <= 0 || maxNodes > 1000)
+        var maxNodesLimit = GetMaxNodesLimit();
+        if (maxNodes <= 0 || maxNodes > maxNodesLimit)
         {
-            return BadRequest(CreateValidationResponse("maxNodes must be between 1 and 1000."));
+            return BadRequest(CreateValidationResponse($"maxNodes must be between 1 and {maxNodesLimit}."));
         }
 
         if (maxDepth <= 0 || maxDepth > 5)
@@ -301,6 +312,12 @@ public sealed class GraphController(
             Data: null,
             OperationSummary: null,
             FailureStage: "validation");
+    }
+
+    private int GetMaxNodesLimit()
+    {
+        var configuredLimit = configuration.GetValue<int?>("GraphView:MaxNodesLimit");
+        return configuredLimit is > 0 ? configuredLimit.Value : DefaultMaxNodesLimit;
     }
 
     private static GraphCurationResponse? ValidateEntityCreate(GraphEntityCreateDto? request)

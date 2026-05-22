@@ -32,10 +32,28 @@ public sealed class GraphWorkbenchHostSourceTests
             .BeTrue();
     }
 
+    [Fact]
+    public void GraphCanvas_UsesStableSigmaRendererClasses()
+    {
+        var source = ReadRepositoryFile(
+            "src",
+            "LightRAGNet.Web",
+            "ClientApp",
+            "src",
+            "components",
+            "graph",
+            "GraphCanvas.tsx");
+
+        source.Should().Contain("const CurvedNoArrowProgram = createEdgeCurveProgram();");
+        source.Should().Contain("edgeProgramClasses: EdgeProgramClasses");
+        source.Should().Contain("nodeProgramClasses: NodeProgramClasses");
+        source.Should().NotContain("curvedNoArrow: createEdgeCurveProgram()");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();
-        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]));
+        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]), System.Text.Encoding.UTF8);
     }
 
     private static bool RepositoryFileExists(params string[] relativeParts)

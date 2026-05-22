@@ -12,8 +12,11 @@ namespace LightRAGNet.Server.Controllers;
 [Route("api/[controller]")]
 public class GraphViewController(
     IGraphStore graphStore,
+    IConfiguration configuration,
     ILogger<GraphViewController> logger) : ControllerBase
 {
+    private const int DefaultMaxNodesLimit = 2000;
+
     /// <summary>
     /// Get knowledge graph data for visualization
     /// </summary>
@@ -33,9 +36,10 @@ public class GraphViewController(
     {
         try
         {
-            if (maxNodes <= 0 || maxNodes > 1000)
+            var maxNodesLimit = GetMaxNodesLimit();
+            if (maxNodes <= 0 || maxNodes > maxNodesLimit)
             {
-                return BadRequest(new { error = "maxNodes must be between 1 and 1000" });
+                return BadRequest(new { error = $"maxNodes must be between 1 and {maxNodesLimit}" });
             }
 
             if (maxDepth <= 0 || maxDepth > 5)
@@ -151,5 +155,11 @@ public class GraphViewController(
             Edges = edges,
             IsTruncated = graph.IsTruncated
         };
+    }
+
+    private int GetMaxNodesLimit()
+    {
+        var configuredLimit = configuration.GetValue<int?>("GraphView:MaxNodesLimit");
+        return configuredLimit is > 0 ? configuredLimit.Value : DefaultMaxNodesLimit;
     }
 }

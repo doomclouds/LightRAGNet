@@ -6,7 +6,7 @@ type GraphToolbarProps = {
 };
 
 const maxDepthBounds = { min: 1, max: 5 };
-const maxNodesBounds = { min: 1, max: 1000 };
+const maxNodesMin = 1;
 
 function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
@@ -55,12 +55,12 @@ export function GraphToolbar({ isFetching, onLoad }: GraphToolbarProps) {
         <span>Max nodes</span>
         <input
           type="number"
-          min={maxNodesBounds.min}
-          max={maxNodesBounds.max}
+          min={maxNodesMin}
+          max={settings.maxNodesLimit}
           value={settings.maxNodes}
           onChange={(event) =>
             useGraphSettingsStore.setMaxNodes(
-              clampNumber(event.currentTarget.valueAsNumber, maxNodesBounds.min, maxNodesBounds.max)
+              clampNumber(event.currentTarget.valueAsNumber, maxNodesMin, settings.maxNodesLimit)
             )
           }
         />

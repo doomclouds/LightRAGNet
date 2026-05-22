@@ -101,13 +101,15 @@ export function GraphSettingsPanel() {
           <label className="graph-workbench__range-field">
             <span>Max nodes</span>
             <input
-              max="1000"
+              max={settings.maxNodesLimit}
               min="1"
               step="1"
               type="number"
               value={settings.maxNodes}
               onChange={(event) =>
-                useGraphSettingsStore.setMaxNodes(Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 1000)))
+                useGraphSettingsStore.setMaxNodes(
+                  Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, settings.maxNodesLimit))
+                )
               }
             />
           </label>

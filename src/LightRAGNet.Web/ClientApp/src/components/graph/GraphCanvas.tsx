@@ -6,7 +6,7 @@ import { NodeBorderProgram } from "@sigma/node-border";
 import type { MultiUndirectedGraph } from "graphology";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { EdgeArrowProgram, NodeCircleProgram, NodePointProgram } from "sigma/rendering";
+import { EdgeArrowProgram } from "sigma/rendering";
 
 import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 import { useGraphStore } from "../../stores/graphStore";
@@ -27,6 +27,18 @@ type SigmaEventWithNode = {
 type SigmaEventWithEdge = {
   edge: string;
 };
+
+const CurvedNoArrowProgram = createEdgeCurveProgram();
+const NodeProgramClasses = {
+  border: NodeBorderProgram
+};
+const EdgeProgramClasses = {
+  arrow: EdgeArrowProgram,
+  curvedArrow: EdgeCurvedArrowProgram,
+  curvedNoArrow: CurvedNoArrowProgram
+};
+const LabelColor = { color: "#172026", attribute: "labelColor" };
+const EdgeLabelColor = { color: "#172026", attribute: "labelColor" };
 
 function GraphEvents() {
   const registerEvents = useRegisterEvents();
@@ -129,7 +141,6 @@ function GraphReducers() {
 
   useEffect(() => {
     setSettings({
-      enableEdgeEvents: settings.enableEdgeEvents,
       renderEdgeLabels: settings.showEdgeLabels,
       renderLabels: settings.showNodeLabels,
       nodeReducer: (node, data) => {
@@ -238,6 +249,24 @@ function GraphCameraFocus() {
 
 export function GraphCanvas({ graph, isFetching, errorMessage, children }: GraphCanvasProps) {
   const settings = useGraphSettingsStore();
+  const sigmaSettings = useMemo(
+    () => ({
+      allowInvalidContainer: true,
+      defaultNodeType: "border",
+      defaultEdgeType: "curvedNoArrow",
+      enableEdgeEvents: settings.enableEdgeEvents,
+      edgeProgramClasses: EdgeProgramClasses,
+      nodeProgramClasses: NodeProgramClasses,
+      labelColor: LabelColor,
+      edgeLabelColor: EdgeLabelColor,
+      labelDensity: 0.42,
+      labelGridCellSize: 60,
+      labelRenderedSizeThreshold: 10,
+      labelSize: 12,
+      edgeLabelSize: 8
+    }),
+    [settings.enableEdgeEvents]
+  );
   const graphologyGraph = useMemo(
     () =>
       createGraphologyGraph(graph, undefined, undefined, {
@@ -252,35 +281,11 @@ export function GraphCanvas({ graph, isFetching, errorMessage, children }: Graph
     <section className="graph-workbench__canvas" aria-label="Graph canvas">
       <SigmaContainer
         className="graph-workbench__sigma"
-        settings={{
-          allowInvalidContainer: true,
-          defaultNodeType: "default",
-          defaultEdgeType: "curvedNoArrow",
-          enableEdgeEvents: settings.enableEdgeEvents,
-          edgeProgramClasses: {
-            arrow: EdgeArrowProgram,
-            curvedArrow: EdgeCurvedArrowProgram,
-            curvedNoArrow: createEdgeCurveProgram()
-          },
-          nodeProgramClasses: {
-            default: NodeBorderProgram,
-            circle: NodeCircleProgram,
-            point: NodePointProgram
-          },
-          labelColor: { color: "#172026", attribute: "labelColor" },
-          edgeLabelColor: { color: "#172026", attribute: "labelColor" },
-          labelDensity: 0.42,
-          labelGridCellSize: 60,
-          labelRenderedSizeThreshold: 10,
-          labelSize: 12,
-          edgeLabelSize: 8,
-          renderEdgeLabels: settings.showEdgeLabels,
-          renderLabels: settings.showNodeLabels
-        }}
+        settings={sigmaSettings}
       >
+        <GraphReducers />
         <GraphLoader graph={graphologyGraph} />
         <GraphAutoLayout graph={graphologyGraph} />
-        <GraphReducers />
         <GraphCameraFocus />
         <GraphEvents />
         {children}

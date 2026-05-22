@@ -10,6 +10,7 @@ import {
   editRelation,
   mergeEntities,
   getGraphLabels,
+  getGraphConfig,
   queryGraph
 } from "./graphApi";
 
@@ -74,6 +75,17 @@ describe("graphApi", () => {
     expect(fetch).toHaveBeenNthCalledWith(
       2,
       "/api/graph/entity/exists?name=ALPHA%2FBETA",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("getGraphConfig reads configured graph view limits", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ maxNodesLimit: 2500 }));
+
+    await expect(getGraphConfig("/api-root/")).resolves.toEqual({ maxNodesLimit: 2500 });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api-root/api/graph/config",
       expect.objectContaining({ method: "GET" })
     );
   });

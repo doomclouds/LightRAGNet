@@ -449,13 +449,14 @@ public class Neo4JGraphStore : IGraphStore
         var query = $"""
                      MATCH (n:`{_workspaceLabel}`)
                      UNWIND labels(n) as label
-                     WHERE label <> '{_workspaceLabel}'
+                     WITH label
+                     WHERE label <> $workspaceLabel
                      WITH label, count(*) as degree
                      ORDER BY degree DESC
                      LIMIT $limit
                      RETURN label
                      """;
-        var result = await session.RunAsync(query, new { limit });
+        var result = await session.RunAsync(query, new { limit, workspaceLabel = _workspaceLabel });
         
         var labels = new List<string>();
         await foreach (var record in result)

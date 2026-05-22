@@ -2,6 +2,8 @@
 
 ## 2026-05
 
+- [2026-05-22-graph-workbench-sigma-settings-instability-problem.md](./2026-05/2026-05-22-graph-workbench-sigma-settings-instability-problem.md): React Sigma renderer settings 必须保持稳定引用，避免 program class 在 render 中重建导致 Sigma 实例反复销毁、WebGL context 被清理并出现知识图谱白屏。
+- [2026-05-22-neo4j-labels-unwind-filter-problem.md](./2026-05/2026-05-22-neo4j-labels-unwind-filter-problem.md): Neo4j `UNWIND labels(n)` 后过滤 workspace label 前必须先 `WITH label`，否则 `/api/graph/labels` 会因 Cypher parse error 返回 500。
 - [2026-05-21-di-constructor-activation-boundary-problem.md](./2026-05/2026-05-21-di-constructor-activation-boundary-problem.md): internal 构造器、`InternalsVisibleTo` 和默认 DI 类型激活不是同一件事；迁移 coordinator 依赖时不要用 `object` 桥接隐藏编译期遗漏，应使用强类型构造器、Hosting factory 和 ServiceProvider 回归测试。
 - [2026-05-21-document-task-recovery-state-drift-problem.md](./2026-05/2026-05-21-document-task-recovery-state-drift-problem.md): 文档 task 的 shutdown/restart 恢复、terminal snapshot 和 document-id active lookup 必须区分历史终态与当前活跃任务，避免中断任务回到 `Pending` 或过期终态污染状态判断。
 - [2026-05-20-mudtable-reload-cancellation-snackbar-problem.md](./2026-05/2026-05-20-mudtable-reload-cancellation-snackbar-problem.md): MudTable 主动取消旧的 ServerData reload 不应弹成文档加载失败；取消路径要单独处理并保留真实失败日志。

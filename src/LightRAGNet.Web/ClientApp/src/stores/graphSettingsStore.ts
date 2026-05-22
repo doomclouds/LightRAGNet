@@ -4,6 +4,7 @@ export type GraphSettingsSnapshot = {
   queryLabel: string;
   maxDepth: number;
   maxNodes: number;
+  maxNodesLimit: number;
   showNodeLabels: boolean;
   showEdgeLabels: boolean;
   enableEdgeEvents: boolean;
@@ -19,6 +20,7 @@ export type GraphSettingsStoreApi = {
   setQueryLabel: (queryLabel: string) => void;
   setMaxDepth: (maxDepth: number) => void;
   setMaxNodes: (maxNodes: number) => void;
+  setMaxNodesLimit: (maxNodesLimit: number) => void;
   setShowNodeLabels: (showNodeLabels: boolean) => void;
   setShowEdgeLabels: (showEdgeLabels: boolean) => void;
   setEnableEdgeEvents: (enableEdgeEvents: boolean) => void;
@@ -32,6 +34,7 @@ const defaultSnapshot: GraphSettingsSnapshot = {
   queryLabel: "*",
   maxDepth: 2,
   maxNodes: 100,
+  maxNodesLimit: 2000,
   showNodeLabels: true,
   showEdgeLabels: false,
   enableEdgeEvents: true,
@@ -66,6 +69,12 @@ export function createGraphSettingsStoreState(
     setQueryLabel: (queryLabel) => setState({ ...state, queryLabel }),
     setMaxDepth: (maxDepth) => setState({ ...state, maxDepth }),
     setMaxNodes: (maxNodes) => setState({ ...state, maxNodes }),
+    setMaxNodesLimit: (maxNodesLimit) =>
+      setState({
+        ...state,
+        maxNodesLimit,
+        maxNodes: Math.min(state.maxNodes, maxNodesLimit)
+      }),
     setShowNodeLabels: (showNodeLabels) => setState({ ...state, showNodeLabels }),
     setShowEdgeLabels: (showEdgeLabels) => setState({ ...state, showEdgeLabels }),
     setEnableEdgeEvents: (enableEdgeEvents) => setState({ ...state, enableEdgeEvents }),
