@@ -81,6 +81,21 @@ public sealed class DocumentArtifactStoreTests
     }
 
     [Fact]
+    public void GetFileInfo_WhenAbsolutePathIsOutsideRoot_Throws()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        using var outsideRoot = new TemporaryDirectory($"{tempRoot.Path}-outside");
+        var store = CreateStore(tempRoot.Path);
+        var outsidePath = Path.Combine(outsideRoot.Path, "secret.pdf");
+
+        var act = () => store.GetFileInfo(outsidePath);
+
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("Document artifact path is outside the configured root.");
+    }
+
+    [Fact]
     public void Exists_WhenPathIsNullWhitespaceOrTraversal_ReturnsFalse()
     {
         using var tempRoot = new TemporaryDirectory();
@@ -91,6 +106,17 @@ public sealed class DocumentArtifactStoreTests
         store.Exists("").Should().BeFalse();
         store.Exists("   ").Should().BeFalse();
         store.Exists(escapedPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Exists_WhenAbsolutePathIsOutsideRoot_ReturnsFalse()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        using var outsideRoot = new TemporaryDirectory($"{tempRoot.Path}-outside");
+        var store = CreateStore(tempRoot.Path);
+        var outsidePath = Path.Combine(outsideRoot.Path, "secret.pdf");
+
+        store.Exists(outsidePath).Should().BeFalse();
     }
 
     [Fact]
@@ -136,6 +162,38 @@ public sealed class DocumentArtifactStoreTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Fact]
+    public async Task SaveOriginalAsync_WhenSourceThrows_DoesNotCreateFinalOriginalOrLeaveTempFiles()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+        await using var stream = new ThrowingStream(Encoding.UTF8.GetBytes("partial"));
+        var finalPath = Path.Combine(tempRoot.Path, "documents", "56", "original.pdf");
+
+        var act = () => store.SaveOriginalAsync(56, stream, "broken.pdf", CancellationToken.None);
+
+        await act.Should().ThrowAsync<IOException>();
+        File.Exists(finalPath).Should().BeFalse();
+        Directory.GetFiles(Path.GetDirectoryName(finalPath)!, ".tmp-*").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveOriginalAsync_WhenReplacingExistingFileFails_PreservesExistingOriginalAndCleansTempFile()
+    {
+        using var tempRoot = new TemporaryDirectory();
+        var store = CreateStore(tempRoot.Path);
+        await using var originalStream = new MemoryStream(Encoding.UTF8.GetBytes("old bytes"));
+        var original = await store.SaveOriginalAsync(57, originalStream, "stable.pdf", CancellationToken.None);
+        await using var throwingStream = new ThrowingStream(Encoding.UTF8.GetBytes("new partial"));
+
+        var act = () => store.SaveOriginalAsync(57, throwingStream, "stable.pdf", CancellationToken.None);
+
+        await act.Should().ThrowAsync<IOException>();
+        var bytes = await File.ReadAllBytesAsync(original.AbsolutePath, CancellationToken.None);
+        Encoding.UTF8.GetString(bytes).Should().Be("old bytes");
+        Directory.GetFiles(Path.GetDirectoryName(original.AbsolutePath)!, ".tmp-*").Should().BeEmpty();
+    }
+
     private static FileSystemDocumentArtifactStore CreateStore(string rootPath)
     {
         var options = Options.Create(new DocumentArtifactStoreOptions
@@ -150,9 +208,9 @@ public sealed class DocumentArtifactStoreTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        public TemporaryDirectory()
+        public TemporaryDirectory(string? path = null)
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lightragnet-artifacts-{Guid.NewGuid():N}");
+            Path = path ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lightragnet-artifacts-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Path);
         }
 
@@ -165,5 +223,66 @@ public sealed class DocumentArtifactStoreTests
                 Directory.Delete(Path, recursive: true);
             }
         }
+    }
+
+    private sealed class ThrowingStream : Stream
+    {
+        private readonly byte[] firstChunk;
+        private bool chunkReturned;
+
+        public ThrowingStream(byte[] firstChunk)
+        {
+            this.firstChunk = firstChunk;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (chunkReturned)
+            {
+                throw new IOException("Simulated source read failure.");
+            }
+
+            chunkReturned = true;
+            var bytesToCopy = Math.Min(count, firstChunk.Length);
+            Array.Copy(firstChunk, 0, buffer, offset, bytesToCopy);
+            return bytesToCopy;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (chunkReturned)
+            {
+                throw new IOException("Simulated source read failure.");
+            }
+
+            chunkReturned = true;
+            var bytesToCopy = Math.Min(buffer.Length, firstChunk.Length);
+            firstChunk.AsMemory(0, bytesToCopy).CopyTo(buffer);
+            return ValueTask.FromResult(bytesToCopy);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

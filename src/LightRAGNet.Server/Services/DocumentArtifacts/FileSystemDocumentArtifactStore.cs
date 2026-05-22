@@ -12,7 +12,6 @@ public sealed class FileSystemDocumentArtifactStore : IDocumentArtifactStore
 
     private readonly ILogger<FileSystemDocumentArtifactStore> logger;
     private readonly string rootPath;
-    private readonly string rootPathWithSeparator;
 
     public FileSystemDocumentArtifactStore(
         IOptions<DocumentArtifactStoreOptions> options,
@@ -22,9 +21,6 @@ public sealed class FileSystemDocumentArtifactStore : IDocumentArtifactStore
 
         this.logger = logger;
         rootPath = Path.GetFullPath(options.Value.RootPath);
-        rootPathWithSeparator = Path.EndsInDirectorySeparator(rootPath)
-            ? rootPath
-            : rootPath + Path.DirectorySeparatorChar;
     }
 
     public async Task<DocumentArtifactWriteResult> SaveOriginalAsync(
@@ -45,31 +41,44 @@ public sealed class FileSystemDocumentArtifactStore : IDocumentArtifactStore
         extension = extension.ToLowerInvariant();
         var relativePath = Path.Combine("documents", documentId.ToString(), $"original{extension}");
         var absolutePath = ResolveUnderRoot(relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        var directoryPath = Path.GetDirectoryName(absolutePath)!;
+        Directory.CreateDirectory(directoryPath);
 
-        await using var destination = new FileStream(
-            absolutePath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 81920,
-            useAsync: true);
-        using var sha256 = SHA256.Create();
-
-        var buffer = new byte[81920];
-        long size = 0;
-        int bytesRead;
-        while ((bytesRead = await source.ReadAsync(buffer, cancellationToken)) > 0)
+        var tempPath = Path.Combine(directoryPath, $".tmp-{Guid.NewGuid():N}");
+        try
         {
-            await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-            sha256.TransformBlock(buffer, 0, bytesRead, outputBuffer: null, outputOffset: 0);
-            size += bytesRead;
+            using var sha256 = SHA256.Create();
+            long size = 0;
+            await using (var destination = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 81920,
+                useAsync: true))
+            {
+                var buffer = new byte[81920];
+                int bytesRead;
+                while ((bytesRead = await source.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    sha256.TransformBlock(buffer, 0, bytesRead, outputBuffer: null, outputOffset: 0);
+                    size += bytesRead;
+                }
+
+                sha256.TransformFinalBlock([], 0, 0);
+                await destination.FlushAsync(cancellationToken);
+            }
+
+            var hash = Convert.ToHexStringLower(sha256.Hash!);
+            File.Move(tempPath, absolutePath, overwrite: true);
+
+            return new DocumentArtifactWriteResult(absolutePath, relativePath, hash, size);
         }
-
-        sha256.TransformFinalBlock([], 0, 0);
-        var hash = Convert.ToHexStringLower(sha256.Hash!);
-
-        return new DocumentArtifactWriteResult(absolutePath, relativePath, hash, size);
+        finally
+        {
+            DeleteTempFileIfExists(tempPath);
+        }
     }
 
     public async Task<DocumentArtifactWriteResult> SaveConvertedMarkdownAsync(
@@ -81,10 +90,20 @@ public sealed class FileSystemDocumentArtifactStore : IDocumentArtifactStore
 
         var relativePath = Path.Combine("documents", documentId.ToString(), "converted.md");
         var absolutePath = ResolveUnderRoot(relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        var directoryPath = Path.GetDirectoryName(absolutePath)!;
+        Directory.CreateDirectory(directoryPath);
 
         var bytes = Utf8NoBom.GetBytes(markdown);
-        await File.WriteAllBytesAsync(absolutePath, bytes, cancellationToken);
+        var tempPath = Path.Combine(directoryPath, $".tmp-{Guid.NewGuid():N}");
+        try
+        {
+            await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
+            File.Move(tempPath, absolutePath, overwrite: true);
+        }
+        finally
+        {
+            DeleteTempFileIfExists(tempPath);
+        }
 
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
         return new DocumentArtifactWriteResult(absolutePath, relativePath, hash, bytes.Length);
@@ -138,11 +157,25 @@ public sealed class FileSystemDocumentArtifactStore : IDocumentArtifactStore
     private string ResolveUnderRoot(string relativePath)
     {
         var absolutePath = Path.GetFullPath(Path.Combine(rootPath, relativePath));
-        if (!absolutePath.StartsWith(rootPathWithSeparator, StringComparison.OrdinalIgnoreCase))
+        var relativeToRoot = Path.GetRelativePath(rootPath, absolutePath);
+        var isUnderRoot = string.IsNullOrEmpty(relativeToRoot)
+            || relativeToRoot == "."
+            || (!relativeToRoot.StartsWith("..", StringComparison.Ordinal)
+                && !Path.IsPathRooted(relativeToRoot));
+
+        if (!isUnderRoot)
         {
             throw new InvalidOperationException(OutsideRootMessage);
         }
 
         return absolutePath;
+    }
+
+    private static void DeleteTempFileIfExists(string tempPath)
+    {
+        if (File.Exists(tempPath))
+        {
+            File.Delete(tempPath);
+        }
     }
 }
