@@ -54,20 +54,20 @@ public static partial class MarkdownModelMapper
 
         var sanitized = WindowsPathPattern().Replace(message, "[path]");
         sanitized = UncPathPattern().Replace(sanitized, "[path]");
-        sanitized = PosixAbsolutePathPattern().Replace(sanitized, "[path]");
         sanitized = ArtifactPathPattern().Replace(sanitized, "[path]");
+        sanitized = PosixAbsolutePathPattern().Replace(sanitized, "[path]");
         return sanitized;
     }
 
-    [GeneratedRegex(@"[A-Za-z]:\\(?:[^\\/:*?""<>|\r\n,;]+\\)+[^\\/:*?""<>|\r\n,;]+\.[A-Za-z0-9]{1,16}")]
+    [GeneratedRegex(@"[A-Za-z]:\\(?:[^\\/:*?""<>|\r\n,;']+\\)*[^\\/:*?""<>|\r\n,;']+")]
     private static partial Regex WindowsPathPattern();
 
-    [GeneratedRegex(@"\\\\(?:[^\\/:*?""<>|\r\n,;]+\\)+[^\\/:*?""<>|\r\n,;]+\.[A-Za-z0-9]{1,16}")]
+    [GeneratedRegex(@"\\\\(?:[^\\/:*?""<>|\r\n,;']+\\)+[^\\/:*?""<>|\r\n,;']+")]
     private static partial Regex UncPathPattern();
 
-    [GeneratedRegex(@"(?<!:)\/(?:[^\/\s""'<>),;]+\/)+[^\/\s""'<>),;]+\.[A-Za-z0-9]{1,16}")]
+    [GeneratedRegex(@"(?<![\w:/.\\-])\/(?:[^\/\s""'<>),;]+\/)*[^\/\s""'<>),;]+")]
     private static partial Regex PosixAbsolutePathPattern();
 
-    [GeneratedRegex(@"(?<![\w.-])[/\\]?documents[/\\](?:[^\s""'<>),;\\/]+[/\\])*[^\s""'<>),;\\/]+\.[A-Za-z0-9]{1,16}")]
+    [GeneratedRegex(@"(?<![\w:/.\\-])[/\\]?documents[/\\]\d+(?:[/\\][^\s""'<>),;\\/]+)*")]
     private static partial Regex ArtifactPathPattern();
 }

@@ -448,7 +448,7 @@ public sealed class DocumentIntakePipelineApiTests
             ConvertedMarkdownPath = "documents/801/converted.md",
             ConvertedMarkdownHash = "markdown-hash",
             ConversionStatus = DocumentConversionStatus.Completed,
-            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md; retry documents\801\original.pdf via /documents/801/original.pdf; inspect C:\Users\x\My Documents\secret.pdf, /var/app/uploads/secret.pdf, /tmp/lightrag/documents/801/original.pdf, and \\server\share\secret.pdf",
+            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md; retry documents\801\original.pdf via /documents/801/original.pdf; inspect C:\Users\x\My Documents\secret.pdf, C:\Users\x\My Documents, /var/app/uploads/secret.pdf, /var/app/uploads, /tmp/lightrag/documents/801/original.pdf, \\server\share\secret.pdf, and \\server\share\folder; public URL https://example.com/documents/801/original.pdf; see documents/README.md",
             ConversionStartedAt = new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc),
             ConversionCompletedAt = new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc),
             ConversionTool = "ManagedCode.MarkItDown",
@@ -464,15 +464,21 @@ public sealed class DocumentIntakePipelineApiTests
 
         result.Should().NotBeNull();
         rawJson.Should().NotContain(@"C:\\WorkSpace\\secret\\original.pdf");
-        rawJson.Should().NotContain("documents/801/original.pdf");
+        rawJson.Should().NotContain("from documents/801/original.pdf");
         rawJson.Should().NotContain("documents/801/converted.md");
         rawJson.Should().NotContain(@"documents\\801\\original.pdf");
-        rawJson.Should().NotContain("/documents/801/original.pdf");
+        rawJson.Should().NotContain("via /documents/801/original.pdf");
         rawJson.Should().NotContain(@"C:\\Users\\x\\My Documents\\secret.pdf");
         rawJson.Should().NotContain(@"Documents\\secret.pdf");
+        rawJson.Should().NotContain(@"C:\\Users\\x\\My Documents");
+        rawJson.Should().NotContain("My Documents");
         rawJson.Should().NotContain("/var/app/uploads/secret.pdf");
+        rawJson.Should().NotContain("/var/app/uploads");
         rawJson.Should().NotContain("/tmp/lightrag");
         rawJson.Should().NotContain(@"\\\\server\\share\\secret.pdf");
+        rawJson.Should().NotContain(@"\\\\server\\share\\folder");
+        rawJson.Should().Contain("https://example.com/documents/801/original.pdf");
+        rawJson.Should().Contain("documents/README.md");
         var document = result!.Items.Should().ContainSingle(d => d.Id == 801).Subject;
         document.FileName.Should().Be("合同.pdf");
         document.OriginalFileName.Should().Be("合同.pdf");
@@ -482,15 +488,21 @@ public sealed class DocumentIntakePipelineApiTests
         document.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
         document.ConversionErrorMessage.Should().Contain("[path]");
         document.ConversionErrorMessage.Should().NotContain(@"C:\WorkSpace\secret\original.pdf");
-        document.ConversionErrorMessage.Should().NotContain("documents/801/original.pdf");
+        document.ConversionErrorMessage.Should().NotContain("from documents/801/original.pdf");
         document.ConversionErrorMessage.Should().NotContain("documents/801/converted.md");
         document.ConversionErrorMessage.Should().NotContain(@"documents\801\original.pdf");
-        document.ConversionErrorMessage.Should().NotContain("/documents/801/original.pdf");
+        document.ConversionErrorMessage.Should().NotContain("via /documents/801/original.pdf");
         document.ConversionErrorMessage.Should().NotContain(@"C:\Users\x\My Documents\secret.pdf");
         document.ConversionErrorMessage.Should().NotContain(@"Documents\secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain(@"C:\Users\x\My Documents");
+        document.ConversionErrorMessage.Should().NotContain("My Documents");
         document.ConversionErrorMessage.Should().NotContain("/var/app/uploads/secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain("/var/app/uploads");
         document.ConversionErrorMessage.Should().NotContain("/tmp/lightrag");
         document.ConversionErrorMessage.Should().NotContain(@"\\server\share\secret.pdf");
+        document.ConversionErrorMessage.Should().NotContain(@"\\server\share\folder");
+        document.ConversionErrorMessage.Should().Contain("https://example.com/documents/801/original.pdf");
+        document.ConversionErrorMessage.Should().Contain("documents/README.md");
         document.ConversionTool.Should().Be("ManagedCode.MarkItDown");
         document.ConversionToolVersion.Should().Be("10.0.7");
         document.ConversionStartedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc));
