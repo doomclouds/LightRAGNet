@@ -116,7 +116,7 @@ public class MarkdownDocument
     public string? ConvertedMarkdownHash { get; set; }
 
     /// <summary>
-    /// Document conversion status
+    /// Document conversion status. Null is only for old runtime or uninitialized compatibility, not a target state for the new intake flow.
     /// </summary>
     public string? ConversionStatus { get; set; }
 

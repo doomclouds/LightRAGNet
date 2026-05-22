@@ -93,6 +93,9 @@ namespace LightRAGNet.Server.Migrations
                 maxLength: 1024,
                 nullable: true);
 
+            migrationBuilder.Sql(
+                "UPDATE MarkdownDocuments SET ConversionStatus = 'NotRequired' WHERE ConversionStatus IS NULL AND OriginalFilePath IS NULL");
+
             migrationBuilder.CreateIndex(
                 name: "IX_MarkdownDocuments_ConversionStatus",
                 table: "MarkdownDocuments",

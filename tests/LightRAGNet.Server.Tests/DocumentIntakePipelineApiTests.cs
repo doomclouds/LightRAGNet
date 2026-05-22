@@ -1,15 +1,18 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
 using LightRAGNet.Hosting;
 using LightRAGNet.Models;
 using LightRAGNet.Server.Data;
+using LightRAGNet.Server.Migrations;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Services.TaskQueue;
 using LightRAGNet.Share.Models;
 using MediatR;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -436,7 +439,7 @@ public sealed class DocumentIntakePipelineApiTests
             ConvertedMarkdownPath = "documents/801/converted.md",
             ConvertedMarkdownHash = "markdown-hash",
             ConversionStatus = DocumentConversionStatus.Completed,
-            ConversionErrorMessage = null,
+            ConversionErrorMessage = @"Failed to convert C:\WorkSpace\secret\original.pdf from documents/801/original.pdf to documents/801/converted.md",
             ConversionStartedAt = new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc),
             ConversionCompletedAt = new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc),
             ConversionTool = "ManagedCode.MarkItDown",
@@ -444,10 +447,16 @@ public sealed class DocumentIntakePipelineApiTests
         });
         using var client = factory.CreateClient();
 
-        var result = await client.GetFromJsonAsync<PagedResult<MarkdownDocumentDto>>(
+        var rawJson = await client.GetStringAsync(
             "/api/MarkdownDocuments?page=1&pageSize=10&trackId=track-conversion-metadata");
+        var result = JsonSerializer.Deserialize<PagedResult<MarkdownDocumentDto>>(
+            rawJson,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         result.Should().NotBeNull();
+        rawJson.Should().NotContain(@"C:\\WorkSpace\\secret\\original.pdf");
+        rawJson.Should().NotContain("documents/801/original.pdf");
+        rawJson.Should().NotContain("documents/801/converted.md");
         var document = result!.Items.Should().ContainSingle(d => d.Id == 801).Subject;
         document.FileName.Should().Be("合同.pdf");
         document.OriginalFileName.Should().Be("合同.pdf");
@@ -455,13 +464,29 @@ public sealed class DocumentIntakePipelineApiTests
         document.OriginalContentHash.Should().Be("original-hash");
         document.ConvertedMarkdownHash.Should().Be("markdown-hash");
         document.ConversionStatus.Should().Be(DocumentConversionStatus.Completed);
-        document.ConversionErrorMessage.Should().BeNull();
+        document.ConversionErrorMessage.Should().Be("Failed to convert [path] from [path] to [path]");
         document.ConversionTool.Should().Be("ManagedCode.MarkItDown");
         document.ConversionToolVersion.Should().Be("10.0.7");
         document.ConversionStartedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 3, DateTimeKind.Utc));
         document.ConversionCompletedAt.Should().Be(new DateTime(2026, 5, 22, 1, 2, 8, DateTimeKind.Utc));
         typeof(MarkdownDocumentDto).GetProperty("OriginalFilePath").Should().BeNull();
         typeof(MarkdownDocumentDto).GetProperty("ConvertedMarkdownPath").Should().BeNull();
+    }
+
+    [Fact]
+    public void AddDocumentConversionArtifacts_BackfillsExistingMarkdownRowsAsNotRequired()
+    {
+        var migration = new AddDocumentConversionArtifacts();
+
+        var sqlOperation = migration.UpOperations
+            .OfType<SqlOperation>()
+            .SingleOrDefault(operation => operation.Sql.Contains(DocumentConversionStatus.NotRequired, StringComparison.Ordinal));
+
+        sqlOperation.Should().NotBeNull();
+        sqlOperation!.Sql.Should().Contain("UPDATE MarkdownDocuments");
+        sqlOperation.Sql.Should().Contain("ConversionStatus IS NULL");
+        sqlOperation.Sql.Should().Contain("OriginalFilePath IS NULL");
+        sqlOperation.Sql.Should().Contain(DocumentConversionStatus.NotRequired);
     }
 
     [Fact]

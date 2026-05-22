@@ -1,9 +1,10 @@
+using System.Text.RegularExpressions;
 using LightRAGNet.Server.Models;
 using LightRAGNet.Share.Models;
 
 namespace LightRAGNet.Server.Extensions;
 
-public static class MarkdownModelMapper
+public static partial class MarkdownModelMapper
 {
     
     public static MarkdownDocumentDto ToDto(this MarkdownDocument model)
@@ -35,7 +36,7 @@ public static class MarkdownModelMapper
             OriginalContentHash = model.OriginalContentHash,
             ConvertedMarkdownHash = model.ConvertedMarkdownHash,
             ConversionStatus = model.ConversionStatus,
-            ConversionErrorMessage = model.ConversionErrorMessage,
+            ConversionErrorMessage = SanitizeConversionErrorMessage(model.ConversionErrorMessage),
             ConversionStartedAt = model.ConversionStartedAt,
             ConversionCompletedAt = model.ConversionCompletedAt,
             ConversionTool = model.ConversionTool,
@@ -43,4 +44,22 @@ public static class MarkdownModelMapper
             Content = model.Content
         };
     }
+
+    private static string? SanitizeConversionErrorMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return message;
+        }
+
+        var sanitized = WindowsPathPattern().Replace(message, "[path]");
+        sanitized = ArtifactPathPattern().Replace(sanitized, "[path]");
+        return sanitized;
+    }
+
+    [GeneratedRegex(@"[A-Za-z]:\\[^\s""'<>),;]+")]
+    private static partial Regex WindowsPathPattern();
+
+    [GeneratedRegex(@"(?<![\w/\\.-])documents/[^\s""'<>),;]+")]
+    private static partial Regex ArtifactPathPattern();
 }
