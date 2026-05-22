@@ -623,6 +623,11 @@ public class MarkdownDocumentsController(
             return Ok(document.ToDto());
         }
 
+        if (string.IsNullOrWhiteSpace(document.Content))
+        {
+            return BadRequest(new { error = "Document content is empty and cannot be added to RAG." });
+        }
+
         try
         {
             // Ensure FileUrl is a full URL (handle legacy relative paths)

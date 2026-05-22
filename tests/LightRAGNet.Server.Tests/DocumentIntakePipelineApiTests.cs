@@ -1249,6 +1249,48 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
+    public async Task AddToRagSystem_WhenUploadedDocx_QueuesConversionButDoesNotQueueRagTask()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 903,
+            FileName = "方案.docx",
+            Content = string.Empty,
+            OriginalFileName = "方案.docx",
+            OriginalFilePath = Path.Combine("documents", "903", "original.docx"),
+            OriginalContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ConversionStatus = DocumentConversionStatus.NotStarted,
+            IsInRagSystem = false,
+            RagStatus = null
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/903/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        queue.EnqueueCalls.Should().BeEmpty();
+        var body = await response.Content.ReadFromJsonAsync<MarkdownDocumentDto>();
+        body.Should().NotBeNull();
+        body!.FileName.Should().Be("方案.docx");
+        body.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        body.ActiveRagTaskId.Should().BeNull();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(903);
+        document.Should().NotBeNull();
+        document!.FileName.Should().Be("方案.docx");
+        document.ConversionStatus.Should().Be(DocumentConversionStatus.Queued);
+        document.ActiveRagTaskId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task AddToRagSystem_WhenMarkdownDocument_EnqueuesRagTaskImmediately()
     {
         var queue = new RecordingRagTaskQueueService();
@@ -1277,6 +1319,42 @@ public sealed class DocumentIntakePipelineApiTests
         var document = await context.MarkdownDocuments.FindAsync(902);
         document!.RagStatus.Should().Be("Pending");
         document.ActiveRagTaskId.Should().Be("task-1");
+    }
+
+    [Fact]
+    public async Task AddToRagSystem_WhenMarkdownDocumentContentEmpty_ReturnsBadRequestAndDoesNotEnqueue()
+    {
+        var queue = new RecordingRagTaskQueueService();
+        using var factory = new LightRagServerFactory(services =>
+        {
+            services.RemoveAll<IRagTaskQueueService>();
+            services.AddSingleton<IRagTaskQueueService>(queue);
+        });
+        await SeedDocumentAsync(factory, new MarkdownDocument
+        {
+            Id = 904,
+            FileName = "notes.md",
+            Content = "   ",
+            FileUrl = "/uploads/notes.md",
+            ConversionStatus = DocumentConversionStatus.NotRequired,
+            IsInRagSystem = false
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/MarkdownDocuments/904/add-to-rag", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("Document content is empty and cannot be added to RAG.");
+        queue.EnqueueCalls.Should().BeEmpty();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var document = await context.MarkdownDocuments.FindAsync(904);
+        document.Should().NotBeNull();
+        document!.ActiveRagTaskId.Should().BeNull();
+        document.RagStatus.Should().NotBe("Pending");
+        document.RagStatus.Should().NotBe(DocumentIntakeStatus.Queued);
     }
 
     private static async Task SeedDocumentAsync(LightRagServerFactory factory, MarkdownDocument document)
