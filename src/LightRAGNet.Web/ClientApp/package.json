@@ -14,8 +14,15 @@
   },
   "dependencies": {
     "@react-sigma/core": "^5.0.6",
+    "@react-sigma/layout-circular": "^5.0.6",
+    "@react-sigma/layout-force": "^5.0.6",
     "@react-sigma/layout-forceatlas2": "^5.0.6",
+    "@react-sigma/layout-noverlap": "^5.0.6",
+    "@react-sigma/layout-random": "^5.0.6",
+    "@sigma/edge-curve": "^3.1.0",
+    "@sigma/node-border": "^3.0.0",
     "graphology": "^0.26.0",
+    "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sigma": "^3.0.3"

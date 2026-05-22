@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { queryGraph } from "../api/graphApi";
 import { GraphCanvas } from "../components/graph/GraphCanvas";
-import { GraphToolbar } from "../components/graph/GraphToolbar";
+import { GraphLayoutControls } from "../components/graph/GraphLayoutControls";
+import { GraphLegend } from "../components/graph/GraphLegend";
+import { GraphQueryControls } from "../components/graph/GraphQueryControls";
+import { GraphSearchBox } from "../components/graph/GraphSearchBox";
+import { GraphViewportControls } from "../components/graph/GraphViewportControls";
 import { PropertiesPanel } from "../components/graph/PropertiesPanel";
 import { useGraphSettingsStore } from "../stores/graphSettingsStore";
 import { useGraphStore } from "../stores/graphStore";
@@ -16,6 +20,7 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
   const rawGraph = useGraphStore((state) => state.rawGraph);
   const isFetching = useGraphStore((state) => state.isFetching);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [legendVisible, setLegendVisible] = useState(false);
   const initialLoadStarted = useRef(false);
 
   const loadGraph = useCallback(async () => {
@@ -44,10 +49,21 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
 
   return (
     <main className="graph-workbench" data-api-base={apiBase}>
-      <GraphToolbar isFetching={isFetching} onLoad={() => void loadGraph()} />
-
       <div className="graph-workbench__main">
-        <GraphCanvas graph={rawGraph} isFetching={isFetching} errorMessage={errorMessage} />
+        <GraphCanvas graph={rawGraph} isFetching={isFetching} errorMessage={errorMessage}>
+          <div className="graph-workbench__top-left">
+            <GraphQueryControls isFetching={isFetching} onLoad={() => void loadGraph()} />
+            <GraphSearchBox />
+          </div>
+          <div className="graph-workbench__control-dock">
+            <GraphLayoutControls />
+            <GraphViewportControls
+              legendVisible={legendVisible}
+              onToggleLegend={() => setLegendVisible((visible) => !visible)}
+            />
+          </div>
+          <GraphLegend visible={legendVisible} />
+        </GraphCanvas>
         <PropertiesPanel apiBase={apiBase} />
       </div>
     </main>

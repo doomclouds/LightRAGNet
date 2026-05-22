@@ -45,6 +45,10 @@ describe("graphStore", () => {
       rawGraph: null,
       selectedNode: null,
       selectedEdge: null,
+      selectedEdgeKey: null,
+      focusedNode: null,
+      focusedEdge: null,
+      focusedEdgeKey: null,
       isFetching: false
     });
   });
@@ -64,8 +68,40 @@ describe("graphStore", () => {
 
     expect(store.getState().selectedNode).toBeNull();
     expect(store.getState().selectedEdge?.id).toBe("ALPHA-BETA");
+    expect(store.getState().selectedEdgeKey).toBe("ALPHA-BETA");
     expect(store.getState().isFetching).toBe(true);
     expect(listener).toHaveBeenCalledTimes(4);
+  });
+
+  test("focus state tracks hovered nodes and edges without changing selection", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.selectNode("ALPHA");
+    store.focusNode("BETA");
+    store.focusEdge("ALPHA-BETA");
+
+    expect(store.getState().selectedNode?.id).toBe("ALPHA");
+    expect(store.getState().focusedNode?.id).toBe("BETA");
+    expect(store.getState().focusedEdge?.id).toBe("ALPHA-BETA");
+
+    store.resetSelection();
+
+    expect(store.getState().selectedNode).toBeNull();
+    expect(store.getState().focusedNode).toBeNull();
+    expect(store.getState().focusedEdge).toBeNull();
+  });
+
+  test("blank edge ids are selectable through the graphology dynamic edge key", () => {
+    const blankEdgeGraph: GraphViewDto = {
+      ...graph,
+      edges: [{ ...graph.edges[0]!, id: "" }]
+    };
+    const store = createGraphStoreState({ rawGraph: blankEdgeGraph });
+
+    store.selectEdge("ALPHA->BETA:0");
+
+    expect(store.getState().selectedEdge?.source).toBe("ALPHA");
+    expect(store.getState().selectedEdgeKey).toBe("ALPHA->BETA:0");
   });
 
   test("selecting a node after an edge clears edge selection", () => {

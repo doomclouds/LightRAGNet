@@ -61,6 +61,8 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const settings = useGraphSettingsStore();
   const selectedNode = useGraphStore((state) => state.selectedNode);
   const selectedEdge = useGraphStore((state) => state.selectedEdge);
+  const focusedNode = useGraphStore((state) => state.focusedNode);
+  const focusedEdge = useGraphStore((state) => state.focusedEdge);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -69,13 +71,20 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const [mergeState, setMergeState] = useState<{ sourceEntity: string; targetEntity: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const target: PropertyEditTarget | null = selectedNode ? "node" : selectedEdge ? "edge" : null;
-  const title = selectedNode ? getNodeTitle(selectedNode) : selectedEdge ? getEdgeTitle(selectedEdge) : "No selection";
-  const properties = selectedNode?.properties ?? selectedEdge?.properties ?? {};
+  const currentNode = selectedNode ?? focusedNode;
+  const currentEdge = selectedEdge ?? focusedEdge;
+  const hasPinnedSelection = selectedNode !== null || selectedEdge !== null;
+  const target: PropertyEditTarget | null = currentNode ? "node" : currentEdge ? "edge" : null;
+  const title = currentNode ? getNodeTitle(currentNode) : currentEdge ? getEdgeTitle(currentEdge) : "No selection";
+  const properties = currentNode?.properties ?? currentEdge?.properties ?? {};
   const initialValues = useMemo<PropertyEditValues>(
-    () => propertyValuesFromProperties(target ?? "node", properties, selectedNode?.id ?? ""),
-    [properties, selectedNode?.id, target]
+    () => propertyValuesFromProperties(target ?? "node", properties, currentNode?.id ?? ""),
+    [properties, currentNode?.id, target]
   );
+
+  if (!target) {
+    return null;
+  }
 
   async function reloadGraph(labelOverride?: string) {
     setIsReloading(true);
@@ -199,27 +208,26 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
         <h2>{title}</h2>
       </div>
 
-      {target ? (
-        <>
-          <div className="graph-workbench__selection-meta">
-            <span>{target === "node" ? "Node" : "Edge"}</span>
-            {target === "node" && selectedNode?.type ? <span>{selectedNode.type}</span> : null}
-            {target === "edge" && selectedEdge?.type ? <span>{selectedEdge.type}</span> : null}
-          </div>
+      <div className="graph-workbench__selection-meta">
+        <span>{hasPinnedSelection ? "Selected" : "Focused"}</span>
+        <span>{target === "node" ? "Node" : "Edge"}</span>
+        {target === "node" && currentNode?.type ? <span>{currentNode.type}</span> : null}
+        {target === "edge" && currentEdge?.type ? <span>{currentEdge.type}</span> : null}
+      </div>
 
-          {renderProperties(properties)}
+      {renderProperties(properties)}
 
-          <div className="graph-workbench__panel-actions">
-            <button className="graph-workbench__primary-button" type="button" onClick={() => setIsDialogOpen(true)}>
-              Edit properties
-            </button>
-            <button className="graph-workbench__danger-button" type="button" onClick={() => setConfirmTarget(target)}>
-              {target === "node" ? "Delete entity" : "Delete relation"}
-            </button>
-          </div>
-        </>
+      {hasPinnedSelection ? (
+        <div className="graph-workbench__panel-actions">
+          <button className="graph-workbench__primary-button" type="button" onClick={() => setIsDialogOpen(true)}>
+            Edit properties
+          </button>
+          <button className="graph-workbench__danger-button" type="button" onClick={() => setConfirmTarget(target)}>
+            {target === "node" ? "Delete entity" : "Delete relation"}
+          </button>
+        </div>
       ) : (
-        <p className="graph-workbench__muted">Click a node or edge in the graph to inspect and edit its properties.</p>
+        <p className="graph-workbench__muted graph-workbench__hover-hint">Click to pin this item for editing.</p>
       )}
 
       {errorMessage ? <p className="graph-workbench__dialog-error graph-workbench__panel-error">{errorMessage}</p> : null}

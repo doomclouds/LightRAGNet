@@ -36,7 +36,7 @@ describe("createGraphologyGraph", () => {
     expect(new Set(radii).size).toBeGreaterThan(1);
   });
 
-  test("keeps domain types away from Sigma renderer type attributes", () => {
+  test("keeps domain types separate from Sigma renderer type attributes", () => {
     const graph: GraphViewDto = {
       nodes: [
         {
@@ -66,7 +66,7 @@ describe("createGraphologyGraph", () => {
 
     expect(sigmaGraph.getNodeAttribute("CONCEPT", "type")).toBeUndefined();
     expect(sigmaGraph.getNodeAttribute("CONCEPT", "domainType")).toBe("concept");
-    expect(sigmaGraph.getEdgeAttribute("self", "type")).toBeUndefined();
+    expect(sigmaGraph.getEdgeAttribute("self", "type")).toBe("curvedNoArrow");
     expect(sigmaGraph.getEdgeAttribute("self", "domainType")).toBe("related");
   });
 

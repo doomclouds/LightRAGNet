@@ -47,7 +47,7 @@ function getInitialPosition(nodeId: string, count: number) {
   };
 }
 
-function getEdgeKey(edge: GraphEdgeDto, index: number): string {
+export function getGraphEdgeKey(edge: GraphEdgeDto, index: number): string {
   return edge.id.trim().length > 0 ? edge.id : `${edge.source}->${edge.target}:${index}`;
 }
 
@@ -74,13 +74,15 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
       label: getNodeLabel(node),
       size: isSelected ? Math.max(node.size + 4, 13) : Math.max(node.size, 8),
       color: isSelected ? "#0f766e" : node.color,
+      borderColor: isSelected ? "#0f172a" : "#ffffff",
+      labelColor: "#172026",
       domainType: node.type ?? undefined,
       properties: node.properties
     });
   });
 
   graph.edges.forEach((edge, index) => {
-    const edgeKey = getEdgeKey(edge, index);
+    const edgeKey = getGraphEdgeKey(edge, index);
 
     if (!sigmaGraph.hasNode(edge.source) || !sigmaGraph.hasNode(edge.target) || sigmaGraph.hasEdge(edgeKey)) {
       return;
@@ -91,6 +93,9 @@ export function createGraphologyGraph(graph: GraphViewDto | null, selectedNodeId
       label: getEdgeLabel(edge),
       size: isSelected ? Math.max(edge.size + 2, 4) : Math.max(edge.size, 1.75),
       color: isSelected ? "#dc2626" : getEdgeColor(edge),
+      type: "curvedNoArrow",
+      originalWeight: typeof edge.properties?.weight === "number" ? edge.properties.weight : edge.size,
+      labelColor: "#172026",
       domainType: edge.type ?? undefined,
       properties: edge.properties ?? {}
     });
