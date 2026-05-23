@@ -15,14 +15,14 @@ public sealed class MarkdownUploadMarkupTests
     }
 
     [Fact]
-    public void MarkdownUpload_AcceptsOnlyPdfAndDocx()
+    public void MarkdownUpload_AcceptsMarkdownPdfAndDocx()
     {
         var markup = File.ReadAllText(FindRepositoryFile("src/LightRAGNet.Web/Components/Pages/MarkdownUpload.razor"));
 
-        markup.Should().Contain("Accept=\".pdf,.docx\"");
+        markup.Should().Contain("Accept=\".md,.markdown,.pdf,.docx\"");
+        markup.Should().Contain("Markdown");
         markup.Should().Contain("PDF");
         markup.Should().Contain("DOCX");
-        markup.Should().NotContain("Accept=\".md,.markdown\"");
     }
 
     [Fact]

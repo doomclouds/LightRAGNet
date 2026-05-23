@@ -1063,7 +1063,7 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Fact]
-    public async Task UploadDocumentsBatch_WhenPdfAndDocx_SavesOriginalsButDoesNotQueueRag()
+    public async Task UploadDocumentsBatch_WhenMarkdownPdfAndDocx_SavesDocumentsButDoesNotQueueRag()
     {
         var queue = new RecordingRagTaskQueueService();
         using var factory = new LightRagServerFactory(services =>
@@ -1073,6 +1073,7 @@ public sealed class DocumentIntakePipelineApiTests
         });
         using var client = factory.CreateClient();
         using var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent("# Notes"u8.ToArray()), "files", "notes.md");
         content.Add(new ByteArrayContent("pdf bytes"u8.ToArray()), "files", "合同.pdf");
         content.Add(new ByteArrayContent("docx bytes"u8.ToArray()), "files", "说明书.docx");
 
@@ -1082,21 +1083,36 @@ public sealed class DocumentIntakePipelineApiTests
         var body = await response.Content.ReadFromJsonAsync<DocumentSubmissionResponse>();
         body.Should().NotBeNull();
         body!.TrackId.Should().NotBeNullOrWhiteSpace();
-        body.Documents.Should().HaveCount(2);
-        body.Documents.Select(d => d.FileName).Should().BeEquivalentTo(["合同.pdf", "说明书.docx"]);
+        body.Documents.Should().HaveCount(3);
+        body.Documents.Select(d => d.FileName).Should().BeEquivalentTo(["notes.md", "合同.pdf", "说明书.docx"]);
         body.Documents.Select(d => d.RagStatus).Should().OnlyContain(status => status == null);
         body.Documents.Select(d => d.RagCurrentStage).Should().OnlyContain(stage => stage == null);
-        body.Documents.Select(d => d.ConversionStatus).Should().OnlyContain(status => status == DocumentConversionStatus.NotStarted);
+        body.Documents.Should().ContainSingle(d =>
+            d.FileName == "notes.md" &&
+            d.ConversionStatus == DocumentConversionStatus.NotRequired);
+        body.Documents.Where(d => d.FileName != "notes.md")
+            .Select(d => d.ConversionStatus)
+            .Should()
+            .OnlyContain(status => status == DocumentConversionStatus.NotStarted);
         body.Documents.Select(d => d.IsInRagSystem).Should().OnlyContain(value => value == false);
         queue.EnqueueCalls.Should().BeEmpty();
 
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var documents = context.MarkdownDocuments.OrderBy(d => d.FileName).ToList();
-        documents.Should().HaveCount(2);
-        documents[0].OriginalFilePath.Should().EndWith(Path.Combine("documents", documents[0].Id.ToString(), "original.pdf"));
-        documents[1].OriginalFilePath.Should().EndWith(Path.Combine("documents", documents[1].Id.ToString(), "original.docx"));
-        documents.Select(d => d.OriginalContentHash).Should().OnlyContain(hash => !string.IsNullOrWhiteSpace(hash));
+        documents.Should().HaveCount(3);
+        documents.Should().ContainSingle(d =>
+            d.FileName == "notes.md" &&
+            d.Content == "# Notes" &&
+            d.ConversionStatus == DocumentConversionStatus.NotRequired &&
+            d.OriginalFilePath == null);
+        documents.Should().ContainSingle(d =>
+            d.FileName == "合同.pdf" &&
+            d.OriginalFilePath!.EndsWith(Path.Combine("documents", d.Id.ToString(), "original.pdf")));
+        documents.Should().ContainSingle(d =>
+            d.FileName == "说明书.docx" &&
+            d.OriginalFilePath!.EndsWith(Path.Combine("documents", d.Id.ToString(), "original.docx")));
+        documents.Select(d => d.FileHash).Should().OnlyContain(hash => !string.IsNullOrWhiteSpace(hash));
     }
 
     [Fact]
@@ -1204,7 +1220,6 @@ public sealed class DocumentIntakePipelineApiTests
     }
 
     [Theory]
-    [InlineData("notes.md")]
     [InlineData("notes.txt")]
     [InlineData("slides.pptx")]
     [InlineData("legacy.doc")]
@@ -1220,7 +1235,7 @@ public sealed class DocumentIntakePipelineApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("Only .pdf and .docx files are supported.");
+        body.Should().Contain("Only Markdown, PDF, or DOCX files are supported.");
     }
 
     [Fact]

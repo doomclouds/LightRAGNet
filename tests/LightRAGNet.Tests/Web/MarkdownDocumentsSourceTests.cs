@@ -86,6 +86,7 @@ public sealed class MarkdownDocumentsSourceTests
 
         source.Should().Contain("GetUploadContentType(file.Name)");
         source.Should().Contain("Path.GetExtension(fileName)");
+        source.Should().Contain("\".md\" or \".markdown\" => \"text/markdown\"");
         source.Should().Contain("\".pdf\" => \"application/pdf\"");
         source.Should().Contain("\".docx\" => \"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"");
         source.Should().Contain("_ => null");

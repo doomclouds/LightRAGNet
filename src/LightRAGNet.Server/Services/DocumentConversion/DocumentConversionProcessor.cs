@@ -282,9 +282,9 @@ public sealed class DocumentConversionProcessor(
         var affectedRows = await dbContext.MarkdownDocuments
             .Where(candidate =>
                 candidate.Id == document.Id &&
-                candidate.RagStatus == DocumentIntakeStatus.Processing &&
                 candidate.ConversionStatus == DocumentConversionStatus.Completed &&
-                candidate.ActiveRagTaskId == null)
+                candidate.RagStatus != DocumentIntakeStatus.Cancelled &&
+                (candidate.ActiveRagTaskId == null || candidate.ActiveRagTaskId == taskId))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(candidate => candidate.RagStatus, DocumentIntakeStatus.Queued)
                 .SetProperty(candidate => candidate.RagCurrentStage, "Indexing")

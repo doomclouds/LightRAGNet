@@ -120,7 +120,7 @@ public class ApiClient(HttpClient httpClient)
                 return new UploadResult
                 {
                     Success = false,
-                    ErrorMessage = $"Unsupported file type: {file.Name}. Only PDF or DOCX files are supported."
+                    ErrorMessage = $"Unsupported file type: {file.Name}. Only Markdown, PDF, or DOCX files are supported."
                 };
             }
 
@@ -158,6 +158,7 @@ public class ApiClient(HttpClient httpClient)
     {
         return Path.GetExtension(fileName).ToLowerInvariant() switch
         {
+            ".md" or ".markdown" => "text/markdown",
             ".pdf" => "application/pdf",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             _ => null

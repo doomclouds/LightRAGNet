@@ -134,10 +134,11 @@ public sealed class DocumentIntakeService(
             .Select((file, index) =>
             {
                 var safeFileName = safeFileNames[index];
+                var isMarkdown = IsMarkdownUpload(safeFileName);
                 return new MarkdownDocument
                 {
                     FileName = safeFileName,
-                    OriginalFileName = safeFileName,
+                    OriginalFileName = isMarkdown ? null : safeFileName,
                     OriginalContentType = GuessContentType(safeFileName),
                     Content = string.Empty,
                     FileSize = file.Length,
@@ -147,7 +148,9 @@ public sealed class DocumentIntakeService(
                     RagStatus = null,
                     RagCurrentStage = null,
                     ActiveRagTaskId = null,
-                    ConversionStatus = DocumentConversionStatus.NotStarted,
+                    ConversionStatus = isMarkdown
+                        ? DocumentConversionStatus.NotRequired
+                        : DocumentConversionStatus.NotStarted,
                     IsInRagSystem = false,
                     RagProgress = 0
                 };
@@ -163,17 +166,29 @@ public sealed class DocumentIntakeService(
             for (var i = 0; i < documents.Count; i++)
             {
                 var document = documents[i];
-                await using var stream = files[i].OpenReadStream();
-                var savedArtifact = await artifactStore.SaveOriginalAsync(
-                    document.Id,
-                    stream,
-                    safeFileNames[i],
-                    cancellationToken);
+                if (IsMarkdownUpload(safeFileNames[i]))
+                {
+                    var bytes = await ReadAllBytesAsync(files[i], cancellationToken);
+                    var encodingResult = bytes.DetectEncodingAndDecode();
+                    document.Content = encodingResult.Content;
+                    document.FileHash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+                    document.FileSize = bytes.LongLength;
+                    continue;
+                }
 
-                document.OriginalFilePath = savedArtifact.RelativePath;
-                document.OriginalContentHash = savedArtifact.Hash;
-                document.FileHash = savedArtifact.Hash;
-                document.FileSize = savedArtifact.Size;
+                await using (var stream = files[i].OpenReadStream())
+                {
+                    var savedArtifact = await artifactStore.SaveOriginalAsync(
+                        document.Id,
+                        stream,
+                        safeFileNames[i],
+                        cancellationToken);
+
+                    document.OriginalFilePath = savedArtifact.RelativePath;
+                    document.OriginalContentHash = savedArtifact.Hash;
+                    document.FileHash = savedArtifact.Hash;
+                    document.FileSize = savedArtifact.Size;
+                }
             }
 
             await context.SaveChangesAsync(cancellationToken);
@@ -424,7 +439,7 @@ public sealed class DocumentIntakeService(
 
         if (!IsSupportedUploadExtension(Path.GetExtension(safeFileName)))
         {
-            throw new ArgumentException("Only .pdf and .docx files are supported.", "files");
+            throw new ArgumentException("Only Markdown, PDF, or DOCX files are supported.", "files");
         }
     }
 
@@ -504,7 +519,12 @@ public sealed class DocumentIntakeService(
 
     private static bool IsSupportedUploadExtension(string? extension)
     {
-        return extension?.ToLowerInvariant() is ".pdf" or ".docx";
+        return extension?.ToLowerInvariant() is ".md" or ".markdown" or ".pdf" or ".docx";
+    }
+
+    private static bool IsMarkdownUpload(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() is ".md" or ".markdown";
     }
 
     private bool RequiresReconversion(MarkdownDocument document)
@@ -525,8 +545,17 @@ public sealed class DocumentIntakeService(
         {
             ".pdf" => "application/pdf",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".md" or ".markdown" => "text/markdown",
             _ => "application/octet-stream"
         };
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(IFormFile file, CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, cancellationToken);
+        return memoryStream.ToArray();
     }
 
     private static void MarkQueueFailed(MarkdownDocument document, string errorMessage)

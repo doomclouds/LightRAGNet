@@ -14,7 +14,7 @@
             <MudForm @bind-IsValid="@_isValid" @bind-Errors="@_errors">
                 <MudStack Spacing="3">
                     <MudFileUpload T="IReadOnlyList<IBrowserFile>" 
-                                   Accept=".pdf,.docx"
+                                   Accept=".md,.markdown,.pdf,.docx"
                                    MaximumFileCount="10"
                                    OnFilesChanged="@OnFilesChanged"
                                    Disabled="@_uploading">
@@ -78,7 +78,7 @@
         <MudText Typo="Typo.body2">
             <strong>Tips:</strong>
             <ul style="margin: 0; padding-left: 20px;">
-                <li>Only PDF or DOCX files are supported</li>
+                <li>Markdown, PDF, and DOCX files are supported</li>
                 <li>Maximum 10MB per file</li>
                 <li>Maximum 10 files can be uploaded at once</li>
                 <li>After upload, click "Add to RAG" on the document list page; Add to RAG starts processing conversion and indexing</li>
@@ -125,7 +125,7 @@
             {
                 // Validate file extension
                 var extension = Path.GetExtension(file.Name).ToLowerInvariant();
-                if (extension != ".pdf" && extension != ".docx")
+                if (!IsSupportedUploadExtension(extension))
                 {
                     invalidFiles.Add($"{file.Name} (unsupported file type)");
                     continue;
@@ -187,7 +187,7 @@
         foreach (var file in _selectedFiles)
         {
             var extension = Path.GetExtension(file.Name).ToLowerInvariant();
-            if (extension != ".pdf" && extension != ".docx")
+            if (!IsSupportedUploadExtension(extension))
             {
                 invalidFiles.Add(file);
                 continue;
@@ -255,5 +255,10 @@
     {
         _selectedFiles.Clear();
         Navigation.NavigateTo("/markdown-documents");
+    }
+
+    private static bool IsSupportedUploadExtension(string extension)
+    {
+        return extension is ".md" or ".markdown" or ".pdf" or ".docx";
     }
 }
