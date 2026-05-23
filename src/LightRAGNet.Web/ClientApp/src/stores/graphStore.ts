@@ -136,7 +136,9 @@ export function createGraphStoreState(initialState: Partial<GraphStoreSnapshot> 
         ...state,
         selectedNode: selectedEdge.edge ? null : state.selectedNode,
         selectedEdge: selectedEdge.edge,
-        selectedEdgeKey: selectedEdge.key
+        selectedEdgeKey: selectedEdge.key,
+        focusedNode: selectedEdge.edge ? null : state.focusedNode,
+        moveToSelectedNode: selectedEdge.edge ? false : state.moveToSelectedNode
       });
     },
     focusNode: (nodeId) => {

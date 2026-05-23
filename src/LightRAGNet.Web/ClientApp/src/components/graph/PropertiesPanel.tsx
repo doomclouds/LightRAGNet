@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { deleteEntity, deleteRelation, editEntity, editRelation, queryGraph } from "../../api/graphApi";
+import { deleteEntity, editEntity, queryGraph } from "../../api/graphApi";
 import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 import { useGraphStore } from "../../stores/graphStore";
 import type { GraphEdgeDto, GraphNodeDto, GraphNodeProperties, JsonValue } from "../../types/graph";
@@ -34,10 +34,6 @@ function getNodeTitle(node: GraphNodeDto): string {
   return formatValue(node.properties.entity_id) || formatValue(node.properties.entity_name) || node.label || node.id;
 }
 
-function getEdgeTitle(edge: GraphEdgeDto): string {
-  return `${edge.source} -> ${edge.target}`;
-}
-
 function renderProperties(properties: GraphNodeProperties) {
   const entries = Object.entries(properties);
 
@@ -57,6 +53,32 @@ function renderProperties(properties: GraphNodeProperties) {
   );
 }
 
+export function resolvePropertiesPanelSelection(
+  selectedNode: GraphNodeDto | null,
+  selectedEdge: GraphEdgeDto | null,
+  focusedNode: GraphNodeDto | null,
+  focusedEdge: GraphEdgeDto | null
+): {
+  currentNode: GraphNodeDto | null;
+  currentEdge: GraphEdgeDto | null;
+  hasPinnedSelection: boolean;
+  target: PropertyEditTarget | null;
+} {
+  void focusedEdge;
+
+  const currentNode = selectedNode ?? (selectedEdge ? null : focusedNode);
+  const currentEdge = null;
+  const hasPinnedSelection = selectedNode !== null;
+  const target: PropertyEditTarget | null = currentNode ? "node" : null;
+
+  return {
+    currentNode,
+    currentEdge,
+    hasPinnedSelection,
+    target
+  };
+}
+
 export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const settings = useGraphSettingsStore();
   const selectedNode = useGraphStore((state) => state.selectedNode);
@@ -68,16 +90,18 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
-  const [confirmTarget, setConfirmTarget] = useState<PropertyEditTarget | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [mergeState, setMergeState] = useState<{ sourceEntity: string; targetEntity: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const currentNode = selectedNode ?? focusedNode;
-  const currentEdge = selectedEdge ?? focusedEdge;
-  const hasPinnedSelection = selectedNode !== null || selectedEdge !== null;
-  const target: PropertyEditTarget | null = currentNode ? "node" : currentEdge ? "edge" : null;
-  const title = currentNode ? getNodeTitle(currentNode) : currentEdge ? getEdgeTitle(currentEdge) : "No selection";
-  const properties = currentNode?.properties ?? currentEdge?.properties ?? {};
+  const { currentNode, hasPinnedSelection, target } = resolvePropertiesPanelSelection(
+    selectedNode,
+    selectedEdge,
+    focusedNode,
+    focusedEdge
+  );
+  const title = currentNode ? getNodeTitle(currentNode) : "No selection";
+  const properties = currentNode?.properties ?? {};
   const relationships = useMemo(() => {
     if (!rawGraph || !currentNode) {
       return [];
@@ -140,9 +164,9 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
     setErrorMessage(null);
 
     try {
-      const updatedData = propertyValuesToUpdatedData(target, values);
+      const updatedData = propertyValuesToUpdatedData("node", values);
 
-      if (target === "node" && selectedNode) {
+      if (selectedNode) {
         const originalEntityName = selectedNode.id;
         const updatedEntityName = formatValue(updatedData.entity_name);
         const response = await editEntity(apiBase, originalEntityName, updatedData, true, true);
@@ -174,17 +198,6 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
         useGraphStore.updateNodeProperty(currentEntityName, "description", updatedData.description);
       }
 
-      if (target === "edge" && selectedEdge) {
-        const response = await editRelation(apiBase, selectedEdge.source, selectedEdge.target, updatedData);
-        if (!response.succeeded) {
-          throw new Error(response.message || "Failed to edit relation.");
-        }
-
-        useGraphStore.updateEdgeProperty(selectedEdge.id, "description", updatedData.description);
-        useGraphStore.updateEdgeProperty(selectedEdge.id, "keywords", updatedData.keywords);
-        useGraphStore.updateEdgeProperty(selectedEdge.id, "weight", updatedData.weight);
-      }
-
       setIsDialogOpen(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save properties.");
@@ -194,7 +207,7 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
   }
 
   async function confirmDelete() {
-    if (isDeleting || !confirmTarget) {
+    if (isDeleting || !confirmDeleteOpen) {
       return;
     }
 
@@ -202,18 +215,13 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
     setErrorMessage(null);
 
     try {
-      if (confirmTarget === "node" && selectedNode) {
+      if (selectedNode) {
         await deleteEntity(apiBase, selectedNode.id);
         useGraphStore.removeNode(selectedNode.id);
       }
 
-      if (confirmTarget === "edge" && selectedEdge) {
-        await deleteRelation(apiBase, selectedEdge.source, selectedEdge.target);
-        useGraphStore.removeEdge(selectedEdge.id);
-      }
-
       useGraphStore.resetSelection();
-      setConfirmTarget(null);
+      setConfirmDeleteOpen(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to delete selection.");
     } finally {
@@ -230,9 +238,8 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
 
       <div className="graph-workbench__selection-meta">
         <span>{hasPinnedSelection ? "Selected" : "Focused"}</span>
-        <span>{target === "node" ? "Node" : "Edge"}</span>
-        {target === "node" && currentNode?.type ? <span>{currentNode.type}</span> : null}
-        {target === "edge" && currentEdge?.type ? <span>{currentEdge.type}</span> : null}
+        <span>Node</span>
+        {currentNode?.type ? <span>{currentNode.type}</span> : null}
       </div>
 
       {renderProperties(properties)}
@@ -260,8 +267,8 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
           <button className="graph-workbench__primary-button" type="button" onClick={() => setIsDialogOpen(true)}>
             Edit properties
           </button>
-          <button className="graph-workbench__danger-button" type="button" onClick={() => setConfirmTarget(target)}>
-            {target === "node" ? "Delete entity" : "Delete relation"}
+          <button className="graph-workbench__danger-button" type="button" onClick={() => setConfirmDeleteOpen(true)}>
+            Delete entity
           </button>
         </div>
       ) : (
@@ -272,7 +279,7 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
 
       <PropertyEditDialog
         open={isDialogOpen}
-        target={target ?? "node"}
+        target="node"
         initialValues={initialValues}
         errorMessage={errorMessage}
         isSaving={isSaving}
@@ -285,20 +292,18 @@ export function PropertiesPanel({ apiBase }: PropertiesPanelProps) {
         onSave={(values) => void saveProperties(values)}
       />
       <ConfirmDialog
-        open={confirmTarget !== null}
-        title={confirmTarget === "node" ? "Delete entity" : "Delete relation"}
+        open={confirmDeleteOpen}
+        title="Delete entity"
         message={
-          confirmTarget === "node" && selectedNode
+          selectedNode
             ? `Delete entity ${getNodeTitle(selectedNode)} from the graph? This action cannot be undone.`
-            : selectedEdge
-              ? `Delete relation ${getEdgeTitle(selectedEdge)} from the graph? This action cannot be undone.`
-              : "Delete this graph item? This action cannot be undone."
+            : "Delete this graph item? This action cannot be undone."
         }
-        confirmText={confirmTarget === "node" ? "Delete entity" : "Delete relation"}
+        confirmText="Delete entity"
         isConfirming={isDeleting}
         onCancel={() => {
           if (!isDeleting) {
-            setConfirmTarget(null);
+            setConfirmDeleteOpen(false);
           }
         }}
         onConfirm={() => void confirmDelete()}

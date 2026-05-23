@@ -21,6 +21,7 @@
 - 增加服务端图谱配置：`GraphView:MaxNodesLimit` 默认 `2000`，`/api/graph/config` 暴露给前端，GraphController 和 legacy GraphViewController 都按配置校验 `maxNodes`。
 - 修复 `/api/graph/labels` 的 Neo4j Cypher 查询，避免图谱页加载 label 控件时返回 500。
 - 修复 React Sigma settings 不稳定导致的白屏：renderer program class 和 class map 改为模块级稳定常量，GraphReducers 不再重复注册 node program。
+- 修复 edge 点击误打开属性面板的问题：属性面板只响应 node selection/focus，edge 只保留画布高亮，不再 pin 出编辑界面。
 - 更新 React workbench 构建产物到 `wwwroot/graph-workbench`。
 
 ## Out of Scope
@@ -41,6 +42,7 @@
 - Neo4j labels source regression passed: `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --no-restore --filter "FullyQualifiedName~Neo4jGraphStoreSourceTests" --verbosity minimal` (`1/1`).
 - Runtime API smoke passed after `scripts/dev-start.ps1`: `/api/graph/config` returned `maxNodesLimit = 2000`; `/api/graph/query?...maxNodes=2000` was accepted; `/api/graph/query?...maxNodes=2001` returned validation error `maxNodes must be between 1 and 2000.`; `/api/graph/labels` returned labels instead of 500.
 - Fresh Playwright verification passed: `/graph-view` showed a visible force-directed graph with nodes/edges, SignalR connected, and no Sigma/WebGL console error.
+- `2026-05-23` edge-click regression passed: added coverage proving edge selection/focus does not open the properties panel and `GraphCanvas` no longer wires `clickEdge` to `selectEdge`; `npm test` (`37/37`), `npm run typecheck`, `npm run build`, and `dotnet test .\tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj --no-restore` (`31/31`) passed.
 - Asset validation passed for this archive and the related problem assets; Superpowers indexes passed.
 
 ## Source Documents
@@ -79,4 +81,5 @@
 
 - React island 仍保持可迁移边界，后续可以把 Blazor host 替换为 React route，而不需要重写图谱核心组件。
 - `@react-sigma/core` 会在 `settings` 深比较变化时重建 Sigma 实例；renderer class、program class map、`createEdgeCurveProgram()` 这类对象必须保持稳定。
+- 属性面板解析时只允许 node 进入编辑面板；edge hover/click 可以参与画布高亮，但不能进入 properties/edit/delete UI。
 - Max nodes 的默认上限是 `2000`，后续若真实图谱需要更大规模，应先调 `GraphView:MaxNodesLimit` 并观察 Neo4j 查询、Sigma 渲染和布局耗时。

@@ -133,6 +133,17 @@ describe("graphStore", () => {
     expect(store.getState().selectedEdge).toBeNull();
   });
 
+  test("selecting an edge clears stale focused node state", () => {
+    const store = createGraphStoreState({ rawGraph: graph });
+
+    store.focusNode("ALPHA");
+    store.selectEdge("ALPHA-BETA");
+
+    expect(store.getState().selectedEdge?.id).toBe("ALPHA-BETA");
+    expect(store.getState().selectedNode).toBeNull();
+    expect(store.getState().focusedNode).toBeNull();
+  });
+
   test("clearing node or edge selection only clears the requested selection", () => {
     const store = createGraphStoreState({ rawGraph: graph });
 

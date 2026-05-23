@@ -87,6 +87,21 @@ public sealed class GraphWorkbenchHostSourceTests
         source.Should().Contain("setResultsOpen(false);");
     }
 
+    [Fact]
+    public void GraphCanvas_EdgeClicksDoNotPinPropertiesPanel()
+    {
+        var source = ReadRepositoryFile(
+            "src",
+            "LightRAGNet.Web",
+            "ClientApp",
+            "src",
+            "components",
+            "graph",
+            "GraphCanvas.tsx");
+
+        source.Should().NotContain("clickEdge: (event: SigmaEventWithEdge) => useGraphStore.selectEdge(event.edge)");
+    }
+
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();

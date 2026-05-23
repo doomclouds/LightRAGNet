@@ -52,7 +52,6 @@ function GraphEvents() {
       clickNode: (event: SigmaEventWithNode) => useGraphStore.selectNode(event.node),
       enterEdge: (event: SigmaEventWithEdge) => useGraphStore.focusEdge(event.edge),
       leaveEdge: () => useGraphStore.focusEdge(null),
-      clickEdge: (event: SigmaEventWithEdge) => useGraphStore.selectEdge(event.edge),
       clickStage: () => useGraphStore.resetSelection(),
       downNode: (event: SigmaEventWithNode) => {
         setDraggedNode(event.node);
