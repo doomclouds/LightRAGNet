@@ -45,3 +45,4 @@ Thumbs.db
 
 .playwright-cli/
 output/
+.superpowers/
