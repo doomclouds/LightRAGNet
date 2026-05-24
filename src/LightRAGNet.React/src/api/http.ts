@@ -38,3 +38,20 @@ export async function readJson<T>(response: Response): Promise<T> {
 
   return body;
 }
+
+export async function readErrorMessage(response: Response): Promise<string> {
+  const statusMessage = response.statusText || `HTTP ${response.status}`;
+  const text = await response.text();
+  const trimmedText = text.trim();
+
+  if (trimmedText.length === 0) {
+    return statusMessage;
+  }
+
+  try {
+    const body = JSON.parse(text) as ErrorLikeResponse;
+    return body.message ?? body.error ?? body.title ?? statusMessage;
+  } catch {
+    return trimmedText;
+  }
+}

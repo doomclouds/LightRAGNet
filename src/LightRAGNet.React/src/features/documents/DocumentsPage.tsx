@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { getApiBase } from '@/api/http';
 import {
   addToRagSystem,
   cancelDocumentPipeline,
   deleteMarkdownDocument,
-  getMarkdownDocument,
   getMarkdownDocuments,
   retryDocument
 } from '@/api/documentsApi';
+import { PageHeader } from '@/shared/components/PageHeader';
+import { PageTabs, type PageTabItem } from '@/shared/components/PageTabs';
+import { StatusPill } from '@/shared/components/StatusPill';
 import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import {
@@ -30,7 +33,7 @@ type DocumentsQuery = {
 };
 
 type LoadDocumentsFn = (apiBase: string, query: DocumentsQuery) => Promise<PagedResult<MarkdownDocumentDto>>;
-type LoadDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
+type LoadPreviewFn = (apiBase: string, id: number) => Promise<DocumentPreviewContent>;
 type AddToRagFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
 type PipelineActionFn = (apiBase: string, id: number) => Promise<DocumentPipelineActionResult>;
 type RemoveDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDeleteClientResult>;
@@ -40,7 +43,7 @@ type DataClearedSubscriptionFn = (handler: () => void) => () => void;
 type DocumentsPageProps = {
   apiBase?: string;
   loadDocuments?: LoadDocumentsFn;
-  loadDocument?: LoadDocumentFn;
+  loadPreview?: LoadPreviewFn;
   addToRag?: AddToRagFn;
   retry?: PipelineActionFn;
   cancelPipeline?: PipelineActionFn;
@@ -51,11 +54,20 @@ type DocumentsPageProps = {
 
 const pageSize = 10;
 const statusOptions = ['Queued', 'Processing', 'Completed', 'Failed', 'Cancelled'];
+const statusTabs: PageTabItem[] = [
+  { id: 'all', label: 'All Documents', href: '/documents' },
+  ...statusOptions.map((option) => ({
+    id: option.toLowerCase(),
+    label: option,
+    href: `/documents?status=${encodeURIComponent(option)}`
+  }))
+];
+const statusOptionSet = new Set(statusOptions);
 
 export function DocumentsPage({
   apiBase = getApiBase(),
   loadDocuments = getMarkdownDocuments,
-  loadDocument = getMarkdownDocument,
+  loadPreview = getDocumentPreviewContent,
   addToRag = addToRagSystem,
   retry = retryDocument,
   cancelPipeline = cancelDocumentPipeline,
@@ -67,7 +79,7 @@ export function DocumentsPage({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>(() => getStatusFromLocation());
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MarkdownDocumentDto | null>(null);
@@ -77,6 +89,7 @@ export function DocumentsPage({
   const documentsRef = useRef<MarkdownDocumentDto[]>([]);
   const pageRef = useRef(page);
   const totalCountRef = useRef(totalCount);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
   const refreshTimerRef = useRef<number | undefined>(undefined);
 
   const scheduleRefresh = useCallback(() => {
@@ -148,6 +161,19 @@ export function DocumentsPage({
   useEffect(() => {
     return () => {
       window.clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      setStatus(getStatusFromLocation());
+      setPage(1);
+    }
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
     };
   }, []);
 
@@ -245,8 +271,31 @@ export function DocumentsPage({
   }, [refreshNow, subscribeToDataCleared]);
 
   function handleStatusChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    setStatus(event.target.value);
+    applyStatusFilter(event.target.value);
+  }
+
+  function handleStatusTabClick(event: React.MouseEvent<HTMLDivElement>) {
+    const target = event.target;
+
+    if (!(target instanceof HTMLAnchorElement)) {
+      return;
+    }
+
+    const url = new URL(target.href);
+
+    if (url.pathname !== '/documents') {
+      return;
+    }
+
+    event.preventDefault();
+    applyStatusFilter(url.searchParams.get('status') ?? '');
+  }
+
+  function applyStatusFilter(nextStatus: string) {
+    const normalizedStatus = normalizeStatus(nextStatus);
+    setStatus(normalizedStatus);
     setPage(1);
+    syncStatusToUrl(normalizedStatus);
   }
 
   function updateDocument(updatedDocument: MarkdownDocumentDto) {
@@ -289,23 +338,27 @@ export function DocumentsPage({
     return Boolean(documentActionTokens[id]);
   }
 
-  async function handleView(document: MarkdownDocumentDto) {
+  function handleView(document: MarkdownDocumentDto) {
     const token = beginDocumentAction(document.id);
     if (!token) {
       return;
     }
 
+    previewTriggerRef.current = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : null;
     setErrorMessage(null);
+    setPreviewDocument(document);
+    finishDocumentAction(document.id, token);
+  }
 
-    try {
-      const loadedDocument = await loadDocument(apiBase, document.id);
-      updateDocument(loadedDocument);
-      setPreviewDocument(loadedDocument);
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, 'Failed to load document preview'));
-    } finally {
-      finishDocumentAction(document.id, token);
-    }
+  function closePreview() {
+    const trigger = previewTriggerRef.current;
+    setPreviewDocument(null);
+
+    window.setTimeout(() => {
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+    }, 0);
   }
 
   async function handleAddToRag(document: MarkdownDocumentDto) {
@@ -439,16 +492,44 @@ export function DocumentsPage({
     setPreviewDocument((current) => (current?.id === id ? applyPipelinePatch(current, result, action) : current));
   }
 
+  const activeCount = documents.filter((document) => isBusy(document)).length;
+  const failedCount = documents.filter((document) => document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed').length;
+  const completedCount = documents.filter((document) => document.ragStatus === 'Completed').length;
+
   return (
-    <section className="document-list" aria-labelledby="document-list-title">
-      <div className="document-list__header">
-        <div>
-          <h1 id="document-list-title">Documents</h1>
-          <p>Review uploaded documents and their current RAG ingestion state.</p>
-        </div>
-        <a className="document-list__upload-link" href="/documents/upload">
-          Upload
-        </a>
+    <section className="document-list" aria-label="Documents">
+      <article className="document-list__page-header">
+        <PageHeader
+          title="Documents"
+          description="Review uploaded documents and their current RAG ingestion state."
+          meta={
+            <>
+              <StatusPill tone="accent">{totalCount} total</StatusPill>
+              <StatusPill tone={activeCount > 0 ? 'warning' : 'neutral'}>{activeCount} active</StatusPill>
+              <StatusPill tone={failedCount > 0 ? 'danger' : 'success'}>{failedCount} attention</StatusPill>
+            </>
+          }
+          actions={
+            <a className="lrn-button document-list__upload-link" href="/documents/upload" aria-label="Upload">
+              Upload
+            </a>
+          }
+        />
+      </article>
+
+      <div onClickCapture={handleStatusTabClick}>
+        <PageTabs
+          tabs={statusTabs}
+          currentId={status.length > 0 ? status.toLowerCase() : 'all'}
+          label="Document status views"
+        />
+      </div>
+
+      <div className="document-list__summary" aria-label="Document lifecycle summary">
+        <SummaryCard label="Total Documents" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
+        <SummaryCard label="Completed" value={completedCount} detail="Completed on this page" />
+        <SummaryCard label="In Flight" value={activeCount} detail="Active on this page" />
+        <SummaryCard label="Needs Review" value={failedCount} detail="Failed on this page" />
       </div>
 
       <div className="document-list__toolbar">
@@ -479,7 +560,7 @@ export function DocumentsPage({
 
       {!isLoading && documents.length > 0 ? (
         <div className="document-list__table-wrap">
-          <table className="document-list__table">
+          <table className="lrn-data-table document-list__table" aria-label="Document lifecycle">
             <thead>
               <tr>
                 <th scope="col">File Name</th>
@@ -509,7 +590,12 @@ export function DocumentsPage({
       ) : null}
 
       {previewDocument ? (
-        <DocumentPreviewPanel apiBase={apiBase} document={previewDocument} onClose={() => setPreviewDocument(null)} />
+        <DocumentPreviewPanel
+          apiBase={apiBase}
+          document={previewDocument}
+          loadPreview={loadPreview}
+          onClose={closePreview}
+        />
       ) : null}
 
       <footer className="document-list__footer">
@@ -524,6 +610,16 @@ export function DocumentsPage({
         </button>
       </footer>
     </section>
+  );
+}
+
+function SummaryCard({ label, value, detail }: { label: string; value: number; detail: string }) {
+  return (
+    <article className="document-list__summary-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
   );
 }
 
@@ -600,7 +696,7 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
 
   return (
     <div className="document-list__status">
-      <span className="document-list__status-chip">{statusText}</span>
+      <StatusPill tone={getStatusTone(document.ragStatus)}>{statusText}</StatusPill>
       {document.ragStatus === 'Processing' ? (
         <div className="document-list__progress" role="progressbar" aria-label={`Progress ${progress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
           <span style={{ width: `${progress}%` }} />
@@ -618,6 +714,22 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
       ) : null}
     </div>
   );
+}
+
+function getStatusTone(status: MarkdownDocumentDto['ragStatus']): React.ComponentProps<typeof StatusPill>['tone'] {
+  if (status === 'Completed') {
+    return 'success';
+  }
+
+  if (status === 'Failed' || status === 'DeletionFailed') {
+    return 'danger';
+  }
+
+  if (status === 'Queued' || status === 'Processing' || status === 'Pending' || status === 'Deleting') {
+    return 'warning';
+  }
+
+  return 'neutral';
 }
 
 function getStatusText(document: MarkdownDocumentDto): string {
@@ -650,6 +762,24 @@ function isBusy(document: MarkdownDocumentDto): boolean {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getStatusFromLocation(): string {
+  return normalizeStatus(new URLSearchParams(window.location.search).get('status') ?? '');
+}
+
+function normalizeStatus(value: string): string {
+  const matchingStatus = statusOptions.find((option) => option.toLowerCase() === value.toLowerCase());
+  return matchingStatus && statusOptionSet.has(matchingStatus) ? matchingStatus : '';
+}
+
+function syncStatusToUrl(status: string) {
+  const nextUrl = status.length > 0 ? `/documents?status=${encodeURIComponent(status)}` : '/documents';
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+  if (currentUrl !== nextUrl) {
+    window.history.pushState({}, '', nextUrl);
+  }
 }
 
 function applyPipelinePatch(document: MarkdownDocumentDto, result: DocumentPipelineActionResult, action: 'retry' | 'cancel'): MarkdownDocumentDto {

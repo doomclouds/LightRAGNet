@@ -39,6 +39,23 @@ function Test-RunningProcess {
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function Test-StandaloneReactDevServer {
+    param([string]$Url)
+
+    try {
+        $navigationSource = Invoke-WebRequest -Uri "$Url/src/app/navigation.ts" -UseBasicParsing -TimeoutSec 3
+        $sourceText = [string]$navigationSource.Content
+
+        return $sourceText.Contains("RAG Chat") `
+            -and $sourceText.Contains("/graph-view") `
+            -and $sourceText.Contains("/system-status") `
+            -and $sourceText.Contains("/cache-management") `
+            -and $sourceText.Contains("/document-preview")
+    } catch {
+        return $false
+    }
+}
+
 function Wait-HttpReady {
     param(
         [string]$Name,
@@ -312,6 +329,10 @@ if ($wantsServer -and -not ($services | Where-Object { $_.name -eq "server" })) 
 
 if ($wantsReact -and -not ($services | Where-Object { $_.name -eq "react" })) {
     if (Test-HttpReady "$ReactUrl/documents") {
+        if (-not (Test-StandaloneReactDevServer $ReactUrl)) {
+            throw "React is already responding at $ReactUrl, but it does not match the standalone LightRAGNet.React app. Stop the existing dev server or pass a different -ReactUrl."
+        }
+
         $reactPid = Find-DevRunnerProcessId -Name "react" -RuntimeDir $runtimeDir
         if ($reactPid -gt 0) {
             Write-Step "React is already responding at $ReactUrl; reusing runner PID $reactPid."
@@ -388,9 +409,15 @@ if ($wantsServer) {
     Write-Host "  Server: $ServerUrl"
 }
 if ($wantsReact) {
-    Write-Host "  React:  $ReactUrl"
-    Write-Host "  Docs:   $ReactUrl/documents"
-    Write-Host "  Upload: $ReactUrl/documents/upload"
+    Write-Host "  React:"
+    Write-Host "    $ReactUrl/"
+    Write-Host "    $ReactUrl/rag-chat"
+    Write-Host "    $ReactUrl/documents"
+    Write-Host "    $ReactUrl/documents/upload"
+    Write-Host "    $ReactUrl/document-preview"
+    Write-Host "    $ReactUrl/graph-view"
+    Write-Host "    $ReactUrl/system-status"
+    Write-Host "    $ReactUrl/cache-management"
 }
 Write-Host "  Logs:   $logsDir"
 Write-Host ""

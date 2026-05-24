@@ -8,7 +8,7 @@ import {
   retryDocument,
   uploadDocuments
 } from '@/api/documentsApi';
-import { buildUrl, readJson } from '@/api/http';
+import { buildUrl, readErrorMessage, readJson } from '@/api/http';
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -127,5 +127,29 @@ describe('documentsApi', () => {
   it('prefers structured error fields when reading failed json responses', async () => {
     await expect(readJson(jsonResponse({ title: 'Problem details title' }, { status: 500, statusText: 'Server Error' })))
       .rejects.toThrow('Problem details title');
+  });
+
+  it.each([
+    [{ message: 'Message field' }, 'Message field'],
+    [{ error: 'Error field' }, 'Error field'],
+    [{ title: 'Title field' }, 'Title field']
+  ])('reads structured error message fields from failed responses', async (body, expected) => {
+    await expect(readErrorMessage(jsonResponse(body, { status: 500, statusText: 'Internal Server Error' })))
+      .resolves.toBe(expected);
+  });
+
+  it('returns trimmed plain text error bodies before status text', async () => {
+    const response = new Response('  server exploded  ', {
+      status: 500,
+      statusText: 'Internal Server Error'
+    });
+
+    await expect(readErrorMessage(response)).resolves.toBe('server exploded');
+  });
+
+  it('falls back to status text or status code for empty error bodies', async () => {
+    await expect(readErrorMessage(new Response(null, { status: 503, statusText: 'Service Unavailable' })))
+      .resolves.toBe('Service Unavailable');
+    await expect(readErrorMessage(new Response(null, { status: 500 }))).resolves.toBe('HTTP 500');
   });
 });

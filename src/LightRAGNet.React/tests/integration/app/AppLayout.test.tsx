@@ -80,8 +80,49 @@ describe('AppLayout', () => {
     expect(screen.getByRole('banner')).toHaveTextContent('LightRAGNet');
 
     const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
+    expect(navigation.getByRole('link', { name: 'RAG Chat' })).toHaveAttribute('href', '/');
     expect(navigation.getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/documents');
     expect(navigation.getByRole('link', { name: 'Upload' })).toHaveAttribute('href', '/documents/upload');
+    expect(navigation.getByRole('link', { name: 'Knowledge Graph' })).toHaveAttribute('href', '/graph-view');
+    expect(navigation.getByRole('link', { name: 'System Status' })).toHaveAttribute('href', '/system-status');
+    expect(navigation.getByRole('link', { name: 'Cache Management' })).toHaveAttribute('href', '/cache-management');
+    expect(navigation.getByRole('link', { name: 'Document Preview' })).toHaveAttribute('href', '/document-preview');
+  });
+
+  it('renders SignalR status changes in the shell statusbar', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(paged([])), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    render(<App />);
+
+    const statusbar = screen.getByRole('contentinfo', { name: 'Application status' });
+    expect(statusbar).toHaveTextContent('SignalR Connecting');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
+
+    await act(async () => {
+      client.capturedHandlers?.onConnectionStateChanged?.('Connected');
+    });
+
+    expect(statusbar).toHaveTextContent('SignalR Connected');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--success');
+
+    await act(async () => {
+      client.capturedHandlers?.onConnectionStateChanged?.('Reconnecting');
+    });
+
+    expect(statusbar).toHaveTextContent('SignalR Reconnecting');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
+
+    await act(async () => {
+      client.capturedHandlers?.onConnectionStateChanged?.('ServerNotStarted');
+    });
+
+    expect(statusbar).toHaveTextContent('SignalR ServerNotStarted');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--warning');
   });
 
   it('wires the production document route to task hub updates', async () => {
@@ -116,5 +157,15 @@ describe('AppLayout', () => {
 
     expect(screen.getByRole('heading', { name: 'Upload Document' })).toBeInTheDocument();
     expect(screen.getByLabelText('Choose documents')).toBeInTheDocument();
+  });
+
+  it('marks upload active without marking documents active on the upload route', () => {
+    window.history.pushState({}, '', '/documents/upload');
+
+    render(<App />);
+
+    const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
+    expect(navigation.getByRole('link', { name: 'Upload' })).toHaveAttribute('aria-current', 'page');
+    expect(navigation.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current');
   });
 });

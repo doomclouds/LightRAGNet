@@ -2,6 +2,8 @@ import { useRef, useState } from 'react';
 import { UploadCloud } from 'lucide-react';
 import { getApiBase } from '@/api/http';
 import { uploadDocuments as uploadDocumentsDefault } from '@/api/documentsApi';
+import { PageHeader } from '@/shared/components/PageHeader';
+import { StatusPill } from '@/shared/components/StatusPill';
 import type { DocumentSubmissionResponse } from './documentTypes';
 
 type UploadDocumentsFn = (apiBase: string, files: File[]) => Promise<DocumentSubmissionResponse>;
@@ -32,7 +34,20 @@ export function UploadDocumentPage({
       return;
     }
 
-    const selectedFiles = Array.from(event.target.files ?? []);
+    validateSelectedFiles(Array.from(event.target.files ?? []));
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+
+    if (isUploading) {
+      return;
+    }
+
+    validateSelectedFiles(Array.from(event.dataTransfer.files));
+  }
+
+  function validateSelectedFiles(selectedFiles: File[]) {
     const filesToValidate = selectedFiles.slice(0, maxFiles);
     const nextMessages: string[] = [];
     const nextFiles: File[] = [];
@@ -114,29 +129,81 @@ export function UploadDocumentPage({
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
   return (
-    <section className="document-upload" aria-labelledby="document-upload-title">
-      <div className="document-upload__header">
-        <div>
-          <h1 id="document-upload-title">Upload Document</h1>
-          <p>Upload markdown, PDF, and Word documents for later knowledge ingestion.</p>
-        </div>
-      </div>
+    <section className="document-upload" aria-label="Upload Document">
+      <article className="document-upload__page-header">
+        <PageHeader
+          title="Upload Document"
+          description="Stage markdown, PDF, and Word documents for later knowledge ingestion."
+          meta={
+            <>
+              <StatusPill tone="accent">10 files max</StatusPill>
+              <StatusPill tone="accent">10 MB each</StatusPill>
+              <StatusPill tone="neutral">Add to RAG later</StatusPill>
+            </>
+          }
+          actions={
+            <a className="lrn-button" href="/documents">
+              Back to Documents
+            </a>
+          }
+        />
+      </article>
 
-      <div className="document-upload__dropzone">
-        <UploadCloud size={28} aria-hidden="true" />
-        <label className="document-upload__picker">
-          <span>Choose documents</span>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={acceptedExtensions.join(',')}
-            aria-label="Choose documents"
-            disabled={isUploading}
-            onChange={handleFileChange}
-          />
-        </label>
-        <span className="document-upload__hint">.md, .markdown, .pdf, .docx up to 10 MB each</span>
+      <div className="document-upload__workbench">
+        <section className="document-upload__panel" aria-labelledby="batch-upload-title">
+          <div className="document-upload__panel-header">
+            <h2 id="batch-upload-title">Batch Upload</h2>
+            <span>Local validation runs before submit.</span>
+          </div>
+
+          <div
+            className="document-upload__dropzone"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleDrop}
+          >
+            <UploadCloud size={30} aria-hidden="true" />
+            <strong>Drop documents here</strong>
+            <label className="document-upload__picker">
+              <span>Choose documents</span>
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept={acceptedExtensions.join(',')}
+                aria-label="Choose documents"
+                disabled={isUploading}
+                onChange={handleFileChange}
+              />
+            </label>
+            <span className="document-upload__hint">.md, .markdown, .pdf, .docx</span>
+          </div>
+        </section>
+
+        <section className="document-upload__panel document-upload__selected-panel" aria-labelledby="selected-files-title">
+          <div className="document-upload__panel-header">
+            <h2 id="selected-files-title">Selected Files</h2>
+            <span>{files.length} / {maxFiles} staged</span>
+          </div>
+
+          {files.length > 0 ? (
+            <div className="document-upload__summary" aria-label="Selected files">
+              <div className="document-upload__summary-row">
+                <strong>{files.length} files selected</strong>
+                <span>Total size: {formatFileSize(totalSize)}</span>
+              </div>
+              <ul className="document-upload__file-list">
+                {files.map((file) => (
+                  <li key={`${file.name}-${file.size}`}>
+                    <span>{file.name}</span>
+                    <span>{formatFileSize(file.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="document-upload__empty">No files selected.</p>
+          )}
+        </section>
       </div>
 
       {messages.length > 0 ? (
@@ -144,23 +211,6 @@ export function UploadDocumentPage({
           {messages.map((message) => (
             <p key={message}>{message}</p>
           ))}
-        </div>
-      ) : null}
-
-      {files.length > 0 ? (
-        <div className="document-upload__summary" aria-label="Selected files">
-          <div className="document-upload__summary-row">
-            <strong>{files.length} files selected</strong>
-            <span>Total size: {formatFileSize(totalSize)}</span>
-          </div>
-          <ul className="document-upload__file-list">
-            {files.map((file) => (
-              <li key={`${file.name}-${file.size}`}>
-                <span>{file.name}</span>
-                <span>{formatFileSize(file.size)}</span>
-              </li>
-            ))}
-          </ul>
         </div>
       ) : null}
 

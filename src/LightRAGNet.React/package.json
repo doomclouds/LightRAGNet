@@ -12,11 +12,21 @@
   "type": "module",
   "dependencies": {
     "@microsoft/signalr": "^10.0.0",
+    "@react-sigma/core": "^5.0.6",
+    "@react-sigma/layout-circular": "^5.0.6",
+    "@react-sigma/layout-force": "^5.0.6",
+    "@react-sigma/layout-forceatlas2": "^5.0.6",
+    "@react-sigma/layout-noverlap": "^5.0.6",
+    "@react-sigma/layout-random": "^5.0.6",
+    "@sigma/edge-curve": "^3.1.0",
+    "@sigma/node-border": "^3.0.0",
+    "graphology": "^0.26.0",
     "lucide-react": "^1.16.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "sigma": "^3.0.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

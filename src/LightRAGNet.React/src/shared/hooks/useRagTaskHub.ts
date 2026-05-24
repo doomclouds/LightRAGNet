@@ -12,12 +12,22 @@ type UseRagTaskHubResult = {
 
 export function useRagTaskHub(apiBase: string, handlers: RagTaskHubHandlers): UseRagTaskHubResult {
   const handlersRef = useRef(handlers);
-  const [connectionState, setConnectionState] = useState<RagTaskHubConnectionState>('Disconnected');
+  const [connectionState, setConnectionState] = useState<RagTaskHubConnectionState>('Connecting');
 
   handlersRef.current = handlers;
 
   useEffect(() => {
     let isMounted = true;
+
+    const updateConnectionState = (state: RagTaskHubConnectionState) => {
+      if (isMounted) {
+        setConnectionState(state);
+        handlersRef.current.onConnectionStateChanged?.(state);
+      }
+    };
+
+    setConnectionState('Connecting');
+
     const client = createRagTaskHubClient(apiBase);
 
     void client.start({
@@ -32,12 +42,9 @@ export function useRagTaskHub(apiBase: string, handlers: RagTaskHubHandlers): Us
         }
       },
       onConnectionStateChanged(state) {
-        if (isMounted) {
-          setConnectionState(state);
-          handlersRef.current.onConnectionStateChanged?.(state);
-        }
+        updateConnectionState(state);
       }
-    });
+    }).catch(() => updateConnectionState('ServerNotStarted'));
 
     return () => {
       isMounted = false;

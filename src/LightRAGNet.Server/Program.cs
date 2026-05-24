@@ -15,8 +15,40 @@ using LightRAGNet.Server.Services.SystemHealth;
 using LightRAGNet.Server.Services.SystemHealth.Checks;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Storage;
+using System.Net;
+
+static bool IsAllowedDevelopmentCorsOrigin(string? origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+    {
+        return false;
+    }
+
+    if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+    {
+        return false;
+    }
+
+    if (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return IPAddress.TryParse(uri.Host, out var address) && IPAddress.IsLoopback(address);
+}
 
 var builder = WebApplication.CreateBuilder(args);
+var allowedCorsOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+{
+    "https://localhost:7190",
+    "http://localhost:5241",
+    "https://localhost:7291",
+    "http://localhost:5261",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+};
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -34,13 +66,9 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(
-                "https://localhost:7190",
-                "http://localhost:5241",
-                "https://localhost:7291",
-                "http://localhost:5261",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173")
+        policy.SetIsOriginAllowed(origin =>
+                allowedCorsOrigins.Contains(origin)
+                || (builder.Environment.IsDevelopment() && IsAllowedDevelopmentCorsOrigin(origin)))
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();

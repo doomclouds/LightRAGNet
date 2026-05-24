@@ -40,6 +40,16 @@ describe('UploadDocumentPage', () => {
     window.history.pushState({}, '', '/documents');
   });
 
+  it('renders the dark upload workbench visual contract', () => {
+    render(<UploadDocumentPage apiBase={apiBase} />);
+
+    expect(screen.getByRole('heading', { name: 'Upload Document' })).toBeInTheDocument();
+    expect(screen.getByText('Drop documents here')).toBeInTheDocument();
+    expect(screen.getByLabelText('Choose documents')).toBeInTheDocument();
+    expect(screen.getByText('.md, .markdown, .pdf, .docx')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeInTheDocument();
+  });
+
   it('rejects unsupported and oversized files before upload', async () => {
     const user = userEvent.setup();
     const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(0));
@@ -79,7 +89,7 @@ describe('UploadDocumentPage', () => {
     await waitFor(() => expect(uploadDocuments).toHaveBeenCalledTimes(1));
     expect(uploadDocuments).toHaveBeenCalledWith(apiBase, files);
     expect(screen.getByText(/Uploaded 2 documents successfully/i)).toBeInTheDocument();
-    expect(screen.getByText(/Add to RAG/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Add to RAG can be started later/i);
     expect(screen.queryByText('2 files selected')).not.toBeInTheDocument();
   });
 

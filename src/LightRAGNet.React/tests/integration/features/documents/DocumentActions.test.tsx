@@ -105,54 +105,51 @@ describe('Document actions', () => {
     expect(removeDocument).not.toHaveBeenCalled();
   });
 
-  it('opens a preview panel with markdown content and safe download links only', async () => {
+  it('opens a preview panel with safe preview API content and safe download links only', async () => {
     const user = userEvent.setup();
-    const loadDocument = vi.fn()
+    const loadPreview = vi.fn()
       .mockResolvedValueOnce(
-        makeDocument({
-          id: 1,
-          fileName: 'safe-relative.md',
+        {
+          contentType: 'text/markdown',
           content: '# Document Title\n\n| A | B |\n| - | - |\n| one | two |',
-          fileUrl: '/uploads/safe-relative.md'
-        })
+          fileName: 'safe-relative.md'
+        }
       )
       .mockResolvedValueOnce(
-        makeDocument({
-          id: 2,
-          fileName: 'unsafe-upload.md',
+        {
+          contentType: 'text/markdown',
           content: 'Hidden download link',
-          fileUrl: 'upload://internal/unsafe-upload.md'
-        })
+          fileName: 'unsafe-upload.md'
+        }
       )
       .mockResolvedValueOnce(
-        makeDocument({
-          id: 3,
-          fileName: 'safe-absolute.md',
+        {
+          contentType: 'text/markdown',
           content: 'Absolute download link',
-          fileUrl: 'http://test-api/uploads/safe-absolute.md'
-        })
+          fileName: 'safe-absolute.md'
+        }
       )
       .mockResolvedValueOnce(
-        makeDocument({
-          id: 4,
-          fileName: 'external-absolute.md',
+        {
+          contentType: 'text/markdown',
           content: 'External download link',
-          fileUrl: 'https://cdn.example.com/external-absolute.md'
-        })
+          fileName: 'external-absolute.md'
+        }
       );
 
     renderDocuments([
-      makeDocument({ id: 1, fileName: 'safe-relative.md' }),
-      makeDocument({ id: 2, fileName: 'unsafe-upload.md' }),
-      makeDocument({ id: 3, fileName: 'safe-absolute.md' }),
-      makeDocument({ id: 4, fileName: 'external-absolute.md' })
+      makeDocument({ id: 1, fileName: 'safe-relative.md', fileUrl: '/uploads/safe-relative.md', content: 'Stale row content' }),
+      makeDocument({ id: 2, fileName: 'unsafe-upload.md', fileUrl: 'upload://internal/unsafe-upload.md' }),
+      makeDocument({ id: 3, fileName: 'safe-absolute.md', fileUrl: 'http://test-api/uploads/safe-absolute.md' }),
+      makeDocument({ id: 4, fileName: 'external-absolute.md', fileUrl: 'https://cdn.example.com/external-absolute.md' })
     ], {
-      loadDocument
+      loadPreview
     });
 
     await user.click(await screen.findByRole('button', { name: 'View safe-relative.md' }));
 
     expect(await screen.findByRole('heading', { name: 'Document Title' })).toBeInTheDocument();
+    expect(screen.queryByText('Stale row content')).not.toBeInTheDocument();
     expect(within(screen.getByLabelText('Preview safe-relative.md')).getByRole('link', { name: 'Download safe-relative.md' })).toHaveAttribute(
       'href',
       'http://test-api/uploads/safe-relative.md'
@@ -179,7 +176,7 @@ describe('Document actions', () => {
 
     expect(await screen.findByText('External download link')).toBeInTheDocument();
     expect(within(screen.getByLabelText('Preview external-absolute.md')).queryByRole('link', { name: 'Download external-absolute.md' })).not.toBeInTheDocument();
-    expect(loadDocument).toHaveBeenCalledTimes(4);
+    expect(loadPreview).toHaveBeenCalledTimes(4);
   });
 
   it('renders safe download links in the document list only', async () => {

@@ -2,7 +2,12 @@ import { HubConnectionBuilder } from '@microsoft/signalr';
 import { buildUrl } from './http';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 
-export type RagTaskHubConnectionState = 'Connected' | 'Disconnected' | 'Reconnecting' | 'ServerNotStarted';
+export type RagTaskHubConnectionState =
+  | 'Connecting'
+  | 'Connected'
+  | 'Disconnected'
+  | 'Reconnecting'
+  | 'ServerNotStarted';
 
 export type RagTaskHubHandlers = {
   onTaskStatusUpdated?: (update: TaskStatusUpdate) => void;
@@ -57,21 +62,34 @@ export function createRagTaskHubClient(
     }
 
     connection.onreconnecting(() => {
+      lifecycleGeneration += 1;
       isStartedAndJoined = false;
       emitConnectionState('Reconnecting');
     });
     connection.onreconnected(() => {
+      const generation = lifecycleGeneration;
       void joinAllTasksGroup()
         .then(() => {
+          if (generation !== lifecycleGeneration) {
+            isStartedAndJoined = false;
+            return;
+          }
+
           isStartedAndJoined = true;
           emitConnectionState('Connected');
         })
         .catch(() => {
+          if (generation !== lifecycleGeneration) {
+            isStartedAndJoined = false;
+            return;
+          }
+
           isStartedAndJoined = false;
           emitConnectionState('Disconnected');
         });
     });
     connection.onclose(() => {
+      lifecycleGeneration += 1;
       isStartedAndJoined = false;
       emitConnectionState('Disconnected');
     });
