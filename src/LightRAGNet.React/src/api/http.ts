@@ -40,10 +40,11 @@ export async function readJson<T>(response: Response): Promise<T> {
 }
 
 export async function readErrorMessage(response: Response): Promise<string> {
-  const statusMessage = response.statusText || `Request failed with status ${response.status}`;
+  const statusMessage = response.statusText || `HTTP ${response.status}`;
   const text = await response.text();
+  const trimmedText = text.trim();
 
-  if (text.trim().length === 0) {
+  if (trimmedText.length === 0) {
     return statusMessage;
   }
 
@@ -51,6 +52,6 @@ export async function readErrorMessage(response: Response): Promise<string> {
     const body = JSON.parse(text) as ErrorLikeResponse;
     return body.message ?? body.error ?? body.title ?? statusMessage;
   } catch {
-    return statusMessage;
+    return trimmedText;
   }
 }
