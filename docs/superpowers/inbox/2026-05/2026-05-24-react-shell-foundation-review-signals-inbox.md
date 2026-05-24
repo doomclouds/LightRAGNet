@@ -15,16 +15,20 @@ Task 1 of the React full UI migration passed spec review, but code-quality revie
 
 - Dark-theme CTA styles cannot reuse light-era white-on-primary assumptions after mapping primary to bright cyan.
 - App-level SignalR subscriber fan-out should isolate per-subscriber exceptions and still log a diagnostic.
+- Visual status tabs, URL query state, select controls, and API query parameters need one canonical normalization path, otherwise deep links and visible filters can diverge.
+- Drawer/modal surfaces using `aria-modal="true"` need keyboard focus transfer, Escape close, return-focus, and Tab/Shift+Tab containment; initial focus alone is not enough.
 - Subagents working in an isolated worktree should verify path and branch before edits; file editing tools should use absolute paths when there is any risk of defaulting to the parent session cwd.
 
 ## Why It Might Matter
 
-These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, or write to the wrong checkout during subagent-driven work.
+These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, or write to the wrong checkout during subagent-driven work.
 
 ## What Is Missing
 
 - Repeated occurrence across later migrated routes.
 - Evidence that the worktree editing risk is specific to one tool path rather than a one-off subagent workflow issue.
+- Whether later migrated pages reuse the same status/filter URL pattern or need a shared helper.
+- Whether later drawers/modals need a shared focus-management utility rather than local handlers.
 - A completed requirement archive for the full React UI migration that can absorb these as implementation lessons.
 
 ## Likely Next Route
