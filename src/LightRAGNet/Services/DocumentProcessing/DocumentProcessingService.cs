@@ -16,7 +16,6 @@ public class DocumentProcessingService(
     IEmbeddingService embeddingService,
     ITokenizer tokenizer,
     LightRagLlmCacheService llmCacheService,
-    LightRagCacheKeyBuilder cacheKeyBuilder,
     IOptions<LightRAGOptions> options,
     ILogger<DocumentProcessingService> logger)
 {

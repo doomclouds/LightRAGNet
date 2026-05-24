@@ -130,7 +130,6 @@ public sealed class LightRAGKeywordPolicyIntegrationTests
             embeddingService,
             tokenizer,
             llmCacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 

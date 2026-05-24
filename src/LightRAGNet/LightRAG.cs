@@ -1010,7 +1010,12 @@ public class LightRAG(
             workspace,
             queryParam.Mode,
             query,
-            token => llmService.ExtractKeywordsAsync(query, cancellationToken: token),
+            async token =>
+            {
+                var extractedKeywords = await llmService.ExtractKeywordsAsync(query, cancellationToken: token);
+                var decision = QueryKeywordPolicy.NormalizeForKg(query, extractedKeywords, queryParam.Mode);
+                return decision.ShouldFail ? extractedKeywords : decision.Keywords;
+            },
             cancellationToken);
 
         return new QueryKeywordResult(result.Value);

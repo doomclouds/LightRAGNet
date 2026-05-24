@@ -372,7 +372,6 @@ public sealed class LightRAGQueryCacheIntegrationTests
             embeddingService,
             tokenizer,
             cacheService,
-            cacheKeyBuilder,
             optionsMonitor,
             NullLogger<DocumentProcessingService>.Instance);
 

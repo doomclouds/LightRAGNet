@@ -340,7 +340,6 @@ public sealed class RagTaskProcessorServiceTests
             embeddingService,
             tokenizer,
             llmCacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
         var loggerFactory = NullLoggerFactory.Instance;

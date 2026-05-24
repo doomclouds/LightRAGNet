@@ -115,7 +115,7 @@ public sealed class LightRAGKeywordCacheIntegrationTests
     }
 
     [Fact]
-    public async Task QueryAsync_WhenLiveKeywordsNormalizeForKg_DoesNotSaveEmptyFactoryKeywords()
+    public async Task QueryAsync_WhenLiveKeywordsNormalizeForKg_SavesFallbackKeywords()
     {
         var llmService = Substitute.For<ILLMService>();
         llmService
@@ -124,10 +124,20 @@ public sealed class LightRAGKeywordCacheIntegrationTests
         var fixture = CreateLightRag(llmService: llmService);
         var query = "short cache query";
 
-        var result = await fixture.Rag.QueryAsync(query, ContextOnlyMix());
+        var first = await fixture.Rag.QueryAsync(query, ContextOnlyMix());
+        var second = await fixture.Rag.QueryAsync(query, ContextOnlyMix());
 
-        result.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { query });
-        fixture.LlmCacheStore.UpsertCalls.Should().BeEmpty();
+        first.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { query });
+        second.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { query });
+        var cachedKeywords = await fixture.CacheService.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            query,
+            _ => throw new InvalidOperationException("Factory should not run on keyword cache hit."));
+        cachedKeywords.Hit.Should().BeTrue();
+        cachedKeywords.Value.HighLevelKeywords.Should().BeEmpty();
+        cachedKeywords.Value.LowLevelKeywords.Should().Equal(query);
+        await llmService.Received(1).ExtractKeywordsAsync(query, Arg.Any<float>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -293,7 +303,6 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             embeddingService,
             tokenizer,
             cacheService,
-            cacheKeyBuilder,
             optionsMonitor,
             NullLogger<DocumentProcessingService>.Instance);
 
