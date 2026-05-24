@@ -1,5 +1,14 @@
+import { existsSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+const input: Record<string, string> = {
+  graphWorkbench: "src/graph-workbench/main.tsx"
+};
+
+if (existsSync("src/system-status/main.tsx")) {
+  input.systemStatus = "src/system-status/main.tsx";
+}
 
 export default defineConfig({
   plugins: [react()],
@@ -10,10 +19,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       preserveEntrySignatures: "strict",
-      input: {
-        graphWorkbench: "src/graph-workbench/main.tsx",
-        systemStatus: "src/system-status/main.tsx"
-      },
+      input,
       output: {
         format: "es",
         entryFileNames: (chunkInfo) => {

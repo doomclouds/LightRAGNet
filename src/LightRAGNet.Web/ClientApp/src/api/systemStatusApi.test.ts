@@ -54,6 +54,15 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
   });
 }
 
+function textResponse(body: string, init?: ResponseInit): Response {
+  return new Response(body, {
+    headers: { "content-type": "text/html" },
+    status: init?.status ?? 500,
+    statusText: init?.statusText,
+    ...init
+  });
+}
+
 describe("systemStatusApi", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -81,5 +90,13 @@ describe("systemStatusApi", () => {
     );
 
     await expect(getSystemHealth("/api-root/")).rejects.toThrow("Server unavailable");
+  });
+
+  test("getSystemHealth throws status text for non-json error responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      textResponse("<html>Server unavailable</html>", { status: 503, statusText: "Service Unavailable" })
+    );
+
+    await expect(getSystemHealth("/api-root/")).rejects.toThrow("Service Unavailable");
   });
 });

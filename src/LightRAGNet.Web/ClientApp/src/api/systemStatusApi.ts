@@ -63,7 +63,15 @@ function buildUrl(apiBase: string, path: string): string {
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const body = text.length > 0 ? (JSON.parse(text) as T & ErrorLikeResponse) : undefined;
+  let body: (T & ErrorLikeResponse) | undefined;
+
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text) as T & ErrorLikeResponse;
+    } catch {
+      body = undefined;
+    }
+  }
 
   if (!response.ok) {
     const message = body?.message ?? body?.error ?? body?.title ?? response.statusText;
