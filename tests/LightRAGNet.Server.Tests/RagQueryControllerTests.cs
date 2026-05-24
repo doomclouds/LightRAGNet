@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet.Core.Models;
+using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Controllers;
 using LightRAGNet.Share.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -130,6 +131,51 @@ public sealed class RagQueryControllerTests
 
         result.Data.Should().BeEmpty();
         result.Metadata.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RagQueryEventJsonOptions_SerializeMetadataForReactSseContract()
+    {
+        RagQueryEvent evt = new QueryMetadataEvent
+        {
+            Mode = QueryMode.Mix,
+            Stream = true,
+            IncludeReferences = true,
+            ResponseType = "Multiple Paragraphs",
+            CachePolicy = "Streaming request",
+            References =
+            [
+                new RagQueryReferenceDto
+                {
+                    ReferenceId = "1",
+                    FilePath = "/uploads/doc.md",
+                    FileName = "doc.md",
+                    PreviewUrl = "http://localhost/document-preview/1",
+                    OpenKind = "DocumentPreview"
+                }
+            ],
+            HighLevelKeywords = ["system"],
+            LowLevelKeywords = ["queue"],
+            Diagnostics = new Dictionary<string, string>
+            {
+                ["query_mode"] = "Mix"
+            }
+        };
+
+        var json = JsonSerializer.Serialize(evt, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        root.GetProperty("type").GetString().Should().Be("metadata");
+        root.GetProperty("mode").GetString().Should().Be("Mix");
+        root.GetProperty("includeReferences").GetBoolean().Should().BeTrue();
+        root.GetProperty("highLevelKeywords")[0].GetString().Should().Be("system");
+
+        var reference = root.GetProperty("references")[0];
+        reference.GetProperty("referenceId").GetString().Should().Be("1");
+        reference.GetProperty("fileName").GetString().Should().Be("doc.md");
+        reference.GetProperty("previewUrl").GetString().Should().Be("http://localhost/document-preview/1");
+        reference.GetProperty("openKind").GetString().Should().Be("DocumentPreview");
     }
 
     private static bool IsJsonCompatibleMediaType(string? mediaType)

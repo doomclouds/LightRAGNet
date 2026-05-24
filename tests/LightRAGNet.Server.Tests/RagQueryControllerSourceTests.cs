@@ -37,12 +37,12 @@ public sealed class RagQueryControllerSourceTests
     }
 
     [Fact]
-    public void SerializeEvent_UsesHumanReadableJsonOptions()
+    public void SerializeEvent_UsesReactCompatibleJsonOptions()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Server", "Controllers", "RagQueryController.cs");
 
-        source.Should().Contain("LightRAGJsonOptions.HumanReadable");
-        source.Should().Contain("JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadable)");
+        source.Should().Contain("LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums");
+        source.Should().Contain("JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums)");
     }
 
     [Fact]

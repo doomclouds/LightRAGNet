@@ -266,7 +266,7 @@ public sealed class RagQuerySseResult : IResult, IDisposable
         {
             _jsonWriter.Reset(writer);
         }
-        JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadable);
+        JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
     }
 
     public void Dispose()
