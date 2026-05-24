@@ -77,6 +77,7 @@ public sealed class InMemoryKvStoreTests
             ["original_prompt"] = "secret prompt api_key authorization",
             ["queryparam"] = new Dictionary<string, object?>
             {
+                ["workspace"] = "workspace-a",
                 ["workspace_query_revision"] = 3,
                 ["raw_query"] = "do not expose"
             },
@@ -90,6 +91,7 @@ public sealed class InMemoryKvStoreTests
             {
                 Key = "Mix:query:abcdef0123456789",
                 CacheType = "query",
+                Workspace = "workspace-a",
                 WorkspaceQueryRevision = 3L,
                 HasChunkId = false,
                 CreatedAt = 1234L

@@ -36,9 +36,9 @@ public sealed class CacheManagementService(
             .Where(metric => IsHitOrMiss(metric.Outcome))
             .ToList();
         var currentRevision = await llmCacheService.GetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
-        var inventory = await entryInspector.InspectAsync(currentRevision, cancellationToken);
-        var summary = CreateSummary(readMetrics, inventory);
+        var inventory = await entryInspector.InspectAsync(normalizedWorkspace, currentRevision, cancellationToken);
         var families = CreateFamilies(readMetrics, inventory);
+        var summary = CreateSummary(readMetrics, inventory, families);
         var trend = CreateTrend(readMetrics, normalizedWindow);
         var insights = CreateInsights(summary, inventory);
         var clearPlan = clearPlanner.CreatePlans(inventory);
@@ -63,7 +63,7 @@ public sealed class CacheManagementService(
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedWorkspace = NormalizeWorkspace(request.Workspace);
         var currentRevision = await llmCacheService.GetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
-        var inventory = await entryInspector.InspectAsync(currentRevision, cancellationToken);
+        var inventory = await entryInspector.InspectAsync(normalizedWorkspace, currentRevision, cancellationToken);
         var plan = clearPlanner
             .CreatePlans(inventory)
             .FirstOrDefault(item => string.Equals(item.Id, request.PlanId, StringComparison.Ordinal));
@@ -103,17 +103,22 @@ public sealed class CacheManagementService(
 
     private static CacheSummaryDto CreateSummary(
         IReadOnlyList<CacheMetricEvent> readMetrics,
-        IReadOnlyList<CacheInventoryEntry> inventory)
+        IReadOnlyList<CacheInventoryEntry> inventory,
+        IReadOnlyList<CacheFamilyDto> families)
     {
         var hits = CountOutcome(readMetrics, CacheReadOutcome.Hit);
         var misses = CountOutcome(readMetrics, CacheReadOutcome.Miss);
         var attempts = hits + misses;
-        var averageMissFactoryDuration = AverageMissFactoryDuration(readMetrics);
+        var familyEstimates = families
+            .Select(family => family.EstimatedLatencySavedMs)
+            .Where(estimate => estimate is not null)
+            .Select(estimate => estimate!.Value)
+            .ToList();
 
         return new CacheSummaryDto(
             attempts > 0 ? (double)hits / attempts : null,
             hits,
-            EstimateLatencySavedMs(averageMissFactoryDuration, hits),
+            familyEstimates.Count > 0 ? familyEstimates.Sum() : null,
             inventory.Count(entry => !string.Equals(entry.State, "current", StringComparison.Ordinal)),
             attempts > 0);
     }

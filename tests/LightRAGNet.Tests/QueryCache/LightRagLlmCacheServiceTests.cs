@@ -204,7 +204,9 @@ public sealed class LightRagLlmCacheServiceTests
             "ll_keywords",
             "user_prompt",
             "enable_rerank",
+            "workspace",
             "workspace_query_revision");
+        queryParamSnapshot["workspace"].Should().Be("workspace-a");
         queryParamSnapshot["workspace_query_revision"].Should().Be(2L);
     }
 

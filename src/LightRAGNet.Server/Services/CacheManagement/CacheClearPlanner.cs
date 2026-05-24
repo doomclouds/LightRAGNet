@@ -23,7 +23,7 @@ public sealed class CacheClearPlanner
                 "Reviews query answers tied to older revisions before cleanup.",
                 false),
             new CacheClearPlanDto(
-                "unused-summary-cache",
+                "summary-cache-review",
                 "Review summary cache",
                 [LightRagCacheKeyBuilder.SummaryCacheType],
                 summaryCount,

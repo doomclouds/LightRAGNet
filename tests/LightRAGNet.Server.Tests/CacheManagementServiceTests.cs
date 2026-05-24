@@ -16,9 +16,9 @@ public sealed class CacheManagementServiceTests
         var now = DateTimeOffset.UtcNow;
         var metricsStore = new InMemoryCacheMetricsStore(
         [
-            CreateRead(now.AddMinutes(-3), CacheReadOutcome.Hit, null),
-            CreateRead(now.AddMinutes(-2), CacheReadOutcome.Miss, 120),
-            CreateRead(now.AddMinutes(-1), CacheReadOutcome.Hit, null)
+            CreateRead(now.AddMinutes(-3), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
+            CreateRead(now.AddMinutes(-2), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Miss, 120),
+            CreateRead(now.AddMinutes(-1), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null)
         ]);
         var cacheStore = new InspectableKvStore();
         cacheStore.Seed("Mix:query:abcdef0123456789", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
@@ -40,6 +40,65 @@ public sealed class CacheManagementServiceTests
         var trendPoint = overview.Trend.Should().ContainSingle().Subject;
         trendPoint.HitRate.Should().BeApproximately(2d / 3d, 0.0001d);
         trendPoint.SavedCalls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_EstimatesOverallLatencyFromFamilyEstimates()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var metricsStore = new InMemoryCacheMetricsStore(
+        [
+            CreateRead(now.AddMinutes(-5), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
+            CreateRead(now.AddMinutes(-4), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
+            CreateRead(now.AddMinutes(-3), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Miss, 100),
+            CreateRead(now.AddMinutes(-2), LightRagCacheKeyBuilder.ExtractCacheType, CacheReadOutcome.Hit, null),
+            CreateRead(now.AddMinutes(-1), LightRagCacheKeyBuilder.ExtractCacheType, CacheReadOutcome.Miss, 800)
+        ]);
+        var service = CreateService(metricsStore, new InspectableKvStore());
+
+        var overview = await service.GetOverviewAsync("_", "24h");
+
+        var queryFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "query").Subject;
+        var extractFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "extract").Subject;
+        queryFamily.EstimatedLatencySavedMs.Should().Be(200);
+        extractFamily.EstimatedLatencySavedMs.Should().Be(800);
+        overview.Summary.EstimatedLatencySavedMs.Should().Be(1000);
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_IgnoresNonHitMissReadOutcomesAndSaveMetricsForAttempts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var metricsStore = new InMemoryCacheMetricsStore(
+        [
+            CreateRead(now.AddMinutes(-6), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
+            CreateRead(now.AddMinutes(-5), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Miss, 100),
+            CreateRead(now.AddMinutes(-4), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Invalid, null),
+            CreateRead(now.AddMinutes(-3), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Disabled, null),
+            CreateRead(now.AddMinutes(-2), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Error, null),
+            CacheMetricEvent.CreateSave(
+                now.AddMinutes(-1),
+                workspace: "_",
+                cacheType: LightRagCacheKeyBuilder.QueryCacheType,
+                mode: "Mix",
+                durationMs: 9,
+                cacheKey: "Mix:query:saved",
+                revision: 0)
+        ]);
+        var service = CreateService(metricsStore, new InspectableKvStore());
+
+        var overview = await service.GetOverviewAsync("_", "24h");
+
+        overview.Summary.Measured.Should().BeTrue();
+        overview.Summary.OverallHitRate.Should().BeApproximately(0.5d, 0.0001d);
+        overview.Summary.ProviderCallsAvoided.Should().Be(1);
+        var queryFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "query").Subject;
+        queryFamily.Attempts.Should().Be(2);
+        queryFamily.Hits.Should().Be(1);
+        queryFamily.Misses.Should().Be(1);
+        var trendPoint = overview.Trend.Should().ContainSingle().Subject;
+        trendPoint.HitRate.Should().BeApproximately(0.5d, 0.0001d);
+        trendPoint.SavedCalls.Should().Be(1);
     }
 
     [Fact]
@@ -69,7 +128,8 @@ public sealed class CacheManagementServiceTests
             sample.CacheType == "summary"
             && sample.CacheKeyPrefix == "default:summary:"
             && sample.State == "current");
-        var summaryPlan = overview.ClearPlan.Should().ContainSingle(plan => plan.Id == "unused-summary-cache").Subject;
+        var summaryPlan = overview.ClearPlan.Should().ContainSingle(plan => plan.Id == "summary-cache-review").Subject;
+        overview.ClearPlan.Should().NotContain(plan => plan.Id == "unused-summary-cache");
         summaryPlan.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
         summaryPlan.EntryCount.Should().Be(1);
         summaryPlan.RequiresConfirmation.Should().BeTrue();
@@ -78,30 +138,35 @@ public sealed class CacheManagementServiceTests
     }
 
     [Fact]
-    public async Task GetOverviewAsync_UsesCurrentWorkspaceRevisionForQueryInventoryState()
+    public async Task GetOverviewAsync_UsesCurrentWorkspaceRevisionForRequestedWorkspaceQueryInventoryState()
     {
         var cacheStore = new InspectableKvStore();
-        cacheStore.Seed("metadata:query_revision:_", new Dictionary<string, object>
+        cacheStore.Seed("metadata:query_revision:workspace-a", new Dictionary<string, object>
         {
             ["revision"] = 3
         });
         cacheStore.Seed(
-            "Mix:query:old-revision",
-            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspaceQueryRevision: 2));
+            "Mix:query:workspace-a-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 2));
         cacheStore.Seed(
-            "Mix:query:current-revision",
-            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspaceQueryRevision: 3));
+            "Mix:query:workspace-a-current",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 3));
+        cacheStore.Seed(
+            "Mix:query:workspace-b-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-b", workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:query:unknown-workspace",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: null, workspaceQueryRevision: 2));
         var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
 
-        var overview = await service.GetOverviewAsync("_", "24h");
+        var overview = await service.GetOverviewAsync("workspace-a", "24h");
 
-        overview.EntrySamples.Should().Contain(sample =>
-            sample.CacheKeyPrefix == "Mix:query:old-re"
-            && sample.State == "old revision");
-        overview.EntrySamples.Should().Contain(sample =>
-            sample.CacheKeyPrefix == "Mix:query:curren"
-            && sample.State == "current");
-        overview.Summary.StaleOrRiskyEntries.Should().Be(1);
+        overview.EntrySamples.Should().ContainSingle(sample => sample.State == "old revision");
+        overview.EntrySamples.Should().ContainSingle(sample => sample.State == "current");
+        overview.EntrySamples.Should().ContainSingle(sample => sample.State == "other workspace");
+        overview.EntrySamples.Should().ContainSingle(sample => sample.State == "unknown revision");
+        var stalePlan = overview.ClearPlan.Should().ContainSingle(plan => plan.Id == "stale-query-cache").Subject;
+        stalePlan.EntryCount.Should().Be(1);
     }
 
     private static CacheManagementService CreateService(
@@ -122,30 +187,36 @@ public sealed class CacheManagementServiceTests
 
     private static CacheMetricEvent CreateRead(
         DateTimeOffset timestamp,
+        string cacheType,
         string outcome,
         long? factoryDurationMs)
     {
         return CacheMetricEvent.CreateRead(
             timestamp,
             workspace: "_",
-            cacheType: LightRagCacheKeyBuilder.QueryCacheType,
+            cacheType: cacheType,
             outcome: outcome,
             mode: "Mix",
             durationMs: 3,
             factoryDurationMs: factoryDurationMs,
-            cacheKey: "Mix:query:abcdef0123456789",
+            cacheKey: $"Mix:{cacheType}:abcdef0123456789",
             revision: 0);
     }
 
     private static Dictionary<string, object> CreateCacheEntry(
         string cacheType,
+        string? workspace = "_",
         long workspaceQueryRevision = 0)
     {
         return new LightRagCacheEntry(
             ReturnValue: "secret return value",
             CacheType: cacheType,
             OriginalPrompt: "prompt with api_key and authorization",
-            QueryParam: new Dictionary<string, object?> { ["workspace_query_revision"] = workspaceQueryRevision },
+            QueryParam: new Dictionary<string, object?>
+            {
+                ["workspace"] = workspace,
+                ["workspace_query_revision"] = workspaceQueryRevision
+            },
             CreateTime: 1234,
             ChunkId: null).ToDictionary();
     }

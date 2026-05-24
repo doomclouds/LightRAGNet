@@ -7,6 +7,7 @@ namespace LightRAGNet.Core.Interfaces;
 public sealed record InspectableKVStoreEntry(
     string Key,
     string? CacheType,
+    string? Workspace,
     long? WorkspaceQueryRevision,
     bool HasChunkId,
     long? CreatedAt)
@@ -24,9 +25,22 @@ public sealed record InspectableKVStoreEntry(
         return new InspectableKVStoreEntry(
             key,
             cacheType,
+            ReadWorkspace(value),
             ReadWorkspaceQueryRevision(value),
             !string.IsNullOrWhiteSpace(ReadString(value, "chunk_id")),
             ReadInt64(value, "create_time"));
+    }
+
+    private static string? ReadWorkspace(IReadOnlyDictionary<string, object> value)
+    {
+        if (!value.TryGetValue("queryparam", out var queryParam)
+            || queryParam is null
+            || !TryReadDictionaryValue(queryParam, "workspace", out var workspaceValue))
+        {
+            return null;
+        }
+
+        return ReadString(workspaceValue);
     }
 
     private static long? ReadWorkspaceQueryRevision(IReadOnlyDictionary<string, object> value)
@@ -48,8 +62,14 @@ public sealed record InspectableKVStoreEntry(
             return null;
         }
 
+        return ReadString(rawValue);
+    }
+
+    private static string? ReadString(object? rawValue)
+    {
         return rawValue switch
         {
+            null => null,
             string text => text,
             JsonElement { ValueKind: JsonValueKind.Null } => null,
             JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),

@@ -1885,8 +1885,8 @@ public sealed class CacheClearPlanner
                 "Deletes old workspace revision query answers only.",
                 RequiresConfirmation: false),
             new CacheClearPlanDto(
-                "unused-summary-cache",
-                "Clear unused summary cache",
+                "summary-cache-review",
+                "Review summary cache",
                 [LightRagCacheKeyBuilder.SummaryCacheType],
                 unusedSummaryEntries,
                 "Medium",
@@ -2259,7 +2259,7 @@ public async Task<CacheClearResponse> ClearAsync(CacheClearRequest request, Canc
             .Where(entry => entry.CacheType == LightRagCacheKeyBuilder.QueryCacheType && entry.State == "old revision")
             .Select(entry => entry.CacheKey)
             .ToList(),
-        "unused-summary-cache" => inventory.Entries
+        "summary-cache-review" => inventory.Entries
             .Where(entry => entry.CacheType == LightRagCacheKeyBuilder.SummaryCacheType)
             .Select(entry => entry.CacheKey)
             .ToList(),
@@ -3298,4 +3298,4 @@ git commit -m "docs: archive cache management workbench"
 - `CacheMetricOperation.Read` / `CacheReadOutcome.Hit` names match test and implementation snippets.
 - `CacheValueResult<T>` properties match call-site migration snippets.
 - Server DTO names match TypeScript DTO names by camelCase JSON output.
-- Clear plan ids match UI and service tests: `stale-query-cache`, `unused-summary-cache`, `all-llm-cache`.
+- Clear plan ids match UI and service tests: `stale-query-cache`, `summary-cache-review`, `all-llm-cache`.

@@ -128,7 +128,7 @@ public sealed class LightRagLlmCacheService(
                     response,
                     LightRagCacheKeyBuilder.QueryCacheType,
                     query,
-                    BuildQueryParamSnapshot(queryParam, keywords, workspaceQueryRevision),
+                    BuildQueryParamSnapshot(workspace, queryParam, keywords, workspaceQueryRevision),
                     DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
                 ct),
             cancellationToken);
@@ -553,6 +553,7 @@ public sealed class LightRagLlmCacheService(
     }
 
     private static Dictionary<string, object?> BuildQueryParamSnapshot(
+        string workspace,
         QueryParam queryParam,
         KeywordsResult keywords,
         long workspaceQueryRevision)
@@ -570,6 +571,7 @@ public sealed class LightRagLlmCacheService(
             ["ll_keywords"] = keywords.LowLevelKeywords.ToList(),
             ["user_prompt"] = queryParam.UserPrompt,
             ["enable_rerank"] = queryParam.EnableRerank,
+            ["workspace"] = workspace,
             ["workspace_query_revision"] = workspaceQueryRevision
         };
     }
