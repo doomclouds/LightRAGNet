@@ -1,6 +1,6 @@
 # Python LightRAG 与 LightRAG.NET 功能对照
 
-- 日期：2026-05-22
+- 日期：2026-05-24
 - 目的：为后续 LightRAG.NET 继续对齐 Python LightRAG、制定开发计划和拆分阶段目标提供功能地图。
 - 范围：本仓库当前代码、`LightRAG/` 本地 Python 参考树、`docs/superpowers/specs`、`docs/superpowers/plans`、`docs/superpowers/archives`。
 - 重要边界：本文描述的是“当前可见代码与已归档交付”。有 spec/plan 但无 archive、且当前 `src/` 未落地的内容，按“规划中/未完成”处理。
@@ -9,9 +9,9 @@
 
 Python LightRAG 是完整产品级框架：同时覆盖 Core SDK、API Server、WebUI、Ollama 兼容接口、多后端存储、多模型 provider、文档 pipeline、图谱治理、查询/引用/缓存、部署向导、离线部署、评估与可观测性。
 
-LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文档分块、实体/关系抽取、Qdrant/Neo4j/JSON 存储、Local/Global/Hybrid/Mix/Naive/Bypass 查询、引用、raw retrieval data、LLM cache、rerank chunking、文档生命周期、删除、任务队列、SignalR 状态和 Python 风格图谱工作台都有实现。
+LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文档分块、实体/关系抽取、Qdrant/Neo4j/JSON 存储、Local/Global/Hybrid/Mix/Naive/Bypass 查询、引用、raw retrieval data、LLM cache、rerank chunking、文档生命周期、删除、任务队列、SignalR 状态、PDF/DOCX 本地转换接入、Python 风格图谱工作台和 Web 可见的 System Status 都有实现。
 
-最大差距不在单个算法点，而在产品面和生态面：Python 版的多格式文档接入、多 provider、多存储、配置/部署向导、认证安全、Ollama 兼容 API、评估/可观测性、export/maintenance tools 仍明显领先。接下来最值得做的方向是先补“文档接入广度 + 部署配置边界 + 运维工具”，然后再扩 provider/storage 生态。
+最大差距不在单个算法点，而在产品面和生态面：Python 版的更广文档接入、目录扫描、多 provider、多存储、部署向导、认证安全、Ollama 兼容 API、评估/可观测性、export/maintenance tools 仍明显领先。PDF/DOCX 和 System Status 已经补上首个可用切片，接下来最值得做的方向是先补“缓存/维护工具 + 图谱导出/search + 安全部署边界”，然后再扩 provider/storage 生态。
 
 ## 状态标记
 
@@ -98,11 +98,11 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | duplicate gate | Python 通过 doc id/status 避免重复处理。 | 已对齐：doc lifecycle + file hash/name 层面 |
 | 错误文件入队 | Python 支持 `apipeline_enqueue_error_documents()` 记录抽取失败文件。 | 部分对齐：.NET queue/enqueue 失败会标记 Failed，但错误文件模型较窄 |
 | 目录扫描 | API `/documents/scan` 扫描 input_dir。 | 未对齐 |
-| 文件上传保存到 input_dir | API `/documents/upload` 保存文件并后台处理。 | 部分对齐：.NET `/api/MarkdownDocuments/upload` 保存并入队，但格式面更窄 |
+| 文件上传保存到 input_dir | API `/documents/upload` 保存文件并后台处理。 | 部分对齐：.NET `/api/MarkdownDocuments/upload` 支持批量 `.md/.markdown/.pdf/.docx` 保存；PDF/DOCX 需要用户 `Add to RAG` 后进入 conversion queue |
 | 文本 API 插入 | `/documents/text`、`/documents/texts`。 | 已对齐：`/api/MarkdownDocuments/text` |
-| 支持文件类型 | Python DocumentManager 支持 `.txt/.md/.mdx/.pdf/.docx/.pptx/.xlsx/.rtf/.odt/.tex/.epub/.html/.csv/.json/.xml/.yaml/.log/.conf/.ini/.properties/.sql/.bat/.sh/.c/.h/.cpp/.hpp/.py/.java/.js/.ts/.swift/.go/.rb/.php/.css/.scss/.less`。 | 部分对齐：当前 pipeline upload 支持 `.md/.markdown/.txt`；legacy upload 只支持 `.md/.markdown` |
-| PDF 抽取 | Python 支持 pypdf，配置 docling 时优先 docling，可处理密码配置。 | 规划中：已有 ManagedCode MarkItDown PDF/DOCX spec/plan，当前未归档完成 |
-| DOCX/PPTX/XLSX 抽取 | Python 用 python-docx/python-pptx/openpyxl 或 docling fallback。 | 规划中/未对齐：当前代码未实现 |
+| 支持文件类型 | Python DocumentManager 支持 `.txt/.md/.mdx/.pdf/.docx/.pptx/.xlsx/.rtf/.odt/.tex/.epub/.html/.csv/.json/.xml/.yaml/.log/.conf/.ini/.properties/.sql/.bat/.sh/.c/.h/.cpp/.hpp/.py/.java/.js/.ts/.swift/.go/.rb/.php/.css/.scss/.less`。 | 部分对齐：当前 pipeline upload 支持 `.md/.markdown/.pdf/.docx`；legacy 单文件 upload 仍只支持 `.md/.markdown`；`.txt` 走 text API 而非文件 upload |
+| PDF 抽取 | Python 支持 pypdf，配置 docling 时优先 docling，可处理密码配置。 | 部分对齐：.NET 通过本地 `ManagedCode.MarkItDown` 转换 PDF，保存 original artifact 和 `converted.md`，但未覆盖密码 PDF、OCR/docling 等高级路径 |
+| DOCX/PPTX/XLSX 抽取 | Python 用 python-docx/python-pptx/openpyxl 或 docling fallback。 | 部分对齐：.NET 已支持 DOCX 转 Markdown；PPTX/XLSX 仍未对齐 |
 | Markdown/text 直接处理 | Python 读取 UTF-8 文本类文件。 | 已对齐：.NET 支持 markdown/text intake 和编码检测 |
 | 多模态 RAG-Anything | Python 文档声明可接 RAG-Anything，支持 PDF、Office、图像、表格、公式。 | 未对齐 |
 | scan busy/cancel | Python pipeline 有 busy 状态、cancel pipeline。 | 部分对齐：.NET 支持按文档/track cancel，但未完全等价全局 pipeline |
@@ -207,13 +207,13 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | Python 功能点 | 说明 | .NET 当前状态 |
 | --- | --- | --- |
 | FastAPI Server | `lightrag-server`，包含 docs、health、auth、query、documents、graph、ollama。 | 部分对齐：ASP.NET Core API + Scalar/OpenAPI，接口路径不同 |
-| health | `/health` 返回配置、WebUI、pipeline、版本等。 | 未对齐或很弱：当前无等价健康总览接口 |
+| health | `/health` 返回配置、WebUI、pipeline、版本等。 | 部分对齐：.NET 有 `GET /api/system/health`，覆盖 Server API、SQLite、WorkingDir、Qdrant、Neo4j、LLM/Embedding/Rerank config、RAG task queue、Conversion queue；路径和 Python payload 不同，版本/WebUI/auth 等仍缺 |
 | auth status/login | `/auth-status`、`/login`、JWT/API key。 | 未对齐 |
 | API key/whitelist | Python 支持认证白名单等 server 配置。 | 未对齐 |
 | OpenAPI/Swagger | 自带 `/docs`、`/openapi.json`。 | 已对齐：OpenAPI + Scalar development UI |
 | API prefix/root path | Python 支持 `LIGHTRAG_API_PREFIX` 与 reverse proxy。 | 未对齐或未系统化 |
 | Nginx/streaming guidance | Python docs 提供 upload/stream proxy 配置。 | 未对齐为文档/配置模板 |
-| document routes | scan/upload/text/texts/status/delete/cache/reprocess/cancel/paginated/count。 | 部分对齐：text/upload/list/track/retry/cancel/delete/clear-all/count，缺 scan、status_counts、cache 管理等 |
+| document routes | scan/upload/text/texts/status/delete/cache/reprocess/cancel/paginated/count。 | 部分对齐：text/upload/list/track/retry/cancel/delete/clear-all/count、PDF/DOCX conversion 已有；缺 scan、status_counts、cache 管理等 |
 | query routes | `/query`、`/query/stream`、`/query/data`。 | 已对齐近似：`/api/RagQuery/query` SSE、`/api/RagQuery/data` |
 | graph routes | label/query/entity/relation/merge。 | 部分到已对齐：主治理路径已对齐，label search/popular 分离不足 |
 | Ollama-compatible API | `/api/generate`、`/api/chat`、`/api/tags`、`/api/ps` 等模拟 Ollama。 | 未对齐 |
@@ -224,18 +224,19 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 
 | Python 功能点 | 说明 | .NET 当前状态 |
 | --- | --- | --- |
-| 文档上传/扫描/状态 | Python WebUI 支持文档接入和 pipeline 状态。 | 部分对齐：Blazor 文档列表、上传、Add to RAG、retry/cancel/delete、SignalR |
+| 文档上传/扫描/状态 | Python WebUI 支持文档接入和 pipeline 状态。 | 部分对齐：Blazor 文档列表、`.md/.markdown/.pdf/.docx` 上传、Add to RAG、conversion 状态、retry/cancel/delete、SignalR；目录扫描仍缺 |
 | 查询聊天 | Python WebUI 支持 RAG 查询。 | 已对齐：RAG Chat 查询工作台 |
 | query mode 控制 | mode、stream、response type、topK 等。 | 已对齐 |
 | references 展示 | Python 支持引用。 | 已对齐 |
 | raw data/diagnostics | Python API 有 query_data，WebUI有相应数据能力。 | 已对齐：Chat 消息级检索数据面板 |
 | Graph viewer | Python React 图谱工作台：Sigma、布局、搜索、属性、编辑。 | 已对齐主要体验：Blazor host + React/Vite island |
+| System status | Python health 主要是 API/Server 状态，WebUI 可感知服务状态。 | .NET 增强：Blazor nav + React System Status island 展示 `/api/system/health` 的 evidence、remediation、fix-first 和 feature impact |
 | Settings/Labels/Layout/Zoom/Fullscreen/Legend | Python 图谱工作台控件。 | 已对齐主要控件 |
 | hover/focus/selection/neighborhood | Python 图谱交互。 | 已对齐 |
 | i18n | Python WebUI 有 i18n。 | 未对齐 |
 | search history | Python WebUI 有 search history manager。 | 未对齐 |
 | pipeline busy auto refresh | Python WebUI 有更完整 pipeline busy 语义。 | 部分对齐：SignalR + table reload，但非完全同款 |
-| React 全站 | Python WebUI 是 React SPA。 | 部分对齐：.NET 仍是 Blazor 主体，Graph 是 React island |
+| React 全站 | Python WebUI 是 React SPA。 | 部分对齐：.NET 仍是 Blazor 主体，Graph 和 System Status 是 React islands，迁移方向已经开始但不是全站 React |
 
 ### 13. 部署、配置与运维
 
@@ -249,7 +250,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | interactive setup | `make env-base/env-storage/env-server/env-security-check`。 | 未对齐 |
 | local vLLM embedding/rerank compose | Python setup 可生成本地 vLLM 服务。 | 未对齐 |
 | multi-site deployment | Python 支持多站点反代、runtime prefix injection。 | 未对齐 |
-| config audit/security check | Python setup 有 env security check。 | 未对齐 |
+| config audit/security check | Python setup 有 env security check。 | 部分对齐：System Status 已检查 LLM/Embedding/Rerank/Qdrant/Neo4j/WorkingDir 等运行配置并做 evidence 脱敏；仍缺启动前安全审计、auth 配置审计和部署向导 |
 | systemd service example | `lightrag.service.example`。 | 未对齐 |
 | Makefile workflow | Python 有 dev/test/env 等 make 目标。 | 部分对齐：.NET 有脚本 `dev-start.ps1` / `dev-stop.ps1` |
 
@@ -320,7 +321,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | SignalR | task status 实时通知 | .NET 增强 |
 | task persistence | JSON task state store + atomic write | .NET 增强 |
 | clear-all | SQLite row、uploads、KV、外部存储清理边界 | 部分对齐 |
-| PDF/DOCX | 仅有 2026-05-22 spec/plan，当前代码未完成 | 规划中 |
+| PDF/DOCX | `ManagedCode.MarkItDown` 本地转换、original artifact、`converted.md`、conversion queue、retry/cancel/delete/clear-all | 部分对齐 |
 
 ### 5. 删除与图谱治理
 
@@ -345,11 +346,22 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | message references | assistant message 可展开 references | 已对齐 |
 | diagnostics | high/low keywords、metadata diagnostics | 已对齐 |
 | retrieval data dialog | 每条 assistant 回复可查看 raw retrieval data | 已对齐 |
-| Markdown document list | 上传、查看、下载、Add to RAG、retry/cancel/delete、状态/进度 | 部分对齐 |
+| Markdown document list | 上传、查看、下载、Add to RAG、retry/cancel/delete、状态/进度，支持 PDF/DOCX 转换状态 | 部分对齐 |
 | React graph workbench | Sigma graph canvas、布局、搜索、属性面板、图谱治理控件 | 已对齐主要体验 |
-| Blazor host + React island | 当前只把 graph workbench 做成 React island | 部分对齐 |
+| React system status | `/system-status` React island 展示 `GET /api/system/health` 的 checks、evidence、fix-first、feature impact 和 JSON 复制 | .NET 增强 |
+| Blazor host + React island | 当前 graph workbench 和 system status 是 React islands，其他页面仍是 Blazor | 部分对齐 |
 
-### 7. Provider 与存储
+### 7. Server 运维状态
+
+| .NET 功能点 | 当前实现 | 对齐级别 |
+| --- | --- | --- |
+| System health API | `GET /api/system/health` | 部分对齐 Python health |
+| health checks | Server API、SQLite、WorkingDir、Qdrant、Neo4j、LLM config、Embedding config、Rerank config、RAG task queue、Conversion queue | .NET 增强 |
+| evidence/remediation | 结构化 evidence、字符串 remediation、fix-first、feature impact、敏感字段脱敏 | .NET 增强 |
+| health UI | `/system-status` React island + Blazor nav entry | .NET 增强 |
+| 非目标 | 不真实调用模型 provider，不修改配置，不执行 clear-all/clear-cache 等破坏性操作 | 边界已明确 |
+
+### 8. Provider 与存储
 
 | .NET 功能点 | 当前实现 | 对齐级别 |
 | --- | --- | --- |
@@ -370,10 +382,11 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | Query cache | 完整，并有维护工具 | 核心对齐，工具不足 | 补运维 API/UI |
 | Rerank | provider 多，chunking 完整 | Aliyun + chunking | provider 生态缺口 |
 | Document pipeline | 目录扫描、上传、多格式、track、reprocess、cancel | Markdown/text、track、retry、cancel | 多格式与 scan 是大缺口 |
+| Document conversion | PDF/DOCX、docling/Office 生态 | PDF/DOCX 本地 MarkItDown | 已补首个切片，仍缺 PPTX/XLSX/OCR/scan |
 | Document lifecycle/deletion | 完整 | 核心对齐 | 边界/事务性仍可加强 |
 | Graph curation | 完整 | 主路径对齐 | label search/export 等缺口 |
-| WebUI | React SPA，文档/查询/图谱 | Blazor + React graph island | 全站 React/i18n/search history 未对齐 |
-| API Server | FastAPI 全入口、auth、health、Ollama-compatible | ASP.NET Core 主业务 API | auth/health/Ollama/prefix 缺口明显 |
+| WebUI | React SPA，文档/查询/图谱 | Blazor + React graph/system-status islands | 全站 React/i18n/search history 未对齐 |
+| API Server | FastAPI 全入口、auth、health、Ollama-compatible | ASP.NET Core 主业务 API + `/api/system/health` | auth/Ollama/prefix/cache 管理缺口明显 |
 | Provider | 多 LLM/Embedding/Rerank | DeepSeek/Aliyun | 生态差距大 |
 | Storage | Json/Redis/Postgres/Mongo/OpenSearch/Milvus/Faiss/Qdrant/Neo4j/Memgraph 等 | Json/Qdrant/Neo4j | 生态差距大 |
 | Deployment | PyPI、Docker、K8s、offline、interactive setup、多站点 | 本地开发脚本 + compose for Qdrant/Neo4j | 产品化部署差距大 |
@@ -382,36 +395,18 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 
 ## 下一阶段建议
 
-### P0：文档接入广度
+### P0：缓存与维护工具
 
-这是最直接影响用户可用性的缺口。Python 版文档接入能力远大于 .NET；当前 .NET 还停留在 Markdown/text 主线。建议优先完成已有 `ManagedCode MarkItDown PDF/Word Document Intake` spec/plan，把 `.pdf` / `.docx` 做成首个可靠切片。
+PDF/DOCX 和 System Status 已经落地后，最值得补的是 cache management。当前 .NET 已经有 query/keyword/extract/summary cache、workspace revision 和删除时 cache 清理能力，但缺 Web/API 入口，用户无法看见缓存占用、命中边界和清理结果。这个缺口会直接影响调试、复测和运维。
 
 建议验收：
 
-- 上传 `.pdf` / `.docx` 只创建 inactive document row，不自动入 RAG。
-- 点击 Add to RAG 时转换为 `converted.md` 并入既有 RAG queue。
-- 转换状态、失败重试、删除清理、原始文件名展示、converted artifact 复用都有测试。
-- 明确 `.txt/.md/.pptx/.xlsx` 等在该阶段是拒绝还是继续走 legacy 文本通道，别让产品语义左右互搏。
+- 后端返回 query cache、keyword cache、extract cache、summary cache、workspace revision 的可解释统计。
+- 支持按类别清理：全部 cache、query/keyword cache、按 doc id 清 extraction cache。
+- Web 入口只展示真实后端数据，不发明命中率或节省 token 等无源指标。
+- 清理操作必须有确认、结果回显和测试隔离，不能误删本机开发 Qdrant/Neo4j 数据。
 
-### P1：Server 产品化基础
-
-Python 版的 Server 能力不只是接口多，而是有可部署、可诊断、可保护的产品边界。建议补：
-
-- `/health`：返回 LLM/Embedding/Rerank/storage 配置摘要、Web/API 状态、workspace、pipeline/task 状态。
-- 认证：API key 或最小 bearer auth，至少保护 destructive endpoints。
-- 配置审计：启动时检查关键配置缺失、embedding dimension 变更风险、Qdrant/Neo4j 连接风险。
-- reverse proxy 文档：SSE、上传大小、CORS、API/Web 分离端口。
-
-### P2：缓存与运维工具
-
-当前 .NET 已经有 cache 语义，但管理入口弱。建议补：
-
-- 查看 cache 统计：query cache、keyword cache、extract cache、summary cache。
-- 清理 cache API：全部清理、按 query mode 清 query/keyword cache、按 doc id 清 extraction cache。
-- workspace revision 可视化：让用户知道为什么缓存失效。
-- 文档删除和图谱治理后自动 bump revision 的端到端测试继续加固。
-
-### P3：Graph 和 WebUI 收口
+### P1：Graph 和 WebUI 收口
 
 Graph workbench 已经很像 Python 版，下一步应该补产品缺失而不是继续调皮肤：
 
@@ -419,6 +414,24 @@ Graph workbench 已经很像 Python 版，下一步应该补产品缺失而不�
 - expand/prune 后端联动。
 - graph export：CSV/Excel/Markdown/TXT 先做 CSV/Markdown 即可。
 - search history、i18n 可后置，除非目标是对外发布。
+
+### P2：Server 安全与部署边界
+
+System Status 已经解决“当前系统到底哪里坏”的入口，但 Python 版 Server 的产品化边界还包括可保护、可部署、可反代。建议补：
+
+- 认证：API key 或最小 bearer auth，至少保护 destructive endpoints。
+- 配置审计：启动时检查关键配置缺失、embedding dimension 变更风险、Qdrant/Neo4j 连接风险。
+- reverse proxy 文档：SSE、上传大小、CORS、API/Web 分离端口。
+- 应用容器化：不仅是 Qdrant/Neo4j compose，还要有 Server/Web 的可运行部署故事。
+
+### P3：文档接入第二阶段
+
+PDF/DOCX 已经是可靠首版，但 Python 文档接入面仍宽很多。第二阶段建议按真实使用价值继续扩：
+
+- `.txt` 文件上传入口，避免只能走 text API。
+- `/documents/scan` 或本地目录扫描。
+- PPTX/XLSX 作为 Office 第二切片。
+- OCR/扫描版 PDF 后置，除非实际样本已经逼近这个需求。
 
 ### P4：Provider / Storage 生态
 
@@ -439,10 +452,10 @@ Graph workbench 已经很像 Python 版，下一步应该补产品缺失而不�
 
 ## 推荐短期任务拆分
 
-1. 完成 PDF/DOCX intake 首版：直接承接现有 `2026-05-22-markitdown-document-intake` spec/plan。
-2. 补 `/health` 和配置审计：为后续部署/排障建立事实入口。
-3. 补 cache management API：先做后端能力，再考虑 Web UI。
-4. 补 graph label search + export：让图谱工作台从“可看可改”走向“可治理可带走”。
+1. 补 cache management API + Web 入口：先做只读统计，再做有确认的清理动作。
+2. 补 graph label search + export：让图谱工作台从“可看可改”走向“可治理可带走”。
+3. 补 API key / bearer auth 和 destructive endpoint 保护。
+4. 补 `.txt` 文件上传和 `/documents/scan` 设计，作为文档接入第二阶段。
 5. 做一份最小 evaluation fixture：固定 5-10 个文档、问题、期望引用，给后续改算法兜底。
 
 ## 主要取证来源
@@ -455,4 +468,5 @@ Graph workbench 已经很像 Python 版，下一步应该补产品缺失而不�
 - .NET Server/Web：`src/LightRAGNet.Server/Controllers/`、`src/LightRAGNet.Server/Services/`、`src/LightRAGNet.Web/Components/Pages/`、`src/LightRAGNet.Web/ClientApp/`
 - .NET storage/provider：`src/LightRAGNet.Storage/`、`src/LightRAGNet.LLM/`、`src/LightRAGNet.Embedding/`、`src/LightRAGNet.Rerank/`
 - 已交付历史：`docs/superpowers/archives/INDEX.md`
-- 规划但未完成：`docs/superpowers/specs/2026-05-22-markitdown-document-intake-design.md`、`docs/superpowers/plans/2026-05-22-managedcode-markitdown-document-intake-implementation-plan.md`
+- PDF/DOCX 已交付：`docs/superpowers/archives/2026-05/2026-05-22-managedcode-markitdown-document-intake-archives.md`
+- System Status 已交付：`docs/superpowers/archives/2026-05/2026-05-24-server-operational-readiness-archives.md`
