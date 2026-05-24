@@ -4,6 +4,20 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      onwarn(warning, defaultHandler) {
+        if (
+          warning.code === 'INVALID_ANNOTATION' &&
+          warning.id?.includes('@microsoft/signalr/dist/esm/Utils.js')
+        ) {
+          return;
+        }
+
+        defaultHandler(warning);
+      }
+    }
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
