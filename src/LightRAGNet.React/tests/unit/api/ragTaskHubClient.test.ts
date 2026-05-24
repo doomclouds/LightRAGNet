@@ -94,6 +94,31 @@ describe('ragTaskHubClient', () => {
     expect(onConnectionStateChanged).toHaveBeenCalledWith('Connected');
   });
 
+  it('does not join or report connected when stopped before pending start resolves', async () => {
+    let resolveStart: (() => void) | undefined;
+    const pendingStart = new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    });
+    const connection = createConnection({
+      start: vi.fn(() => pendingStart)
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    const startOperation = client.start({ onConnectionStateChanged });
+    await client.stop();
+
+    resolveStart?.();
+    await startOperation;
+
+    expect(connection.start).toHaveBeenCalledTimes(1);
+    expect(connection.invoke).toHaveBeenCalledWith('LeaveAllTasksGroup');
+    expect(connection.invoke).not.toHaveBeenCalledWith('JoinAllTasksGroup');
+    expect(connection.stop).toHaveBeenCalledTimes(2);
+    expect(onConnectionStateChanged).toHaveBeenCalledWith('Disconnected');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
+  });
+
   it('rejoins all tasks group after reconnected before reporting connected', async () => {
     const connection = createConnection();
     const client = createRagTaskHubClient('http://localhost:5261', () => connection);

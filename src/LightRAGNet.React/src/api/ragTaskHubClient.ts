@@ -45,6 +45,7 @@ export function createRagTaskHubClient(
   let taskEventDispatchersConfigured = false;
   let isStartedAndJoined = false;
   let startPromise: Promise<void> | undefined;
+  let lifecycleGeneration = 0;
 
   function emitConnectionState(state: RagTaskHubConnectionState): void {
     currentHandlers.onConnectionStateChanged?.(state);
@@ -105,11 +106,25 @@ export function createRagTaskHubClient(
     configureTaskEventDispatchers();
   }
 
-  async function startConnection(): Promise<void> {
+  async function cleanupHalfOpenConnection(): Promise<void> {
+    try {
+      await connection.stop();
+    } catch {
+      // Best effort cleanup after a half-open or aborted start.
+    }
+  }
+
+  async function startConnection(generation: number): Promise<void> {
     try {
       await connection.start();
     } catch {
       emitConnectionState('ServerNotStarted');
+      return;
+    }
+
+    if (generation !== lifecycleGeneration) {
+      await cleanupHalfOpenConnection();
+      isStartedAndJoined = false;
       return;
     }
 
@@ -118,12 +133,7 @@ export function createRagTaskHubClient(
       isStartedAndJoined = true;
       emitConnectionState('Connected');
     } catch (error) {
-      try {
-        await connection.stop();
-      } catch {
-        // Best effort cleanup after a half-open start.
-      }
-
+      await cleanupHalfOpenConnection();
       isStartedAndJoined = false;
       emitConnectionState('Disconnected');
     }
@@ -143,7 +153,8 @@ export function createRagTaskHubClient(
       }
 
       if (!startPromise) {
-        startPromise = startConnection().finally(() => {
+        const generation = lifecycleGeneration;
+        startPromise = startConnection(generation).finally(() => {
           startPromise = undefined;
         });
       }
@@ -151,6 +162,7 @@ export function createRagTaskHubClient(
       await startPromise;
     },
     async stop(): Promise<void> {
+      lifecycleGeneration += 1;
       await leaveAllTasksGroup();
       await connection.stop();
       isStartedAndJoined = false;
