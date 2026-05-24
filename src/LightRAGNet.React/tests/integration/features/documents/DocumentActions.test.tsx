@@ -36,6 +36,17 @@ function paged(items: MarkdownDocumentDto[], overrides: Partial<PagedResult<Mark
   };
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function renderDocuments(
   items: MarkdownDocumentDto[],
   actions: Partial<React.ComponentProps<typeof DocumentsPage>> = {}
@@ -73,6 +84,27 @@ describe('Document actions', () => {
     expect(screen.queryByRole('button', { name: 'Add handbook.md to RAG' })).not.toBeInTheDocument();
   });
 
+  it('guards row actions while add is pending and ignores double clicks', async () => {
+    const user = userEvent.setup();
+    const addRequest = deferred<MarkdownDocumentDto>();
+    const addToRag = vi.fn().mockReturnValue(addRequest.promise);
+    const removeDocument = vi.fn().mockResolvedValue({ succeeded: true, deletedImmediately: true } satisfies MarkdownDocumentDeleteClientResult);
+
+    renderDocuments([makeDocument()], { addToRag, removeDocument });
+
+    const row = await screen.findByRole('row', { name: /handbook\.md/i });
+    await user.dblClick(within(row).getByRole('button', { name: 'Add handbook.md to RAG' }));
+
+    expect(addToRag).toHaveBeenCalledTimes(1);
+    expect(within(row).getByRole('button', { name: 'Add handbook.md to RAG' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeDisabled();
+
+    addRequest.resolve(makeDocument({ isInRagSystem: true, ragStatus: 'Pending' }));
+
+    expect(await screen.findByText('Pending')).toBeInTheDocument();
+    expect(removeDocument).not.toHaveBeenCalled();
+  });
+
   it('opens a preview panel with markdown content and safe download links only', async () => {
     const user = userEvent.setup();
     const loadDocument = vi.fn()
@@ -97,14 +129,23 @@ describe('Document actions', () => {
           id: 3,
           fileName: 'safe-absolute.md',
           content: 'Absolute download link',
-          fileUrl: 'https://cdn.example.com/safe-absolute.md'
+          fileUrl: 'http://test-api/uploads/safe-absolute.md'
+        })
+      )
+      .mockResolvedValueOnce(
+        makeDocument({
+          id: 4,
+          fileName: 'external-absolute.md',
+          content: 'External download link',
+          fileUrl: 'https://cdn.example.com/external-absolute.md'
         })
       );
 
     renderDocuments([
       makeDocument({ id: 1, fileName: 'safe-relative.md' }),
       makeDocument({ id: 2, fileName: 'unsafe-upload.md' }),
-      makeDocument({ id: 3, fileName: 'safe-absolute.md' })
+      makeDocument({ id: 3, fileName: 'safe-absolute.md' }),
+      makeDocument({ id: 4, fileName: 'external-absolute.md' })
     ], {
       loadDocument
     });
@@ -130,22 +171,57 @@ describe('Document actions', () => {
     expect(await screen.findByText('Absolute download link')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Download safe-absolute.md' })).toHaveAttribute(
       'href',
-      'https://cdn.example.com/safe-absolute.md'
+      'http://test-api/uploads/safe-absolute.md'
     );
-    expect(loadDocument).toHaveBeenCalledTimes(3);
+
+    await user.click(screen.getByRole('button', { name: 'Close preview' }));
+    await user.click(screen.getByRole('button', { name: 'View external-absolute.md' }));
+
+    expect(await screen.findByText('External download link')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Download external-absolute.md' })).not.toBeInTheDocument();
+    expect(loadDocument).toHaveBeenCalledTimes(4);
   });
 
   it('removes a row when delete completes immediately', async () => {
     const user = userEvent.setup();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const removeDocument = vi.fn().mockResolvedValue({ succeeded: true, deletedImmediately: true } satisfies MarkdownDocumentDeleteClientResult);
+    const loadDocuments = vi
+      .fn()
+      .mockResolvedValueOnce(paged([makeDocument()]))
+      .mockResolvedValueOnce(paged([]));
 
-    renderDocuments([makeDocument()], { removeDocument });
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
 
     await user.click(await screen.findByRole('button', { name: 'Delete handbook.md' }));
 
     await waitFor(() => expect(removeDocument).toHaveBeenCalledWith(apiBase, 1));
-    expect(screen.queryByText('handbook.md')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('handbook.md')).not.toBeInTheDocument());
+  });
+
+  it('reloads the effective page after immediate delete and avoids invalid pagination', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const removeDocument = vi.fn().mockResolvedValue({ succeeded: true, deletedImmediately: true } satisfies MarkdownDocumentDeleteClientResult);
+    const loadDocuments = vi
+      .fn()
+      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'first-page.md' })], { page: 1, totalCount: 11, totalPages: 2 }))
+      .mockResolvedValueOnce(paged([makeDocument({ id: 11, fileName: 'last-on-page.md' })], { page: 2, totalCount: 11, totalPages: 2 }))
+      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'filled-page-one.md' })], { page: 1, totalCount: 10, totalPages: 1 }));
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
+
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 2, pageSize: 10, status: undefined }));
+
+    await user.click(await screen.findByRole('button', { name: 'Delete last-on-page.md' }));
+
+    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 1, pageSize: 10, status: undefined }));
+    expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.queryByText('Page 2 of 1')).not.toBeInTheDocument();
+    expect(await screen.findByText('filled-page-one.md')).toBeInTheDocument();
   });
 
   it('restores the row and shows an error when delete conflicts or fails', async () => {
@@ -169,28 +245,47 @@ describe('Document actions', () => {
     expect(screen.getByRole('row', { name: /handbook\.md/i })).toBeInTheDocument();
   });
 
+  it('does not overwrite concurrent row updates when delete rollback completes', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const deleteRequest = deferred<MarkdownDocumentDeleteClientResult>();
+    const removeDocument = vi.fn().mockReturnValue(deleteRequest.promise);
+    const loadDocuments = vi
+      .fn()
+      .mockResolvedValueOnce(paged([makeDocument({ fileName: 'handbook.md', ragStatus: null })]))
+      .mockResolvedValueOnce(paged([makeDocument({ fileName: 'handbook.md', isInRagSystem: true, ragStatus: 'Processing', ragCurrentStage: 'Embedding', ragProgress: 60 })]));
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete handbook.md' }));
+    await user.selectOptions(screen.getByLabelText('RAG status filter'), 'Processing');
+
+    expect(await screen.findByText('Processing / Embedding')).toBeInTheDocument();
+
+    deleteRequest.resolve({ conflict: true, errorMessage: 'Document has an active pipeline' });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Document has an active pipeline');
+    expect(screen.getByText('Processing / Embedding')).toBeInTheDocument();
+  });
+
   it('shows retry and cancel for eligible statuses and updates action state', async () => {
     const user = userEvent.setup();
     const retry = vi.fn().mockResolvedValue({
       accepted: true,
       documentId: 1,
       status: 'Pending',
-      currentStage: 'Queued',
-      progress: 10,
-      errorMessage: null
-    } as DocumentPipelineActionResult & { currentStage: string; progress: number; errorMessage: null });
+      message: 'Retry queued'
+    } satisfies DocumentPipelineActionResult);
     const cancelPipeline = vi.fn().mockResolvedValue({
       accepted: true,
       documentId: 2,
       status: 'Cancelled',
-      currentStage: 'Cancelled',
-      progress: 25,
-      errorMessage: 'Cancelled by user'
-    } as DocumentPipelineActionResult & { currentStage: string; progress: number; errorMessage: string });
+      message: 'Cancel accepted'
+    } satisfies DocumentPipelineActionResult);
 
     renderDocuments([
       makeDocument({ id: 1, fileName: 'failed.md', isInRagSystem: true, ragStatus: 'Failed', ragErrorMessage: 'Boom' }),
-      makeDocument({ id: 2, fileName: 'processing.md', isInRagSystem: true, ragStatus: 'Processing', ragCurrentStage: 'Embedding', ragProgress: 25 })
+      makeDocument({ id: 2, fileName: 'processing.md', isInRagSystem: true, ragStatus: 'Processing', ragCurrentStage: 'Embedding', ragProgress: 25, activeRagTaskId: 'task-2' })
     ], {
       retry,
       cancelPipeline
@@ -198,12 +293,17 @@ describe('Document actions', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Retry failed.md' }));
 
-    expect(await screen.findByText('Pending / Queued')).toBeInTheDocument();
+    expect(await screen.findByText('Pending')).toBeInTheDocument();
+    expect(screen.queryByText('Retry queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('Boom')).not.toBeInTheDocument();
     expect(retry).toHaveBeenCalledWith(apiBase, 1);
 
     await user.click(screen.getByRole('button', { name: 'Cancel processing.md' }));
 
-    expect(await screen.findByText('Cancelled / Cancelled')).toBeInTheDocument();
+    const cancelledRow = await screen.findByRole('row', { name: /processing\.md/i });
+    expect(within(cancelledRow).getByText('Cancelled')).toBeInTheDocument();
+    expect(within(cancelledRow).getByRole('button', { name: 'Delete processing.md' })).toBeEnabled();
+    expect(screen.queryByText('Cancel accepted')).not.toBeInTheDocument();
     expect(cancelPipeline).toHaveBeenCalledWith(apiBase, 2);
   });
 

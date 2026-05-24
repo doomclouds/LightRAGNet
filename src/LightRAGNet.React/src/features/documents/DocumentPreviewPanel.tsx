@@ -61,17 +61,18 @@ function getDownloadHref(apiBase: string, fileUrl?: string | null): string | nul
     return `${apiBase.replace(/\/+$/, '')}${fileUrl}`;
   }
 
-  if (isHttpUrl(fileUrl)) {
+  if (isSameOriginUploadUrl(apiBase, fileUrl)) {
     return fileUrl;
   }
 
   return null;
 }
 
-function isHttpUrl(value: string): boolean {
+function isSameOriginUploadUrl(apiBase: string, value: string): boolean {
   try {
+    const apiUrl = new URL(apiBase);
     const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
+    return url.origin === apiUrl.origin && url.pathname.startsWith('/uploads/');
   } catch {
     return false;
   }

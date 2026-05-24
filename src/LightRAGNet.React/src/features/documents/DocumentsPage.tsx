@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getApiBase } from '@/api/http';
 import {
   addToRagSystem,
@@ -26,12 +26,7 @@ type DocumentsQuery = {
 type LoadDocumentsFn = (apiBase: string, query: DocumentsQuery) => Promise<PagedResult<MarkdownDocumentDto>>;
 type LoadDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
 type AddToRagFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
-type PipelineActionResult = DocumentPipelineActionResult & {
-  currentStage?: string | null;
-  progress?: number | null;
-  errorMessage?: string | null;
-};
-type PipelineActionFn = (apiBase: string, id: number) => Promise<PipelineActionResult>;
+type PipelineActionFn = (apiBase: string, id: number) => Promise<DocumentPipelineActionResult>;
 type RemoveDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDeleteClientResult>;
 
 type DocumentsPageProps = {
@@ -64,6 +59,9 @@ export function DocumentsPage({
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MarkdownDocumentDto | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [documentActionTokens, setDocumentActionTokens] = useState<Record<number, string>>({});
+  const documentActionTokensRef = useRef<Record<number, string>>({});
 
   useEffect(() => {
     let isActive = true;
@@ -101,7 +99,7 @@ export function DocumentsPage({
     return () => {
       isActive = false;
     };
-  }, [apiBase, loadDocuments, page, status]);
+  }, [apiBase, loadDocuments, page, refreshVersion, status]);
 
   function handleStatusChange(event: React.ChangeEvent<HTMLSelectElement>) {
     setStatus(event.target.value);
@@ -122,7 +120,38 @@ export function DocumentsPage({
     setPreviewDocument((current) => (current?.id === id ? { ...current, ...patch } : current));
   }
 
+  function beginDocumentAction(id: number): string | null {
+    if (documentActionTokensRef.current[id]) {
+      return null;
+    }
+
+    const token = `${id}-${Date.now()}-${Math.random()}`;
+    documentActionTokensRef.current = { ...documentActionTokensRef.current, [id]: token };
+    setDocumentActionTokens(documentActionTokensRef.current);
+    return token;
+  }
+
+  function finishDocumentAction(id: number, token: string) {
+    if (documentActionTokensRef.current[id] !== token) {
+      return;
+    }
+
+    const nextTokens = { ...documentActionTokensRef.current };
+    delete nextTokens[id];
+    documentActionTokensRef.current = nextTokens;
+    setDocumentActionTokens(nextTokens);
+  }
+
+  function isDocumentActionPending(id: number): boolean {
+    return Boolean(documentActionTokens[id]);
+  }
+
   async function handleView(document: MarkdownDocumentDto) {
+    const token = beginDocumentAction(document.id);
+    if (!token) {
+      return;
+    }
+
     setErrorMessage(null);
 
     try {
@@ -131,47 +160,76 @@ export function DocumentsPage({
       setPreviewDocument(loadedDocument);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, 'Failed to load document preview'));
+    } finally {
+      finishDocumentAction(document.id, token);
     }
   }
 
   async function handleAddToRag(document: MarkdownDocumentDto) {
+    const token = beginDocumentAction(document.id);
+    if (!token) {
+      return;
+    }
+
     setErrorMessage(null);
 
     try {
       updateDocument(await addToRag(apiBase, document.id));
     } catch (error) {
       setErrorMessage(getErrorMessage(error, 'Failed to add document to RAG'));
+    } finally {
+      finishDocumentAction(document.id, token);
     }
   }
 
   async function handleRetry(document: MarkdownDocumentDto) {
+    const token = beginDocumentAction(document.id);
+    if (!token) {
+      return;
+    }
+
     setErrorMessage(null);
 
     try {
       const result = await retry(apiBase, document.id);
       if (result.accepted) {
-        applyPipelineActionResult(document.id, result);
+        applyPipelineActionResult(document.id, result, 'retry');
       }
     } catch (error) {
       setErrorMessage(getErrorMessage(error, 'Failed to retry document'));
+    } finally {
+      finishDocumentAction(document.id, token);
     }
   }
 
   async function handleCancel(document: MarkdownDocumentDto) {
+    const token = beginDocumentAction(document.id);
+    if (!token) {
+      return;
+    }
+
     setErrorMessage(null);
 
     try {
       const result = await cancelPipeline(apiBase, document.id);
       if (result.accepted) {
-        applyPipelineActionResult(document.id, result);
+        applyPipelineActionResult(document.id, result, 'cancel');
       }
     } catch (error) {
       setErrorMessage(getErrorMessage(error, 'Failed to cancel document pipeline'));
+    } finally {
+      finishDocumentAction(document.id, token);
     }
   }
 
   async function handleDelete(document: MarkdownDocumentDto) {
+    const token = beginDocumentAction(document.id);
+    if (!token) {
+      return;
+    }
+
     if (!window.confirm(`Delete ${document.fileName}?`)) {
+      finishDocumentAction(document.id, token);
       return;
     }
 
@@ -183,13 +241,20 @@ export function DocumentsPage({
       const result = await removeDocument(apiBase, document.id);
 
       if (result.deletedImmediately) {
+        const nextTotalCount = Math.max(0, totalCount - 1);
+        const nextTotalPages = Math.max(1, Math.ceil(nextTotalCount / pageSize));
+        const nextPage = Math.min(page, nextTotalPages);
+
         setDocuments((current) => current.filter((item) => item.id !== document.id));
         setPreviewDocument((current) => (current?.id === document.id ? null : current));
-        setTotalCount((current) => {
-          const nextTotalCount = Math.max(0, current - 1);
-          setTotalPages(Math.max(1, Math.ceil(nextTotalCount / pageSize)));
-          return nextTotalCount;
-        });
+        setTotalCount(nextTotalCount);
+        setTotalPages(nextTotalPages);
+
+        if (nextPage !== page) {
+          setPage(nextPage);
+        } else {
+          setRefreshVersion((current) => current + 1);
+        }
         return;
       }
 
@@ -197,21 +262,38 @@ export function DocumentsPage({
         return;
       }
 
-      updateDocument(previousDocument);
+      rollbackOptimisticDelete(previousDocument);
       setErrorMessage(result.errorMessage ?? (result.conflict ? 'Document delete conflict' : 'Failed to delete document'));
     } catch (error) {
-      updateDocument(previousDocument);
+      rollbackOptimisticDelete(previousDocument);
       setErrorMessage(getErrorMessage(error, 'Failed to delete document'));
+    } finally {
+      finishDocumentAction(document.id, token);
     }
   }
 
-  function applyPipelineActionResult(id: number, result: PipelineActionResult) {
-    patchDocument(id, {
-      ragStatus: result.status,
-      ragCurrentStage: result.currentStage ?? null,
-      ragErrorMessage: result.errorMessage ?? result.message ?? null,
-      ragProgress: typeof result.progress === 'number' ? result.progress : 0
-    });
+  function rollbackOptimisticDelete(previousDocument: MarkdownDocumentDto) {
+    const rollback = (current: MarkdownDocumentDto) =>
+      current.ragStatus === 'Deleting'
+        ? {
+            ...current,
+            ragStatus: previousDocument.ragStatus,
+            ragCurrentStage: previousDocument.ragCurrentStage,
+            ragErrorMessage: previousDocument.ragErrorMessage
+          }
+        : current;
+
+    setDocuments((current) =>
+      current.map((document) => (document.id === previousDocument.id ? rollback(document) : document))
+    );
+    setPreviewDocument((current) => (current?.id === previousDocument.id ? rollback(current) : current));
+  }
+
+  function applyPipelineActionResult(id: number, result: DocumentPipelineActionResult, action: 'retry' | 'cancel') {
+    setDocuments((current) =>
+      current.map((document) => (document.id === id ? applyPipelinePatch(document, result, action) : document))
+    );
+    setPreviewDocument((current) => (current?.id === id ? applyPipelinePatch(current, result, action) : current));
   }
 
   return (
@@ -275,25 +357,25 @@ export function DocumentsPage({
                   </td>
                   <td>
                     <div className="document-list__actions">
-                      <button type="button" aria-label={`View ${document.fileName}`} onClick={() => void handleView(document)}>
+                      <button type="button" aria-label={`View ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleView(document)}>
                         View
                       </button>
                       {canAddToRag(document) ? (
-                        <button type="button" aria-label={`Add ${document.fileName} to RAG`} onClick={() => void handleAddToRag(document)}>
+                        <button type="button" aria-label={`Add ${document.fileName} to RAG`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleAddToRag(document)}>
                           Add to RAG
                         </button>
                       ) : null}
                       {canRetry(document) ? (
-                        <button type="button" aria-label={`Retry ${document.fileName}`} onClick={() => void handleRetry(document)}>
+                        <button type="button" aria-label={`Retry ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleRetry(document)}>
                           Retry
                         </button>
                       ) : null}
                       {canCancel(document) ? (
-                        <button type="button" aria-label={`Cancel ${document.fileName}`} onClick={() => void handleCancel(document)}>
+                        <button type="button" aria-label={`Cancel ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleCancel(document)}>
                           Cancel
                         </button>
                       ) : null}
-                      <button type="button" aria-label={`Delete ${document.fileName}`} disabled={isBusy(document)} onClick={() => void handleDelete(document)}>
+                      <button type="button" aria-label={`Delete ${document.fileName}`} disabled={isDocumentActionPending(document.id) || isBusy(document)} onClick={() => void handleDelete(document)}>
                         Delete
                       </button>
                     </div>
@@ -370,4 +452,15 @@ function isBusy(document: MarkdownDocumentDto): boolean {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function applyPipelinePatch(document: MarkdownDocumentDto, result: DocumentPipelineActionResult, action: 'retry' | 'cancel'): MarkdownDocumentDto {
+  return {
+    ...document,
+    ragStatus: result.status,
+    ragCurrentStage: null,
+    ragErrorMessage: null,
+    ragProgress: result.status === 'Processing' ? document.ragProgress : 0,
+    activeRagTaskId: action === 'cancel' ? null : document.activeRagTaskId
+  };
 }
