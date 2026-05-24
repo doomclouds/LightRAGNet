@@ -3,6 +3,7 @@ using LightRAGNet;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Services.QueryCache;
+using LightRAGNet.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -269,6 +270,7 @@ public sealed class CacheManagementServiceTests
         result.DeletedEntries.Should().Be(1);
         result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.QueryCacheType);
         result.RevisionAfter.Should().Be(3);
+        cacheStore.IndexDoneCallbackCount.Should().Be(1);
         cacheStore.Contains("Mix:query:workspace-a-old").Should().BeFalse();
         cacheStore.Contains("Mix:query:workspace-a-current").Should().BeTrue();
         cacheStore.Contains("Mix:query:workspace-b-old").Should().BeTrue();
@@ -312,6 +314,7 @@ public sealed class CacheManagementServiceTests
         result.Succeeded.Should().BeTrue();
         result.DeletedEntries.Should().Be(2);
         result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
+        cacheStore.IndexDoneCallbackCount.Should().Be(1);
         cacheStore.Contains("Mix:summary:one").Should().BeFalse();
         cacheStore.Contains("Mix:summary:two").Should().BeFalse();
         cacheStore.Contains("Mix:query:current").Should().BeTrue();
@@ -342,8 +345,57 @@ public sealed class CacheManagementServiceTests
             LightRagCacheKeyBuilder.KeywordsCacheType,
             LightRagCacheKeyBuilder.ExtractCacheType,
             LightRagCacheKeyBuilder.SummaryCacheType);
+        cacheStore.IndexDoneCallbackCount.Should().Be(1);
         cacheStore.Count.Should().Be(1);
         cacheStore.Contains("metadata:query_revision:_").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_WithJsonKvStore_PersistsDeletedEntries()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        try
+        {
+            var writeStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await writeStore.UpsertAsync(
+                new Dictionary<string, Dictionary<string, object>>
+                {
+                    ["metadata:query_revision:workspace-a"] = new()
+                    {
+                        ["revision"] = 3
+                    },
+                    ["Mix:query:workspace-a-old"] = CreateCacheEntry(
+                        LightRagCacheKeyBuilder.QueryCacheType,
+                        workspace: "workspace-a",
+                        workspaceQueryRevision: 2),
+                    ["Mix:query:workspace-a-current"] = CreateCacheEntry(
+                        LightRagCacheKeyBuilder.QueryCacheType,
+                        workspace: "workspace-a",
+                        workspaceQueryRevision: 3)
+                },
+                CancellationToken.None);
+            await writeStore.IndexDoneCallbackAsync(CancellationToken.None);
+            var service = CreateService(new InMemoryCacheMetricsStore([]), writeStore);
+
+            var result = await service.ClearAsync(
+                new CacheClearRequest("workspace-a", "stale-query-cache", Confirm: false),
+                CancellationToken.None);
+            var readStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+
+            result.Succeeded.Should().BeTrue();
+            result.DeletedEntries.Should().Be(1);
+            (await readStore.GetByIdAsync("Mix:query:workspace-a-old", CancellationToken.None)).Should().BeNull();
+            (await readStore.GetByIdAsync("Mix:query:workspace-a-current", CancellationToken.None)).Should().NotBeNull();
+            (await readStore.GetByIdAsync("metadata:query_revision:workspace-a", CancellationToken.None)).Should().NotBeNull();
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
     }
 
     [Fact]
@@ -449,6 +501,8 @@ public sealed class CacheManagementServiceTests
 
         public int Count => items.Count;
 
+        public int IndexDoneCallbackCount { get; private set; }
+
         public bool Contains(string id)
         {
             return items.ContainsKey(id);
@@ -511,7 +565,9 @@ public sealed class CacheManagementServiceTests
 
         public Task IndexDoneCallbackAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            IndexDoneCallbackCount++;
+            return Task.CompletedTask;
         }
 
         public Task DropAsync(CancellationToken cancellationToken = default)

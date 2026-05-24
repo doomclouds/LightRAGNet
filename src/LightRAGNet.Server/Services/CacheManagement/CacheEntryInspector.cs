@@ -25,9 +25,16 @@ public sealed class CacheEntryInspector(IKVStore llmCacheStore)
             .ToList();
     }
 
-    public Task DeleteAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default)
     {
-        return llmCacheStore.DeleteAsync(keys, cancellationToken);
+        var keyList = keys.ToList();
+        if (keyList.Count == 0)
+        {
+            return;
+        }
+
+        await llmCacheStore.DeleteAsync(keyList, cancellationToken);
+        await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
     }
 
     private static CacheInventoryEntry? CreateInventoryEntry(
