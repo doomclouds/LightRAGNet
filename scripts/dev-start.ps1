@@ -388,9 +388,14 @@ if ($wantsServer) {
     Write-Host "  Server: $ServerUrl"
 }
 if ($wantsReact) {
-    Write-Host "  React:  $ReactUrl"
-    Write-Host "  Docs:   $ReactUrl/documents"
-    Write-Host "  Upload: $ReactUrl/documents/upload"
+    Write-Host "  React:"
+    Write-Host "    $ReactUrl/"
+    Write-Host "    $ReactUrl/documents"
+    Write-Host "    $ReactUrl/documents/upload"
+    Write-Host "    $ReactUrl/document-preview"
+    Write-Host "    $ReactUrl/graph-view"
+    Write-Host "    $ReactUrl/system-status"
+    Write-Host "    $ReactUrl/cache-management"
 }
 Write-Host "  Logs:   $logsDir"
 Write-Host ""

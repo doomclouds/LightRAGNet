@@ -143,7 +143,14 @@ docker compose up -d
 默认地址：
 
 - API Server: `http://localhost:5261`
-- React UI: `http://127.0.0.1:5173/documents`
+- React UI:
+  - `http://127.0.0.1:5173/`
+  - `http://127.0.0.1:5173/documents`
+  - `http://127.0.0.1:5173/documents/upload`
+  - `http://127.0.0.1:5173/document-preview`
+  - `http://127.0.0.1:5173/graph-view`
+  - `http://127.0.0.1:5173/system-status`
+  - `http://127.0.0.1:5173/cache-management`
 - Qdrant REST: `http://localhost:6333`
 - Neo4j Browser: `http://localhost:7474`
 
