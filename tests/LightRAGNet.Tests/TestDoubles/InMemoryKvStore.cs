@@ -2,7 +2,7 @@ using LightRAGNet.Core.Interfaces;
 
 namespace LightRAGNet.Tests.TestDoubles;
 
-public sealed class InMemoryKvStore : IKVStore
+public sealed class InMemoryKvStore : IKVStore, IInspectableKVStore
 {
     private readonly Dictionary<string, Dictionary<string, object>> items = [];
 
@@ -122,6 +122,17 @@ public sealed class InMemoryKvStore : IKVStore
         cancellationToken.ThrowIfCancellationRequested();
         items.Clear();
         return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyDictionary<string, Dictionary<string, object>>> SnapshotAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyDictionary<string, Dictionary<string, object>>>(
+            items.ToDictionary(
+                pair => pair.Key,
+                pair => Clone(pair.Value),
+                StringComparer.Ordinal));
     }
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> source)

@@ -9,6 +9,9 @@ using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Server.Services.DocumentConversion;
+using LightRAGNet.Server.Services.CacheManagement;
+using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -85,6 +88,10 @@ builder.Services.AddSignalR()
 
 // Register LightRAG services (including task queue services)
 builder.Services.AddLightRAG(builder.Configuration);
+builder.Services.AddSingleton(sp => new CacheEntryInspector(
+    sp.GetRequiredKeyedService<IKVStore>(KVContracts.LLMCache)));
+builder.Services.AddSingleton<CacheClearPlanner>();
+builder.Services.AddSingleton<CacheManagementService>();
 
 // Register MediatR (for event handlers in Server project)
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
