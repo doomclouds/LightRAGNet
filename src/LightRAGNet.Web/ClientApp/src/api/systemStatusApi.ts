@@ -64,11 +64,13 @@ function buildUrl(apiBase: string, path: string): string {
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   let body: (T & ErrorLikeResponse) | undefined;
+  let invalidJson = false;
 
   if (text.length > 0) {
     try {
       body = JSON.parse(text) as T & ErrorLikeResponse;
     } catch {
+      invalidJson = true;
       body = undefined;
     }
   }
@@ -76,6 +78,14 @@ async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message = body?.message ?? body?.error ?? body?.title ?? response.statusText;
     throw new Error(message || `Request failed with status ${response.status}`);
+  }
+
+  if (text.length === 0) {
+    throw new Error("Expected JSON response body.");
+  }
+
+  if (invalidJson) {
+    throw new Error("Invalid JSON response.");
   }
 
   return body as T;

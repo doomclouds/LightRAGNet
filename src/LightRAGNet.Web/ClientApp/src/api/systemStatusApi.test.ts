@@ -63,6 +63,14 @@ function textResponse(body: string, init?: ResponseInit): Response {
   });
 }
 
+function emptyResponse(init?: ResponseInit): Response {
+  return new Response(null, {
+    status: init?.status ?? 200,
+    statusText: init?.statusText,
+    ...init
+  });
+}
+
 describe("systemStatusApi", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -98,5 +106,23 @@ describe("systemStatusApi", () => {
     );
 
     await expect(getSystemHealth("/api-root/")).rejects.toThrow("Service Unavailable");
+  });
+
+  test("getSystemHealth throws clear message for successful empty responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(emptyResponse());
+
+    await expect(getSystemHealth("/api-root/")).rejects.toThrow("Expected JSON response body.");
+  });
+
+  test("getSystemHealth throws clear message for successful invalid JSON responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse("<html>not json</html>", { status: 200 }));
+
+    await expect(getSystemHealth("/api-root/")).rejects.toThrow("Invalid JSON response.");
+  });
+
+  test("getSystemHealth falls back to status code when error response has no message or status text", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse("<html>Server unavailable</html>", { status: 503 }));
+
+    await expect(getSystemHealth("/api-root/")).rejects.toThrow("Request failed with status 503");
   });
 });
