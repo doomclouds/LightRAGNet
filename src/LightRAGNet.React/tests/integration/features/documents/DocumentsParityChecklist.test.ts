@@ -19,6 +19,9 @@ describe('DocumentsPage parity checklist', () => {
     expect(source).toContain('Delete');
     expect(source).toContain('Progress');
     expect(source).toContain('DeletionFailed');
+    expect(source).toContain('ragErrorMessage');
+    expect(source).toContain('Added Time');
+    expect(source).toContain('ragAddedTime');
     expect(source).toContain('subscribeToTaskUpdates');
     expect(source).toContain('subscribeToDataCleared');
     expect(source).toContain('shouldRefreshForTaskStatus');

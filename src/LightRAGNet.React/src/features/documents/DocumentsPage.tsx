@@ -11,6 +11,7 @@ import {
 import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import {
+  getShortErrorMessage,
   shouldRefreshForMissingTaskStatus,
   shouldRefreshForTaskStatus
 } from './documentStatus';
@@ -594,6 +595,8 @@ function DocumentRow({
 function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
   const statusText = getStatusText(document);
   const progress = Math.max(0, Math.min(100, Math.round(document.ragProgress)));
+  const shouldShowError = (document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed') &&
+    Boolean(document.ragErrorMessage?.trim());
 
   return (
     <div className="document-list__status">
@@ -602,6 +605,16 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
         <div className="document-list__progress" role="progressbar" aria-label={`Progress ${progress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
           <span style={{ width: `${progress}%` }} />
         </div>
+      ) : null}
+      {shouldShowError ? (
+        <p className="document-list__status-error">
+          Error: {getShortErrorMessage(document.ragErrorMessage)}
+        </p>
+      ) : null}
+      {document.ragAddedTime ? (
+        <p className="document-list__status-detail">
+          Added Time: {formatDateTime(document.ragAddedTime)}
+        </p>
       ) : null}
     </div>
   );

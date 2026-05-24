@@ -43,6 +43,15 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function findRowByText(text: string): Promise<HTMLElement> {
+  const row = (await screen.findByText(text)).closest('tr');
+  if (!row) {
+    throw new Error(`Could not find row for ${text}`);
+  }
+
+  return row;
+}
+
 describe('DocumentsPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -182,6 +191,37 @@ describe('DocumentsPage', () => {
 
     expect(await screen.findByText('Processing / Embedding')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Progress 60%' })).toHaveAttribute('aria-valuenow', '60');
+  });
+
+  it('renders error summaries and added time in the status column', async () => {
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([
+        makeDocument({
+          id: 1,
+          fileName: 'failed.md',
+          ragStatus: 'Failed',
+          ragErrorMessage: 'Embedding provider timed out',
+          ragAddedTime: '2026-05-24T09:40:00Z'
+        }),
+        makeDocument({
+          id: 2,
+          fileName: 'delete-failed.md',
+          ragStatus: 'DeletionFailed',
+          ragErrorMessage: 'Vector store delete failed'
+        })
+      ])
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    const failedRow = await findRowByText('failed.md');
+    expect(within(failedRow).getByText('Failed')).toBeInTheDocument();
+    expect(within(failedRow).getByText('Error: Embedding provider timed out')).toBeInTheDocument();
+    expect(within(failedRow).getByText(/Added Time:/)).toBeInTheDocument();
+
+    const deleteFailedRow = await findRowByText('delete-failed.md');
+    expect(within(deleteFailedRow).getByText('DeletionFailed')).toBeInTheDocument();
+    expect(within(deleteFailedRow).getByText('Error: Vector store delete failed')).toBeInTheDocument();
   });
 
   it('loads next and previous pages from the table footer', async () => {

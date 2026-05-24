@@ -422,6 +422,21 @@ a {
   background: var(--color-primary);
 }
 
+.document-list__status-detail,
+.document-list__status-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.document-list__status-detail {
+  color: var(--color-text-muted);
+}
+
+.document-list__status-error {
+  color: #991b1b;
+}
+
 .document-list__actions {
   display: flex;
   flex-wrap: wrap;
