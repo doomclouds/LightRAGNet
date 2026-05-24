@@ -12,10 +12,12 @@ namespace LightRAGNet.Server.Tests;
 
 public sealed class CacheManagementServiceTests
 {
+    private static readonly DateTimeOffset StableMetricHour = new(2026, 5, 24, 12, 10, 0, TimeSpan.Zero);
+
     [Fact]
     public async Task GetOverviewAsync_ComputesHitRateFromReadMetrics()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = StableMetricHour;
         var metricsStore = new InMemoryCacheMetricsStore(
         [
             CreateRead(now.AddMinutes(-3), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
@@ -47,7 +49,7 @@ public sealed class CacheManagementServiceTests
     [Fact]
     public async Task GetOverviewAsync_EstimatesOverallLatencyFromFamilyEstimates()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = StableMetricHour;
         var metricsStore = new InMemoryCacheMetricsStore(
         [
             CreateRead(now.AddMinutes(-5), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
@@ -70,7 +72,7 @@ public sealed class CacheManagementServiceTests
     [Fact]
     public async Task GetOverviewAsync_IgnoresNonHitMissReadOutcomesAndSaveMetricsForAttempts()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = StableMetricHour;
         var metricsStore = new InMemoryCacheMetricsStore(
         [
             CreateRead(now.AddMinutes(-6), LightRagCacheKeyBuilder.QueryCacheType, CacheReadOutcome.Hit, null),
