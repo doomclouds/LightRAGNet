@@ -153,7 +153,7 @@ describe('Document actions', () => {
     await user.click(await screen.findByRole('button', { name: 'View safe-relative.md' }));
 
     expect(await screen.findByRole('heading', { name: 'Document Title' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Download safe-relative.md' })).toHaveAttribute(
+    expect(within(screen.getByLabelText('Preview safe-relative.md')).getByRole('link', { name: 'Download safe-relative.md' })).toHaveAttribute(
       'href',
       'http://test-api/uploads/safe-relative.md'
     );
@@ -163,13 +163,13 @@ describe('Document actions', () => {
     await user.click(screen.getByRole('button', { name: 'View unsafe-upload.md' }));
 
     expect(await screen.findByText('Hidden download link')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Download unsafe-upload.md' })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText('Preview unsafe-upload.md')).queryByRole('link', { name: 'Download unsafe-upload.md' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Close preview' }));
     await user.click(screen.getByRole('button', { name: 'View safe-absolute.md' }));
 
     expect(await screen.findByText('Absolute download link')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Download safe-absolute.md' })).toHaveAttribute(
+    expect(within(screen.getByLabelText('Preview safe-absolute.md')).getByRole('link', { name: 'Download safe-absolute.md' })).toHaveAttribute(
       'href',
       'http://test-api/uploads/safe-absolute.md'
     );
@@ -178,8 +178,28 @@ describe('Document actions', () => {
     await user.click(screen.getByRole('button', { name: 'View external-absolute.md' }));
 
     expect(await screen.findByText('External download link')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Download external-absolute.md' })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText('Preview external-absolute.md')).queryByRole('link', { name: 'Download external-absolute.md' })).not.toBeInTheDocument();
     expect(loadDocument).toHaveBeenCalledTimes(4);
+  });
+
+  it('renders safe download links in the document list only', async () => {
+    renderDocuments([
+      makeDocument({ id: 1, fileName: 'safe-relative.md', fileUrl: '/uploads/safe-relative.md' }),
+      makeDocument({ id: 2, fileName: 'safe-absolute.md', fileUrl: 'http://test-api/uploads/safe-absolute.md' }),
+      makeDocument({ id: 3, fileName: 'unsafe-upload.md', fileUrl: 'upload://internal/unsafe-upload.md' }),
+      makeDocument({ id: 4, fileName: 'external-absolute.md', fileUrl: 'https://cdn.example.com/external-absolute.md' })
+    ]);
+
+    expect(await screen.findByRole('link', { name: 'Download safe-relative.md' })).toHaveAttribute(
+      'href',
+      'http://test-api/uploads/safe-relative.md'
+    );
+    expect(screen.getByRole('link', { name: 'Download safe-absolute.md' })).toHaveAttribute(
+      'href',
+      'http://test-api/uploads/safe-absolute.md'
+    );
+    expect(screen.queryByRole('link', { name: 'Download unsafe-upload.md' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Download external-absolute.md' })).not.toBeInTheDocument();
   });
 
   it('removes a row when delete completes immediately', async () => {

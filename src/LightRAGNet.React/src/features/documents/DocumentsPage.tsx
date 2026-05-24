@@ -8,7 +8,7 @@ import {
   getMarkdownDocuments,
   retryDocument
 } from '@/api/documentsApi';
-import { DocumentPreviewPanel } from './DocumentPreviewPanel';
+import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import {
   shouldRefreshForMissingTaskStatus,
@@ -490,39 +490,17 @@ export function DocumentsPage({
             </thead>
             <tbody>
               {documents.map((document) => (
-                <tr key={document.id}>
-                  <td>{document.fileName}</td>
-                  <td>{formatFileSize(document.fileSize)}</td>
-                  <td>{formatDateTime(document.uploadTime)}</td>
-                  <td>
-                    <DocumentStatus document={document} />
-                  </td>
-                  <td>
-                    <div className="document-list__actions">
-                      <button type="button" aria-label={`View ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleView(document)}>
-                        View
-                      </button>
-                      {canAddToRag(document) ? (
-                        <button type="button" aria-label={`Add ${document.fileName} to RAG`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleAddToRag(document)}>
-                          Add to RAG
-                        </button>
-                      ) : null}
-                      {canRetry(document) ? (
-                        <button type="button" aria-label={`Retry ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleRetry(document)}>
-                          Retry
-                        </button>
-                      ) : null}
-                      {canCancel(document) ? (
-                        <button type="button" aria-label={`Cancel ${document.fileName}`} disabled={isDocumentActionPending(document.id)} onClick={() => void handleCancel(document)}>
-                          Cancel
-                        </button>
-                      ) : null}
-                      <button type="button" aria-label={`Delete ${document.fileName}`} disabled={isDocumentActionPending(document.id) || isBusy(document)} onClick={() => void handleDelete(document)}>
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <DocumentRow
+                  key={document.id}
+                  apiBase={apiBase}
+                  document={document}
+                  isActionPending={isDocumentActionPending(document.id)}
+                  onView={handleView}
+                  onAddToRag={handleAddToRag}
+                  onRetry={handleRetry}
+                  onCancel={handleCancel}
+                  onDelete={handleDelete}
+                />
               ))}
             </tbody>
           </table>
@@ -545,6 +523,71 @@ export function DocumentsPage({
         </button>
       </footer>
     </section>
+  );
+}
+
+type DocumentRowProps = {
+  apiBase: string;
+  document: MarkdownDocumentDto;
+  isActionPending: boolean;
+  onView: (document: MarkdownDocumentDto) => void;
+  onAddToRag: (document: MarkdownDocumentDto) => void;
+  onRetry: (document: MarkdownDocumentDto) => void;
+  onCancel: (document: MarkdownDocumentDto) => void;
+  onDelete: (document: MarkdownDocumentDto) => void;
+};
+
+function DocumentRow({
+  apiBase,
+  document,
+  isActionPending,
+  onView,
+  onAddToRag,
+  onRetry,
+  onCancel,
+  onDelete
+}: DocumentRowProps) {
+  const downloadHref = getDownloadHref(apiBase, document.fileUrl);
+
+  return (
+    <tr>
+      <td>{document.fileName}</td>
+      <td>{formatFileSize(document.fileSize)}</td>
+      <td>{formatDateTime(document.uploadTime)}</td>
+      <td>
+        <DocumentStatus document={document} />
+      </td>
+      <td>
+        <div className="document-list__actions">
+          <button type="button" aria-label={`View ${document.fileName}`} disabled={isActionPending} onClick={() => void onView(document)}>
+            View
+          </button>
+          {downloadHref ? (
+            <a href={downloadHref} download aria-label={`Download ${document.fileName}`}>
+              Download
+            </a>
+          ) : null}
+          {canAddToRag(document) ? (
+            <button type="button" aria-label={`Add ${document.fileName} to RAG`} disabled={isActionPending} onClick={() => void onAddToRag(document)}>
+              Add to RAG
+            </button>
+          ) : null}
+          {canRetry(document) ? (
+            <button type="button" aria-label={`Retry ${document.fileName}`} disabled={isActionPending} onClick={() => void onRetry(document)}>
+              Retry
+            </button>
+          ) : null}
+          {canCancel(document) ? (
+            <button type="button" aria-label={`Cancel ${document.fileName}`} disabled={isActionPending} onClick={() => void onCancel(document)}>
+              Cancel
+            </button>
+          ) : null}
+          <button type="button" aria-label={`Delete ${document.fileName}`} disabled={isActionPending || isBusy(document)} onClick={() => void onDelete(document)}>
+            Delete
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 

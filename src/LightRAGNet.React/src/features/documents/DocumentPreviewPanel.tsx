@@ -52,7 +52,7 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
   );
 }
 
-function getDownloadHref(apiBase: string, fileUrl?: string | null): string | null {
+export function getDownloadHref(apiBase: string, fileUrl?: string | null): string | null {
   if (!fileUrl) {
     return null;
   }

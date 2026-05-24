@@ -297,6 +297,7 @@ a {
 
 .document-list__upload-link,
 .document-list__footer button,
+.document-list__actions a,
 .document-list__actions button {
   min-height: 38px;
   display: inline-flex;
@@ -427,6 +428,7 @@ a {
   gap: 8px;
 }
 
+.document-list__actions a,
 .document-list__actions button,
 .document-list__footer button {
   color: var(--color-primary-strong);
@@ -434,6 +436,8 @@ a {
   border: 1px solid var(--color-border);
 }
 
+.document-list__actions a:hover,
+.document-list__actions a:focus-visible,
 .document-list__actions button:hover,
 .document-list__actions button:focus-visible,
 .document-list__footer button:hover,
