@@ -13,6 +13,18 @@ public sealed class ReactDevCorsSourceTests
         source.Should().Contain("\"http://127.0.0.1:5173\"");
     }
 
+    [Fact]
+    public void DevStart_ValidatesReactDevServerBeforeReuse()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("scripts/dev-start.ps1"));
+
+        source.Should().Contain("function Test-StandaloneReactDevServer");
+        source.Should().Contain("$Url/src/app/navigation.ts");
+        source.Should().Contain("RAG Chat");
+        source.Should().Contain("/cache-management");
+        source.Should().Contain("does not match the standalone LightRAGNet.React app");
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
