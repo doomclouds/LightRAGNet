@@ -1,7 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+const { clearCachePlan, getCacheManagementOverview } = vi.hoisted(() => ({
+  clearCachePlan: vi.fn(),
+  getCacheManagementOverview: vi.fn()
+}));
+
+vi.mock("@/api/cacheManagementApi", () => ({
+  clearCachePlan,
+  getCacheManagementOverview
+}));
 
 import {
+  CacheManagementWorkbench,
   CacheManagementWorkbenchView,
   createSafeOverviewExport,
   formatHitRate,
@@ -11,6 +24,11 @@ import {
   getValueTone
 } from "@/features/cache-management/CacheManagementWorkbench";
 import type { CacheOverviewResponse } from "@/types/cacheManagement";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  document.body.innerHTML = "";
+});
 
 const overview: CacheOverviewResponse = {
   workspace: "_",
@@ -167,5 +185,39 @@ describe("CacheManagementWorkbench", () => {
 
     expect(html).toContain("Confirm destructive clear");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*Confirm/);
+  });
+
+  test("clears stale destructive confirmation when workspace changes before the next overview loads", async () => {
+    const user = userEvent.setup();
+    getCacheManagementOverview.mockImplementation(
+      (_apiBase: string, workspace: string) =>
+        workspace === "workspace-b" ? new Promise<CacheOverviewResponse>(() => undefined) : Promise.resolve(overview)
+    );
+
+    render(<CacheManagementWorkbench apiBase="/api-root" />);
+
+    await screen.findByText("Clear all LLM cache");
+    await user.click(screen.getByRole("button", { name: /review/i }));
+    expect(screen.getByText("Confirm destructive clear")).toBeInTheDocument();
+
+    const workspaceInput = screen.getByLabelText("Workspace");
+    await user.clear(workspaceInput);
+    await user.type(workspaceInput, "workspace-b");
+
+    await waitFor(() => expect(screen.queryByText("Confirm destructive clear")).not.toBeInTheDocument());
+    expect(clearCachePlan).not.toHaveBeenCalled();
+  });
+
+  test("reports copy failure when Clipboard API is unavailable", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator, "clipboard", "get").mockReturnValue(undefined as unknown as Clipboard);
+    getCacheManagementOverview.mockResolvedValue(overview);
+
+    render(<CacheManagementWorkbench apiBase="/api-root" />);
+
+    await screen.findByText("Clear all LLM cache");
+    await user.click(screen.getByRole("button", { name: /copy json/i }));
+
+    expect(await screen.findByText("Copy failed.")).toBeInTheDocument();
   });
 });

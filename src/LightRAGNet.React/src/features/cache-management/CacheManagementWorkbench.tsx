@@ -173,16 +173,30 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
       return;
     }
 
+    if (!navigator.clipboard?.writeText) {
+      setActionMessage("Copy failed.");
+      return;
+    }
+
     const payload = JSON.stringify(createSafeOverviewExport(overview), null, 2);
     void navigator.clipboard
-      ?.writeText(payload)
+      .writeText(payload)
       .then(() => setActionMessage("Overview JSON copied."))
       .catch(() => setActionMessage("Copy failed."));
   }, [overview]);
 
   const executeClear = useCallback(
     async (plan: CacheClearPlanDto, confirm: boolean) => {
-      const clearParams = { workspace: normalizeWorkspace(workspace), window };
+      if (!overview) {
+        return;
+      }
+
+      const clearParams = { workspace: overview.workspace, window: overview.window };
+
+      if (!sameOverviewParams(clearParams, latestParams.current)) {
+        return;
+      }
+
       setPendingPlanId(plan.id);
       setErrorMessage(null);
       setActionMessage(null);
@@ -203,7 +217,7 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
         setPendingPlanId(null);
       }
     },
-    [apiBase, loadOverview, workspace]
+    [apiBase, loadOverview, overview]
   );
 
   const beginClear = useCallback(
@@ -231,10 +245,18 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
       confirmingPlanId={confirmingPlanId}
       onWorkspaceChange={(nextWorkspace) => {
         latestParams.current = { ...latestParams.current, workspace: normalizeWorkspace(nextWorkspace) };
+        setOverview(null);
+        setConfirmingPlanId(null);
+        setPendingPlanId(null);
+        setActionMessage(null);
         setWorkspace(nextWorkspace);
       }}
       onWindowChange={(nextWindow) => {
         latestParams.current = { ...latestParams.current, window: nextWindow };
+        setOverview(null);
+        setConfirmingPlanId(null);
+        setPendingPlanId(null);
+        setActionMessage(null);
         setWindow(nextWindow);
       }}
       onRefresh={() => void loadOverview()}

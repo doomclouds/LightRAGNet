@@ -1,4 +1,5 @@
-﻿* {
+﻿.cache-workbench,
+.cache-workbench * {
   box-sizing: border-box;
 }
 
