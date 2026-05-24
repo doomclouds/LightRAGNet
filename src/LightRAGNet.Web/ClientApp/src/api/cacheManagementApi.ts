@@ -13,14 +13,34 @@ function buildUrl(apiBase: string, path: string): string {
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const body = text.length > 0 ? (JSON.parse(text) as T & ErrorLikeResponse) : undefined;
+  const statusMessage = response.statusText || `Request failed with status ${response.status}`;
 
-  if (!response.ok) {
-    const message = body?.message ?? body?.error ?? body?.title ?? response.statusText;
-    throw new Error(message || `Request failed with status ${response.status}`);
+  if (text.trim().length === 0) {
+    if (!response.ok) {
+      throw new Error(statusMessage);
+    }
+
+    throw new Error("Empty cache management response");
   }
 
-  return body as T;
+  let body: T & ErrorLikeResponse;
+
+  try {
+    body = JSON.parse(text) as T & ErrorLikeResponse;
+  } catch {
+    if (!response.ok) {
+      throw new Error(statusMessage);
+    }
+
+    throw new Error("Invalid cache management response");
+  }
+
+  if (!response.ok) {
+    const message = body.message ?? body.error ?? body.title ?? statusMessage;
+    throw new Error(message);
+  }
+
+  return body;
 }
 
 export async function getCacheManagementOverview(

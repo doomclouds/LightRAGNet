@@ -11,6 +11,15 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
   });
 }
 
+function textResponse(body: string, init?: ResponseInit): Response {
+  return new Response(body, {
+    headers: { "content-type": "text/html" },
+    status: init?.status ?? 200,
+    statusText: init?.statusText,
+    ...init
+  });
+}
+
 describe("cacheManagementApi", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -91,5 +100,23 @@ describe("cacheManagementApi", () => {
 
     await expect(clearCachePlan("", "_", "", false)).rejects.toThrow("Plan id is required.");
     await expect(clearCachePlan("", "_", "summary-cache-review", false)).rejects.toThrow("Confirmation is required.");
+  });
+
+  test("readJson throws readable status error for non-ok non-json responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse("<html>server error</html>", { status: 500 }));
+
+    await expect(getCacheManagementOverview("", "_", "24h")).rejects.toThrow("Request failed with status 500");
+  });
+
+  test("readJson throws explicit invalid response error for ok malformed JSON", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse("{not-json", { status: 200 }));
+
+    await expect(getCacheManagementOverview("", "_", "24h")).rejects.toThrow("Invalid cache management response");
+  });
+
+  test("readJson throws explicit empty response error for ok empty body", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse("", { status: 200 }));
+
+    await expect(clearCachePlan("", "_", "stale-query-cache", false)).rejects.toThrow("Empty cache management response");
   });
 });

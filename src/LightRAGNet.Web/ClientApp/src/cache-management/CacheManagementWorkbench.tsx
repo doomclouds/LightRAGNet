@@ -37,10 +37,89 @@ type ViewProps = {
   onConfirmClear: (plan: CacheClearPlanDto) => void;
 };
 
+type OverviewRequestParams = {
+  workspace: string;
+  window: string;
+};
+
+type OverviewRequestSnapshot = OverviewRequestParams & {
+  version: number;
+};
+
 const windowOptions = [
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" }
 ];
+
+function normalizeWorkspace(workspace: string): string {
+  return workspace.trim() || "_";
+}
+
+function sameOverviewParams(left: OverviewRequestParams, right: OverviewRequestParams): boolean {
+  return left.workspace === right.workspace && left.window === right.window;
+}
+
+export function isCurrentOverviewRequest(
+  request: OverviewRequestSnapshot,
+  latestParams: OverviewRequestParams,
+  currentVersion: number
+): boolean {
+  return request.version === currentVersion && sameOverviewParams(request, latestParams);
+}
+
+export function createSafeOverviewExport(overview: CacheOverviewResponse): CacheOverviewResponse {
+  return {
+    workspace: overview.workspace,
+    window: overview.window,
+    generatedAt: overview.generatedAt,
+    summary: {
+      overallHitRate: overview.summary.overallHitRate,
+      providerCallsAvoided: overview.summary.providerCallsAvoided,
+      estimatedLatencySavedMs: overview.summary.estimatedLatencySavedMs,
+      staleOrRiskyEntries: overview.summary.staleOrRiskyEntries,
+      measured: overview.summary.measured
+    },
+    families: overview.families.map((family) => ({
+      cacheType: family.cacheType,
+      displayName: family.displayName,
+      hitRate: family.hitRate,
+      hits: family.hits,
+      misses: family.misses,
+      attempts: family.attempts,
+      entryCount: family.entryCount,
+      valueLevel: family.valueLevel,
+      riskLevel: family.riskLevel,
+      providerCallsAvoided: family.providerCallsAvoided,
+      estimatedLatencySavedMs: family.estimatedLatencySavedMs,
+      message: family.message
+    })),
+    trend: overview.trend.map((point) => ({
+      timestamp: point.timestamp,
+      hitRate: point.hitRate,
+      savedCalls: point.savedCalls
+    })),
+    insights: overview.insights.map((insight) => ({
+      title: insight.title,
+      message: insight.message,
+      level: insight.level
+    })),
+    clearPlan: overview.clearPlan.map((plan) => ({
+      id: plan.id,
+      title: plan.title,
+      cacheTypes: [...plan.cacheTypes],
+      entryCount: plan.entryCount,
+      risk: plan.risk,
+      impact: plan.impact,
+      requiresConfirmation: plan.requiresConfirmation
+    })),
+    entrySamples: overview.entrySamples.map((entry) => ({
+      cacheKeyPrefix: entry.cacheKeyPrefix,
+      cacheType: entry.cacheType,
+      lastHit: entry.lastHit,
+      state: entry.state
+    }))
+  };
+}
 
 export function CacheManagementWorkbench({ apiBase }: Props) {
   const [workspace, setWorkspace] = useState("_");
@@ -52,25 +131,33 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [confirmingPlanId, setConfirmingPlanId] = useState<string | null>(null);
   const requestVersion = useRef(0);
+  const latestParams = useRef<OverviewRequestParams>({ workspace: "_", window: "24h" });
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = useCallback(async (requestedParams?: OverviewRequestParams) => {
+    const params = requestedParams ?? { workspace: normalizeWorkspace(workspace), window };
+
+    if (!sameOverviewParams(params, latestParams.current)) {
+      return;
+    }
+
     const version = requestVersion.current + 1;
     requestVersion.current = version;
+    const request = { ...params, version };
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const response = await getCacheManagementOverview(apiBase, workspace.trim() || "_", window);
+      const response = await getCacheManagementOverview(apiBase, params.workspace, params.window);
 
-      if (requestVersion.current === version) {
+      if (isCurrentOverviewRequest(request, latestParams.current, requestVersion.current)) {
         setOverview(response);
       }
     } catch (error) {
-      if (requestVersion.current === version) {
+      if (isCurrentOverviewRequest(request, latestParams.current, requestVersion.current)) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to load cache overview.");
       }
     } finally {
-      if (requestVersion.current === version) {
+      if (isCurrentOverviewRequest(request, latestParams.current, requestVersion.current)) {
         setIsLoading(false);
       }
     }
@@ -85,7 +172,7 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
       return;
     }
 
-    const payload = JSON.stringify(overview, null, 2);
+    const payload = JSON.stringify(createSafeOverviewExport(overview), null, 2);
     void navigator.clipboard
       ?.writeText(payload)
       .then(() => setActionMessage("Overview JSON copied."))
@@ -94,17 +181,23 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
 
   const executeClear = useCallback(
     async (plan: CacheClearPlanDto, confirm: boolean) => {
+      const clearParams = { workspace: normalizeWorkspace(workspace), window };
       setPendingPlanId(plan.id);
       setErrorMessage(null);
       setActionMessage(null);
 
       try {
-        const response = await clearCachePlan(apiBase, workspace.trim() || "_", plan.id, confirm);
-        setActionMessage(response.message || `Deleted ${response.deletedEntries} entries.`);
-        setConfirmingPlanId(null);
-        await loadOverview();
+        const response = await clearCachePlan(apiBase, clearParams.workspace, plan.id, confirm);
+
+        if (sameOverviewParams(clearParams, latestParams.current)) {
+          setActionMessage(response.message || `Deleted ${response.deletedEntries} entries.`);
+          setConfirmingPlanId(null);
+          await loadOverview(clearParams);
+        }
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Cache clear failed.");
+        if (sameOverviewParams(clearParams, latestParams.current)) {
+          setErrorMessage(error instanceof Error ? error.message : "Cache clear failed.");
+        }
       } finally {
         setPendingPlanId(null);
       }
@@ -135,8 +228,14 @@ export function CacheManagementWorkbench({ apiBase }: Props) {
       actionMessage={actionMessage}
       pendingPlanId={pendingPlanId}
       confirmingPlanId={confirmingPlanId}
-      onWorkspaceChange={setWorkspace}
-      onWindowChange={setWindow}
+      onWorkspaceChange={(nextWorkspace) => {
+        latestParams.current = { ...latestParams.current, workspace: normalizeWorkspace(nextWorkspace) };
+        setWorkspace(nextWorkspace);
+      }}
+      onWindowChange={(nextWindow) => {
+        latestParams.current = { ...latestParams.current, window: nextWindow };
+        setWindow(nextWindow);
+      }}
       onRefresh={() => void loadOverview()}
       onCopyJson={copyJson}
       onBeginClear={beginClear}

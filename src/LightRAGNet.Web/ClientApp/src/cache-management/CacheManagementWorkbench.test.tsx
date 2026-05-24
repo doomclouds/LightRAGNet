@@ -3,8 +3,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   CacheManagementWorkbenchView,
+  createSafeOverviewExport,
   formatHitRate,
   formatLatencySaved,
+  isCurrentOverviewRequest,
   getRiskTone,
   getValueTone
 } from "./CacheManagementWorkbench";
@@ -68,6 +70,47 @@ describe("CacheManagementWorkbench", () => {
     expect(formatLatencySaved(null)).toBe("N/A");
     expect(getValueTone("High")).toBe("good");
     expect(getRiskTone("High")).toBe("bad");
+  });
+
+  test("request guard rejects stale workspace refresh even when it has the newest version", () => {
+    const staleClearRefresh = { workspace: "workspace-a", window: "24h", version: 3 };
+    const latestControls = { workspace: "workspace-b", window: "24h" };
+
+    expect(isCurrentOverviewRequest(staleClearRefresh, latestControls, 3)).toBe(false);
+    expect(isCurrentOverviewRequest({ workspace: "workspace-b", window: "24h", version: 4 }, latestControls, 4)).toBe(
+      true
+    );
+  });
+
+  test("createSafeOverviewExport removes undeclared sensitive fields", () => {
+    const unsafeOverview = {
+      ...overview,
+      original_prompt: "hidden prompt",
+      return_value: "hidden response",
+      authorization: "Bearer token",
+      api_key: "sk-hidden",
+      summary: {
+        ...overview.summary,
+        return_value: "hidden response"
+      },
+      families: [
+        {
+          ...overview.families[0],
+          original_prompt: "hidden prompt"
+        }
+      ],
+      entrySamples: [
+        {
+          ...overview.entrySamples[0],
+          authorization: "Bearer token"
+        }
+      ]
+    };
+
+    const exportedJson = JSON.stringify(createSafeOverviewExport(unsafeOverview as CacheOverviewResponse));
+
+    expect(exportedJson).toContain("Query answer");
+    expect(exportedJson).not.toMatch(/original_prompt|return_value|authorization|api_key|hidden prompt|Bearer token/i);
   });
 
   test("renders cache evidence, clear plan, and safe entry samples without sensitive fields", () => {
