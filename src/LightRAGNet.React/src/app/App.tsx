@@ -5,7 +5,9 @@ import { type AppRoute, resolveRoute } from './router';
 import { DocumentsPage } from '@/features/documents/DocumentsPage';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 import { UploadDocumentPage } from '@/features/documents/UploadDocumentPage';
+import { CacheManagementWorkbench } from '@/features/cache-management/CacheManagementWorkbench';
 import { RagChatWorkbench } from '@/features/rag-chat/RagChatWorkbench';
+import { SystemStatusWorkbench } from '@/features/system-status/SystemStatusWorkbench';
 import { useRagTaskHub } from '@/shared/hooks/useRagTaskHub';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { StatusPill } from '@/shared/components/StatusPill';
@@ -63,6 +65,10 @@ export function App() {
         <RagChatWorkbench apiBase={apiBase} />
       ) : route.id === 'graph' ? (
         <GraphRoute apiBase={apiBase} />
+      ) : route.id === 'system-status' ? (
+        <SystemStatusWorkbench apiBase={apiBase} />
+      ) : route.id === 'cache-management' ? (
+        <CacheManagementWorkbench apiBase={apiBase} />
       ) : (
         <PlaceholderRoute route={route} />
       )}
