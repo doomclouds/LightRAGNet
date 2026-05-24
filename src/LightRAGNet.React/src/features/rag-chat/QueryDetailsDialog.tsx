@@ -136,16 +136,33 @@ export function QueryDetailsDialog({ apiBase, message, onClose, onUpdateMessage 
   const abortRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const autoLoadStartedRef = useRef(false);
+  const latestMessageRef = useRef(message);
+  const onUpdateMessageRef = useRef(onUpdateMessage);
   const [activeTabId, setActiveTabId] = useState("entities");
+
+  useEffect(() => {
+    latestMessageRef.current = message;
+    onUpdateMessageRef.current = onUpdateMessage;
+  }, [message, onUpdateMessage]);
 
   useEffect(() => {
     isMountedRef.current = true;
 
     return () => {
+      const pendingController = abortRef.current;
+
       isMountedRef.current = false;
       autoLoadStartedRef.current = false;
-      abortRef.current?.abort();
+      pendingController?.abort();
       abortRef.current = null;
+
+      if (pendingController) {
+        const latestMessage = latestMessageRef.current;
+
+        if (!latestMessage.retrievalData) {
+          onUpdateMessageRef.current({ ...latestMessage, isLoadingRetrievalData: false });
+        }
+      }
     };
   }, []);
 

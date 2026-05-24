@@ -328,6 +328,34 @@ describe("RagChatWorkbench", () => {
     expect(capturedSignal?.aborted).toBe(true);
   });
 
+  test("retries retrieval data loading after closing a pending details dialog", async () => {
+    const capturedSignals: AbortSignal[] = [];
+    getRagQueryData.mockImplementation(
+      (_apiBase: string, _request: unknown, options: { signal?: AbortSignal }) => {
+        if (options.signal) {
+          capturedSignals.push(options.signal);
+        }
+
+        return new Promise(() => undefined);
+      }
+    );
+    await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" });
+
+    await clickButton("View query details");
+
+    expect(getRagQueryData).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("Loading retrieval data");
+
+    await clickButton("x");
+
+    expect(capturedSignals[0]?.aborted).toBe(true);
+
+    await clickButton("View query details");
+
+    expect(getRagQueryData).toHaveBeenCalledTimes(2);
+    expect(capturedSignals[1]?.aborted).toBe(false);
+  });
+
   test("keeps retrieval data errors inside the details dialog", async () => {
     getRagQueryData.mockRejectedValue(new Error("retrieval exploded"));
     await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" });

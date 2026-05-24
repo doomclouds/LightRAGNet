@@ -5,12 +5,18 @@ namespace LightRAGNet.Server.Tests;
 public sealed class ReactDevCorsSourceTests
 {
     [Fact]
-    public void ServerCors_AllowsStandaloneReactDevServer()
+    public void ServerCors_AllowsLocalStandaloneReactDevServerOriginsDynamically()
     {
         var source = File.ReadAllText(FindRepositoryFile("src/LightRAGNet.Server/Program.cs"));
 
-        source.Should().Contain("\"http://localhost:5173\"");
-        source.Should().Contain("\"http://127.0.0.1:5173\"");
+        source.Should().Contain("SetIsOriginAllowed");
+        source.Should().Contain("IsAllowedDevelopmentCorsOrigin");
+        source.Should().Contain("builder.Environment.IsDevelopment()");
+        source.Should().Contain("Uri.TryCreate");
+        source.Should().Contain("\"localhost\"");
+        source.Should().Contain("\"127.0.0.1\"");
+        source.Should().Contain("IPAddress.IsLoopback");
+        source.Should().NotContain("AllowAnyOrigin");
     }
 
     [Fact]
