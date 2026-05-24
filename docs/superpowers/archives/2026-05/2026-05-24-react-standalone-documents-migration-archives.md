@@ -29,7 +29,7 @@
 
 - React targeted verification covered upload validation, document API client, list rendering, actions, preview, safe download, lifecycle refresh, parity checklist, and App-level SignalR wiring.
 - React final verification: `npm run test --prefix src/LightRAGNet.React` passed `11` files / `74` tests; `npm run typecheck --prefix src/LightRAGNet.React` passed.
-- React build verification: `npm run build --prefix src/LightRAGNet.React` passed. Vite/Rolldown emitted non-fatal `INVALID_ANNOTATION` warnings from `@microsoft/signalr/dist/esm/Utils.js`.
+- React build verification: `npm run build --prefix src/LightRAGNet.React` passed after filtering the known `@microsoft/signalr/dist/esm/Utils.js` Rolldown `INVALID_ANNOTATION` warning in Vite config.
 - Server targeted verification: `dotnet test tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter ReactDevCorsSourceTests` passed `1/1`.
 - Full solution verification: `dotnet test LightRAGNet.slnx --no-restore -v minimal` passed with `427` core tests, `203` server tests, and `38` web tests after stabilizing the cache trend time fixture uncovered during closeout.
 - Diff hygiene checks confirmed no changes under `src/LightRAGNet.Web`, `tests/LightRAGNet.Web.Tests`, or `tests/LightRAGNet.Tests/Web`, and no React test files under `src/LightRAGNet.React/src`.
