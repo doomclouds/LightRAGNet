@@ -119,6 +119,32 @@ describe('ragTaskHubClient', () => {
     expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
   });
 
+  it('does not report server not started when stopped before pending start rejects', async () => {
+    let rejectStart: ((error: Error) => void) | undefined;
+    const pendingStart = new Promise<void>((_, reject) => {
+      rejectStart = reject;
+    });
+    const connection = createConnection({
+      start: vi.fn(() => pendingStart)
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    const startOperation = client.start({ onConnectionStateChanged });
+    await client.stop();
+
+    rejectStart?.(new Error('Connection aborted'));
+    await startOperation;
+
+    expect(connection.start).toHaveBeenCalledTimes(1);
+    expect(connection.invoke).toHaveBeenCalledWith('LeaveAllTasksGroup');
+    expect(connection.invoke).not.toHaveBeenCalledWith('JoinAllTasksGroup');
+    expect(connection.stop).toHaveBeenCalledTimes(1);
+    expect(onConnectionStateChanged).toHaveBeenCalledWith('Disconnected');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('ServerNotStarted');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
+  });
+
   it('rejoins all tasks group after reconnected before reporting connected', async () => {
     const connection = createConnection();
     const client = createRagTaskHubClient('http://localhost:5261', () => connection);

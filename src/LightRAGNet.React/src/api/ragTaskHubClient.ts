@@ -118,6 +118,11 @@ export function createRagTaskHubClient(
     try {
       await connection.start();
     } catch {
+      if (generation !== lifecycleGeneration) {
+        isStartedAndJoined = false;
+        return;
+      }
+
       emitConnectionState('ServerNotStarted');
       return;
     }
