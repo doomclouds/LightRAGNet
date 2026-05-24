@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LightRAGNet System Status UI Concepts</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --line: #d7dde8;
+      --line-soft: #e8edf4;
+      --text: #182230;
+      --muted: #667085;
+      --blue: #2563eb;
+      --blue-soft: #e8f0ff;
+      --green: #17803d;
+      --green-soft: #e9f8ee;
+      --amber: #b45309;
+      --amber-soft: #fff3db;
+      --red: #c03221;
+      --red-soft: #ffebe8;
+      --violet: #6d5bd0;
+      --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 252px 1fr;
+      grid-template-rows: 56px 1fr 44px;
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      background: #1976d2;
+      color: #fff;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+    }
+
+    .hamburger {
+      width: 36px;
+      height: 36px;
+      border: 0;
+      border-radius: 6px;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.12);
+      display: grid;
+      place-items: center;
+      cursor: default;
+    }
+
+    .brand {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .top-spacer {
+      flex: 1;
+    }
+
+    .danger-icon {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      color: #fff;
+      border-radius: 6px;
+      background: rgba(211, 47, 47, 0.95);
+      display: grid;
+      place-items: center;
+      font-size: 19px;
+    }
+
+    .drawer {
+      grid-row: 2 / 3;
+      background: #fff;
+      border-right: 1px solid var(--line);
+      padding: 14px 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 42px;
+      padding: 0 14px;
+      color: #344054;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .nav-item.active {
+      background: var(--blue-soft);
+      color: #174ea6;
+      font-weight: 600;
+    }
+
+    .nav-icon {
+      width: 22px;
+      text-align: center;
+      font-size: 18px;
+      color: inherit;
+    }
+
+    .main {
+      grid-row: 2 / 3;
+      min-width: 0;
+      padding: 20px 24px 28px;
+      overflow: auto;
+    }
+
+    .statusbar {
+      grid-column: 1 / -1;
+      grid-row: 3 / 4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      border-top: 1px solid var(--line);
+      box-shadow: 0 -1px 4px rgba(15, 23, 42, 0.05);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .chip.green {
+      color: var(--green);
+      background: var(--green-soft);
+      border-color: #bce7c8;
+    }
+
+    .chip.amber {
+      color: var(--amber);
+      background: var(--amber-soft);
+      border-color: #f7d99c;
+    }
+
+    .chip.red {
+      color: var(--red);
+      background: var(--red-soft);
+      border-color: #f3b9b0;
+    }
+
+    .chip.blue {
+      color: #174ea6;
+      background: var(--blue-soft);
+      border-color: #c8dafc;
+    }
+
+    .concept-board {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    .board-title {
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .scenario-switch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    }
+
+    .scenario-switch button {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #475467;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .scenario-switch button.active {
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .variant-tabs {
+      display: flex;
+      gap: 8px;
+      margin: 14px 0 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .variant-tabs button {
+      border: 0;
+      background: transparent;
+      color: #475467;
+      padding: 10px 12px 12px;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .variant-tabs button.active {
+      color: var(--blue);
+      border-bottom-color: var(--blue);
+      font-weight: 600;
+    }
+
+    .variant {
+      display: none;
+    }
+
+    .variant.active {
+      display: block;
+    }
+
+    .page-frame {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .page-inner {
+      padding: 22px;
+    }
+
+    .page-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .page-heading h2 {
+      margin: 0;
+      font-size: 23px;
+      letter-spacing: 0;
+    }
+
+    .heading-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #344054;
+      min-height: 34px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .button.primary {
+      border-color: var(--blue);
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .button.danger {
+      border-color: #f2b8b5;
+      color: var(--red);
+      background: #fff7f6;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1.25fr repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .summary-card,
+    .panel,
+    .check-row,
+    .metric-tile,
+    .timeline-item,
+    .status-strip {
+      border: 1px solid var(--line-soft);
+      background: #fff;
+      border-radius: 8px;
+    }
+
+    .summary-card {
+      padding: 16px;
+      min-height: 118px;
+    }
+
+    .summary-card.overall {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 16px;
+      border-color: #f0cf91;
+      background: linear-gradient(180deg, #fffaf0 0%, #fff 100%);
+    }
+
+    .summary-kicker {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .summary-value {
+      font-size: 25px;
+      line-height: 1.1;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .summary-desc {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .score-ring {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, #fff 0 52%, transparent 53%),
+        conic-gradient(var(--amber) 0 72%, #f1f3f7 72% 100%);
+      color: var(--amber);
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .layout-a {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
+      gap: 16px;
+    }
+
+    .panel-header {
+      min-height: 48px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .panel-body {
+      padding: 14px 16px 16px;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .status-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .status-dot.green {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .status-dot.amber {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .status-dot.red {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .check-name {
+      font-weight: 650;
+      margin-bottom: 3px;
+      font-size: 14px;
+    }
+
+    .check-msg {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .check-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .remediation {
+      display: grid;
+      gap: 10px;
+    }
+
+    .fix-card {
+      border-left: 4px solid var(--amber);
+      background: #fffaf0;
+      padding: 12px;
+      border-radius: 6px;
+    }
+
+    .fix-card.redline {
+      border-left-color: var(--red);
+      background: #fff7f6;
+    }
+
+    .fix-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .fix-text {
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+      color: #344054;
+      background: #f2f4f7;
+      border: 1px solid var(--line-soft);
+      border-radius: 5px;
+      padding: 2px 5px;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: 160px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+
+    .strip-name {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .strip-bar {
+      height: 8px;
+      background: #eef2f6;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .strip-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: var(--green);
+      width: var(--w);
+    }
+
+    .strip-fill.amber {
+      background: var(--amber);
+    }
+
+    .strip-fill.red {
+      background: var(--red);
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-tile {
+      padding: 14px;
+      min-height: 128px;
+    }
+
+    .metric-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .metric-name {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .metric-body {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .metric-footer {
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #475467;
+      font-size: 12px;
+    }
+
+    .layout-c {
+      display: grid;
+      grid-template-columns: 0.92fr 1.08fr;
+      gap: 16px;
+    }
+
+    .runbook {
+      display: grid;
+      gap: 10px;
+    }
+
+    .timeline-item {
+      padding: 13px;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .timeline-step {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      background: var(--blue-soft);
+      color: #174ea6;
+    }
+
+    .timeline-title {
+      font-weight: 700;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .timeline-text {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .detail-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .detail-table th,
+    .detail-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .detail-table th {
+      color: #475467;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--surface-2);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .compact-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .notes {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 1px solid #d9e5ff;
+      background: #f3f7ff;
+      border-radius: 8px;
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 72px 1fr;
+      }
+
+      .nav-item span:last-child {
+        display: none;
+      }
+
+      .summary-grid,
+      .matrix {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .layout-a,
+      .layout-c {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .drawer {
+        display: none;
+      }
+
+      .main {
+        padding: 16px;
+      }
+
+      .board-title,
+      .page-heading {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .scenario-switch {
+        overflow: auto;
+      }
+
+      .summary-grid,
+      .matrix {
+        grid-template-columns: 1fr;
+      }
+
+      .status-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .check-row {
+        grid-template-columns: 28px 1fr;
+      }
+
+      .check-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <button class="hamburger" aria-label="menu">☰</button>
+      <div class="brand">LightRAGNet</div>
+      <div class="top-spacer"></div>
+      <button class="danger-icon" title="Clear all data">⌫</button>
+    </header>
+
+    <aside class="drawer">
+      <div class="nav-item"><span class="nav-icon">☵</span><span>RAG Chat</span></div>
+      <div class="nav-item"><span class="nav-icon">▤</span><span>Markdown Documents</span></div>
+      <div class="nav-item"><span class="nav-icon">⇧</span><span>Upload Document</span></div>
+      <div class="nav-item"><span class="nav-icon">⌘</span><span>Knowledge Graph</span></div>
+      <div class="nav-item active"><span class="nav-icon">●</span><span>System Status</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="concept-board">
+        <div class="board-title">
+          <div>
+            <h1>System Status UI Concepts</h1>
+            <p class="subtitle">目标不是做一个摆设页，而是让开发者一眼看到链路哪里断了、哪些功能受影响、下一步该怎么修。</p>
+          </div>
+          <div class="scenario-switch" aria-label="scenario">
+            <button class="scenario-button" data-scenario="healthy">Healthy</button>
+            <button class="scenario-button active" data-scenario="degraded">Degraded</button>
+            <button class="scenario-button" data-scenario="unhealthy">Unhealthy</button>
+          </div>
+        </div>
+
+        <div class="variant-tabs" aria-label="variant">
+          <button class="variant-button active" data-variant="a">方案 A · 诊断总览</button>
+          <button class="variant-button" data-variant="b">方案 B · 能力矩阵</button>
+          <button class="variant-button" data-variant="c">方案 C · 排障工作台</button>
+        </div>
+
+        <section id="variant-a" class="variant active">
+          <div class="page-frame">
+            <div class="page-inner">
+              <div class="page-heading">
+                <div>
+                  <h2>System Status</h2>
+                  <div class="heading-meta">
+                    <span id="a-generated">Last checked 2026-05-24 22:41:16</span>
+                    <span>Duration 58 ms</span>
+                    <span>Source: LightRAGNet.Server</span>
+                  </div>
+                </div>
+                <div class="compact-actions">
+                  <button class="button primary">↻ Refresh</button>
+                  <button class="button">⧉ Copy JSON</button>
+                </div>
+              </div>
+
+              <div class="summary-grid">
+                <div class="summary-card overall">
+                  <div>
+                    <div class="summary-kicker">Overall</div>
+                    <div id="a-overall-value" class="summary-value">Degraded</div>
+                    <div id="a-overall-desc" class="summary-desc">核心查询可用，但 Neo4j 和 Rerank 存在问题，KG 模式与重排质量会受影响。</div>
+                  </div>
+                  <div id="a-score" class="score-ring">72</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-kicker">Core Storage</div>
+                  <div id="a-storage-value" class="summary-value">2 / 3</div>
+                  <div class="summary-desc">SQLite 与 Qdrant 正常，Neo4j 连接失败。</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-kicker">Model Providers</div>
+                  <div id="a-provider-value" class="summary-value">2 / 3</div>
+                  <div class="summary-desc">LLM 和 Embedding 已配置，Rerank key 缺失。</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-kicker">Workers</div>
+                  <div id="a-worker-value" class="summary-value">Ready</div>
+                  <div class="summary-desc">RAG queue 与 conversion worker 未发现卡住任务。</div>
+                </div>
+              </div>
+
+              <div class="layout-a">
+                <div class="panel">
+                  <div class="panel-header">
+                    <h3 class="panel-title">Checks</h3>
+                    <span class="chip blue">8 checks</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="check-list" id="a-checks"></div>
+                  </div>
+                </div>
+
+                <div class="side-stack">
+                  <div class="panel">
+                    <div class="panel-header">
+                      <h3 class="panel-title">Fix First</h3>
+                      <span id="a-fix-chip" class="chip amber">2 actions</span>
+                    </div>
+                    <div class="panel-body">
+                      <div class="remediation" id="a-fixes"></div>
+                    </div>
+                  </div>
+
+                  <div class="panel">
+                    <div class="panel-header">
+                      <h3 class="panel-title">Feature Impact</h3>
+                    </div>
+                    <div class="panel-body">
+                      <div class="status-strip">
+                        <div class="strip-name">Naive / Bypass</div>
+                        <div class="strip-bar"><div id="a-strip-naive" class="strip-fill" style="--w: 100%"></div></div>
+                        <span id="a-naive-chip" class="chip green">Available</span>
+                      </div>
+                      <div class="status-strip">
+                        <div class="strip-name">Local / Global / Mix</div>
+                        <div class="strip-bar"><div id="a-strip-kg" class="strip-fill amber" style="--w: 54%"></div></div>
+                        <span id="a-kg-chip" class="chip amber">Limited</span>
+                      </div>
+                      <div class="status-strip">
+                        <div class="strip-name">PDF / DOCX Intake</div>
+                        <div class="strip-bar"><div id="a-strip-intake" class="strip-fill" style="--w: 92%"></div></div>
+                        <span id="a-intake-chip" class="chip green">Available</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="notes">推荐：方案 A 最适合首版。它继承现有 MudBlazor 的表格/Chip/按钮语气，信息密度够高，也不会把系统状态页做成一个花架子。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="variant-b" class="variant">
+          <div class="page-frame">
+            <div class="page-inner">
+              <div class="page-heading">
+                <div>
+                  <h2>System Capability Matrix</h2>
+                  <div class="heading-meta">
+                    <span>按能力域聚合，不先暴露每个底层依赖</span>
+                    <span>适合给非开发用户看</span>
+                  </div>
+                </div>
+                <div class="compact-actions">
+                  <button class="button primary">↻ Refresh</button>
+                  <button class="button">▣ View Raw Checks</button>
+                </div>
+              </div>
+
+              <div class="matrix" id="b-matrix"></div>
+
+              <div class="panel" style="margin-top: 16px;">
+                <div class="panel-header">
+                  <h3 class="panel-title">Operational Notes</h3>
+                  <span id="b-overall-chip" class="chip amber">Degraded</span>
+                </div>
+                <div class="panel-body">
+                  <table class="detail-table">
+                    <thead>
+                      <tr>
+                        <th>Capability</th>
+                        <th>Status</th>
+                        <th>What changes for the user</th>
+                        <th>Next action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="b-table"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="notes">方案 B 更像“产品状态页”：对业务影响讲得清楚，但开发排障时会多点一次才能看到底层证据。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="variant-c" class="variant">
+          <div class="page-frame">
+            <div class="page-inner">
+              <div class="page-heading">
+                <div>
+                  <h2>Diagnostics Workbench</h2>
+                  <div class="heading-meta">
+                    <span>问题优先排序</span>
+                    <span>带修复步骤</span>
+                    <span>保留原始检查表</span>
+                  </div>
+                </div>
+                <div class="compact-actions">
+                  <button class="button primary">↻ Run Checks</button>
+                  <button class="button">⧉ Copy Report</button>
+                  <button class="button danger">⚠ Clear All Data</button>
+                </div>
+              </div>
+
+              <div class="layout-c">
+                <div class="panel">
+                  <div class="panel-header">
+                    <h3 class="panel-title">Runbook</h3>
+                    <span id="c-overall-chip" class="chip amber">Needs attention</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="runbook" id="c-runbook"></div>
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-header">
+                    <h3 class="panel-title">Raw Check Evidence</h3>
+                    <span class="chip blue">copyable</span>
+                  </div>
+                  <div class="panel-body">
+                    <table class="detail-table">
+                      <thead>
+                        <tr>
+                          <th>Check</th>
+                          <th>Status</th>
+                          <th>Evidence</th>
+                          <th>Remediation</th>
+                        </tr>
+                      </thead>
+                      <tbody id="c-table"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="notes">方案 C 排障效率最高，但首屏更“运维工具”。如果这页主要给你自己和开发者用，它很实用；如果未来给普通用户看，就会偏硬。</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="statusbar">
+      <span class="chip green">● SignalR Connected</span>
+    </footer>
+  </div>
+
+  <script>
+    const scenarios = {
+      healthy: {
+        overall: "Healthy",
+        score: "96",
+        desc: "所有核心链路可用，RAG 查询、文档转换、图谱工作台和后台任务状态正常。",
+        checks: [
+          ["SQLite", "green", "Connected", "markdown_documents.db reachable, migration applied."],
+          ["WorkingDir", "green", "Writable", "rag_storage can create and remove probe file."],
+          ["Qdrant", "green", "Reachable", "Vector store is reachable at localhost:6333."],
+          ["Neo4j", "green", "Reachable", "RETURN 1 completed in 12 ms."],
+          ["LLM", "green", "Configured", "LLM key and model are configured; no external call was made."],
+          ["Embedding", "green", "Configured", "Embedding key and dimension are configured."],
+          ["Rerank", "green", "Configured", "Rerank provider is configured."],
+          ["Workers", "green", "Ready", "No stuck RAG or conversion tasks found."]
+        ],
+        fixes: [
+          ["No action required", "The system is ready for document intake and query workflows.", "green"]
+        ],
+        impact: ["Available", "Available", "Available"]
+      },
+      degraded: {
+        overall: "Degraded",
+        score: "72",
+        desc: "核心查询可用，但 Neo4j 和 Rerank 存在问题，KG 模式与重排质量会受影响。",
+        checks: [
+          ["SQLite", "green", "Connected", "markdown_documents.db reachable, migration applied."],
+          ["WorkingDir", "green", "Writable", "rag_storage can create and remove probe file."],
+          ["Qdrant", "green", "Reachable", "Vector store is reachable at localhost:6333."],
+          ["Neo4j", "amber", "Unavailable", "Cannot open driver session; KG query modes are affected."],
+          ["LLM", "green", "Configured", "LLM key and model are configured; no external call was made."],
+          ["Embedding", "green", "Configured", "Embedding key and dimension are configured."],
+          ["Rerank", "amber", "Missing key", "Rerank is optional but answer quality may drop."],
+          ["Workers", "green", "Ready", "No stuck RAG or conversion tasks found."]
+        ],
+        fixes: [
+          ["Start Neo4j or update Neo4j:Uri", "Local / Global / Hybrid / Mix depend on graph storage. Naive and Bypass can still be used.", "amber"],
+          ["Configure Rerank:ApiKey", "If rerank is intentionally disabled, keep this as a warning rather than a blocker.", "amber"]
+        ],
+        impact: ["Available", "Limited", "Available"]
+      },
+      unhealthy: {
+        overall: "Unhealthy",
+        score: "31",
+        desc: "核心链路不可用：Qdrant 连接失败，WorkingDir 不可写，Embedding 缺少关键配置。",
+        checks: [
+          ["SQLite", "green", "Connected", "markdown_documents.db reachable, migration applied."],
+          ["WorkingDir", "red", "Not writable", "Probe file write failed: access denied."],
+          ["Qdrant", "red", "Unavailable", "Cannot reach vector store at localhost:6333."],
+          ["Neo4j", "amber", "Unavailable", "Cannot open driver session; KG query modes are affected."],
+          ["LLM", "green", "Configured", "LLM key and model are configured; no external call was made."],
+          ["Embedding", "red", "Missing key", "Embedding:ApiKey or DASHSCOPE_API_KEY is missing."],
+          ["Rerank", "amber", "Missing key", "Rerank is optional but answer quality may drop."],
+          ["Workers", "amber", "Blocked", "2 conversion tasks are older than 30 minutes."]
+        ],
+        fixes: [
+          ["Fix WorkingDir permissions", "The server cannot persist KV stores or converted document artifacts while the directory is read-only.", "red"],
+          ["Start Qdrant", "Vector indexing and Naive/Mix retrieval need Qdrant. Check docker compose or Qdrant port mapping.", "red"],
+          ["Configure Embedding:ApiKey", "Document indexing cannot produce chunk vectors without embedding configuration.", "red"]
+        ],
+        impact: ["Blocked", "Blocked", "Limited"]
+      }
+    };
+
+    const capabilityRows = {
+      healthy: [
+        ["Document Intake", "green", "Upload, conversion, and Add to RAG are ready.", "No action required."],
+        ["RAG Query", "green", "All query modes are available.", "No action required."],
+        ["Knowledge Graph", "green", "Graph query and curation are available.", "No action required."],
+        ["Operations", "green", "Workers and local storage are ready.", "No action required."]
+      ],
+      degraded: [
+        ["Document Intake", "green", "PDF/DOCX conversion can continue.", "No action required."],
+        ["RAG Query", "amber", "Naive and Bypass work; KG modes are limited.", "Restore Neo4j."],
+        ["Knowledge Graph", "amber", "Graph workbench cannot load live graph data.", "Start Neo4j or update Uri."],
+        ["Operations", "amber", "Rerank warning remains visible.", "Configure key or mark disabled."]
+      ],
+      unhealthy: [
+        ["Document Intake", "amber", "Upload may work, but conversion artifacts cannot persist reliably.", "Fix WorkingDir."],
+        ["RAG Query", "red", "Vector retrieval and indexing are blocked.", "Start Qdrant and configure Embedding."],
+        ["Knowledge Graph", "amber", "Graph modes are unavailable.", "Restore Neo4j after core storage."],
+        ["Operations", "red", "Multiple critical checks failed.", "Resolve blockers in order."]
+      ]
+    };
+
+    let currentScenario = "degraded";
+
+    function statusChip(label, color) {
+      const text = color === "green" ? "Healthy" : color === "amber" ? "Degraded" : "Unhealthy";
+      return `<span class="chip ${color}">${label || text}</span>`;
+    }
+
+    function render() {
+      const scenario = scenarios[currentScenario];
+      document.getElementById("a-overall-value").textContent = scenario.overall;
+      document.getElementById("a-overall-desc").textContent = scenario.desc;
+      document.getElementById("a-score").textContent = scenario.score;
+      const overallColor = scenario.overall === "Healthy" ? "green" : scenario.overall === "Degraded" ? "amber" : "red";
+      document.querySelector(".summary-card.overall").style.borderColor = overallColor === "green" ? "#bce7c8" : overallColor === "amber" ? "#f0cf91" : "#f3b9b0";
+      document.getElementById("a-score").style.color = `var(--${overallColor})`;
+      document.getElementById("a-score").style.background = `radial-gradient(circle at center, #fff 0 52%, transparent 53%), conic-gradient(var(--${overallColor}) 0 ${scenario.score}%, #f1f3f7 ${scenario.score}% 100%)`;
+
+      const redCount = scenario.checks.filter((x) => x[1] === "red").length;
+      const amberCount = scenario.checks.filter((x) => x[1] === "amber").length;
+      const greenCount = scenario.checks.filter((x) => x[1] === "green").length;
+      document.getElementById("a-storage-value").textContent = currentScenario === "healthy" ? "3 / 3" : currentScenario === "degraded" ? "2 / 3" : "1 / 3";
+      document.getElementById("a-provider-value").textContent = currentScenario === "healthy" ? "3 / 3" : currentScenario === "degraded" ? "2 / 3" : "1 / 3";
+      document.getElementById("a-worker-value").textContent = currentScenario === "unhealthy" ? "Blocked" : "Ready";
+      document.getElementById("a-checks").innerHTML = scenario.checks.map(([name, color, state, msg]) => `
+        <div class="check-row">
+          <div class="status-dot ${color}">${color === "green" ? "✓" : color === "amber" ? "!" : "×"}</div>
+          <div>
+            <div class="check-name">${name}</div>
+            <div class="check-msg">${msg}</div>
+          </div>
+          <div class="check-actions">${statusChip(state, color)}</div>
+        </div>
+      `).join("");
+      document.getElementById("a-fixes").innerHTML = scenario.fixes.map(([title, text, color]) => `
+        <div class="fix-card ${color === "red" ? "redline" : ""}">
+          <div class="fix-title">${title}</div>
+          <div class="fix-text">${text}</div>
+        </div>
+      `).join("");
+      const fixChip = document.getElementById("a-fix-chip");
+      fixChip.textContent = scenario.fixes.length === 1 ? "clear" : `${scenario.fixes.length} actions`;
+      fixChip.className = `chip ${scenario.fixes.some((x) => x[2] === "red") ? "red" : scenario.fixes.some((x) => x[2] === "amber") ? "amber" : "green"}`;
+
+      const impactIds = ["naive", "kg", "intake"];
+      scenario.impact.forEach((label, index) => {
+        const chip = document.getElementById(`a-${impactIds[index]}-chip`);
+        const fill = document.getElementById(`a-strip-${impactIds[index]}`);
+        const color = label === "Available" ? "green" : label === "Limited" ? "amber" : "red";
+        chip.textContent = label;
+        chip.className = `chip ${color}`;
+        fill.className = `strip-fill ${color === "green" ? "" : color}`;
+        fill.style.setProperty("--w", label === "Available" ? "100%" : label === "Limited" ? "54%" : "18%");
+      });
+
+      const rows = capabilityRows[currentScenario];
+      document.getElementById("b-matrix").innerHTML = rows.map(([name, color, msg, action]) => `
+        <div class="metric-tile">
+          <div class="metric-head">
+            <div class="metric-name">${name}</div>
+            ${statusChip(null, color)}
+          </div>
+          <div class="metric-body">${msg}</div>
+          <div class="metric-footer"><span>Action</span><strong>${action}</strong></div>
+        </div>
+      `).join("");
+      const bChip = document.getElementById("b-overall-chip");
+      bChip.textContent = scenario.overall;
+      bChip.className = `chip ${overallColor}`;
+      document.getElementById("b-table").innerHTML = rows.map(([name, color, msg, action]) => `
+        <tr>
+          <td><strong>${name}</strong></td>
+          <td>${statusChip(null, color)}</td>
+          <td>${msg}</td>
+          <td>${action}</td>
+        </tr>
+      `).join("");
+
+      const prioritized = scenario.checks
+        .filter((x) => x[1] !== "green")
+        .concat(scenario.checks.filter((x) => x[1] === "green").slice(0, 1));
+      document.getElementById("c-runbook").innerHTML = (scenario.fixes.length ? scenario.fixes : [["No action required", "All checks passed.", "green"]]).map(([title, text], index) => `
+        <div class="timeline-item">
+          <div class="timeline-step">${index + 1}</div>
+          <div>
+            <div class="timeline-title">${title}</div>
+            <div class="timeline-text">${text}</div>
+          </div>
+        </div>
+      `).join("");
+      const cChip = document.getElementById("c-overall-chip");
+      cChip.textContent = scenario.overall === "Healthy" ? "Ready" : scenario.overall === "Degraded" ? "Needs attention" : "Blocked";
+      cChip.className = `chip ${overallColor}`;
+      document.getElementById("c-table").innerHTML = prioritized.map(([name, color, state, msg]) => `
+        <tr>
+          <td><strong>${name}</strong></td>
+          <td>${statusChip(state, color)}</td>
+          <td>${msg}</td>
+          <td>${color === "green" ? "No action required." : color === "amber" ? "Check configuration or service state." : "Fix before using core RAG workflows."}</td>
+        </tr>
+      `).join("");
+    }
+
+    document.querySelectorAll(".scenario-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".scenario-button").forEach((x) => x.classList.remove("active"));
+        button.classList.add("active");
+        currentScenario = button.dataset.scenario;
+        render();
+      });
+    });
+
+    document.querySelectorAll(".variant-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".variant-button").forEach((x) => x.classList.remove("active"));
+        document.querySelectorAll(".variant").forEach((x) => x.classList.remove("active"));
+        button.classList.add("active");
+        document.getElementById(`variant-${button.dataset.variant}`).classList.add("active");
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>
