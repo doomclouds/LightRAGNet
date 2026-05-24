@@ -355,7 +355,6 @@ public sealed class LightRAGQueryModeTests
             embeddingService,
             tokenizer,
             llmCacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 

@@ -520,7 +520,6 @@ public sealed class LightRAGLifecycleIntegrationTests
             embeddingService,
             tokenizer,
             llmCacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 

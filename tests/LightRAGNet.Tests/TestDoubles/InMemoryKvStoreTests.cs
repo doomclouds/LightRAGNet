@@ -65,4 +65,36 @@ public sealed class InMemoryKvStoreTests
         stored.Should().NotBeNull();
         ((List<object>)stored!["object_list"]).Should().Equal("source-a");
     }
+
+    [Fact]
+    public async Task InMemoryKvStore_SnapshotAsync_ReturnsSafeInspectableDescriptors()
+    {
+        var store = new InMemoryKvStore();
+        store.Seed("Mix:query:abcdef0123456789", new Dictionary<string, object>
+        {
+            ["return"] = "secret return provider payload",
+            ["cache_type"] = "query",
+            ["original_prompt"] = "secret prompt api_key authorization",
+            ["queryparam"] = new Dictionary<string, object?>
+            {
+                ["workspace"] = "workspace-a",
+                ["workspace_query_revision"] = 3,
+                ["raw_query"] = "do not expose"
+            },
+            ["create_time"] = 1234
+        });
+
+        var snapshot = await store.SnapshotAsync();
+
+        snapshot.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new
+            {
+                Key = "Mix:query:abcdef0123456789",
+                CacheType = "query",
+                Workspace = "workspace-a",
+                WorkspaceQueryRevision = 3L,
+                HasChunkId = false,
+                CreatedAt = 1234L
+            });
+    }
 }

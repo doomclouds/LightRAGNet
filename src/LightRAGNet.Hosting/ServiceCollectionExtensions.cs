@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
         services.Configure<QdrantOptions>(configuration.GetSection("Qdrant"));
         services.Configure<Neo4JOptions>(configuration.GetSection("Neo4j"));
         services.Configure<LightRAGOptions>(configuration.GetSection("LightRAG"));
+        services.Configure<CacheMetricsOptions>(configuration.GetSection("CacheMetrics"));
 
         #endregion
 
@@ -193,6 +194,25 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<RerankCoordinator>(),
             sp.GetRequiredService<ITokenizer>()));
         services.AddSingleton<LightRagCacheKeyBuilder>();
+        services.AddSingleton<ICacheMetricsStore>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<JsonCacheMetricsStore>>();
+            var lightragOptions = sp.GetRequiredService<IOptions<LightRAGOptions>>().Value;
+            var metricsOptions = sp.GetRequiredService<IOptions<CacheMetricsOptions>>().Value;
+            var workingDir = lightragOptions.WorkingDir;
+
+            if (!Path.IsPathRooted(workingDir))
+            {
+                workingDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, workingDir);
+            }
+
+            Directory.CreateDirectory(workingDir);
+            return new JsonCacheMetricsStore(
+                Path.Combine(workingDir, "cache_metrics.json"),
+                metricsOptions,
+                logger);
+        });
+        services.AddSingleton<ICacheMetricsRecorder, CacheMetricsRecorder>();
         services.AddSingleton<LightRagLlmCacheService>();
         services.AddSingleton<LightRAG>();
 

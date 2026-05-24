@@ -16,7 +16,6 @@ public class DocumentProcessingService(
     IEmbeddingService embeddingService,
     ITokenizer tokenizer,
     LightRagLlmCacheService llmCacheService,
-    LightRagCacheKeyBuilder cacheKeyBuilder,
     IOptions<LightRAGOptions> options,
     ILogger<DocumentProcessingService> logger)
 {
@@ -189,33 +188,33 @@ public class DocumentProcessingService(
             maxEntities,
             maxRelationships);
 
-        var cacheKey = cacheKeyBuilder.BuildExtractKey(prompt.CanonicalPrompt);
-        var rawResponse = await llmCacheService.TryGetExtractAsync(prompt.CanonicalPrompt, cancellationToken);
+        var cacheResult = await llmCacheService.GetOrCreateExtractAsync(
+            prompt.CanonicalPrompt,
+            chunk.Id,
+            token => GenerateExtractResponseAsync(prompt, chunk.Id, token),
+            cancellationToken);
+        var rawResponse = cacheResult.Value;
         var llmCacheKeys = new List<string>();
 
-        if (rawResponse is not null)
+        if (cacheResult.CacheKey is not null)
+        {
+            llmCacheKeys.Add(cacheResult.CacheKey);
+        }
+
+        if (cacheResult.Hit)
         {
             logger.LogDebug("Extract cache hit for chunk {ChunkId}", chunk.Id);
-            llmCacheKeys.Add(cacheKey);
+        }
+        else if (cacheResult.CacheEnabled)
+        {
+            logger.LogDebug(
+                "Extract cache miss for chunk {ChunkId}; generated response, saved={Saved}",
+                chunk.Id,
+                cacheResult.Saved);
         }
         else
         {
-            logger.LogDebug("Extract cache miss for chunk {ChunkId}, generating...", chunk.Id);
-            rawResponse = await GenerateExtractResponseAsync(
-                prompt,
-                chunk.Id,
-                cancellationToken);
-
-            var savedKey = await llmCacheService.SaveExtractAsync(
-                prompt.CanonicalPrompt,
-                rawResponse,
-                chunk.Id,
-                cancellationToken);
-
-            if (savedKey is not null)
-            {
-                llmCacheKeys.Add(savedKey);
-            }
+            logger.LogDebug("Extract cache disabled for chunk {ChunkId}; generated response", chunk.Id);
         }
         
         var extractionResult = EntityExtractionResultParser.Parse(

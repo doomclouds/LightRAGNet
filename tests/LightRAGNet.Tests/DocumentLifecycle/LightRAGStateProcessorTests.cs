@@ -176,7 +176,6 @@ public sealed class LightRAGStateProcessorTests
             embeddingService,
             tokenizer,
             llmCacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 

@@ -10,7 +10,7 @@ namespace LightRAGNet.Storage;
 /// JSON file-based KV store implementation
 /// Reference: Python version kg/json_kv_impl.py
 /// </summary>
-public class JsonKVStore : IKVStore
+public class JsonKVStore : IKVStore, IInspectableKVStore
 {
     private readonly string _filePath;
     private readonly ILogger<JsonKVStore> _logger;
@@ -163,6 +163,24 @@ public class JsonKVStore : IKVStore
             }
             
             _logger.LogInformation("Cleared data in memory and file: {FilePath}", _filePath);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<InspectableKVStoreEntry>> SnapshotAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            return _data
+                .Select(pair => InspectableKVStoreEntry.FromRaw(pair.Key, pair.Value))
+                .Where(entry => entry is not null)
+                .Select(entry => entry!)
+                .ToList();
         }
         finally
         {

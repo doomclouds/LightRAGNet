@@ -10,6 +10,10 @@ if (existsSync("src/system-status/main.tsx")) {
   input.systemStatus = "src/system-status/main.tsx";
 }
 
+if (existsSync("src/cache-management/main.tsx")) {
+  input.cacheManagement = "src/cache-management/main.tsx";
+}
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -27,16 +31,24 @@ export default defineConfig({
             return "system-status/assets/system-status.js";
           }
 
+          if (chunkInfo.name === "cacheManagement") {
+            return "cache-management/assets/cache-management.js";
+          }
+
           return "graph-workbench/assets/graph-workbench.js";
         },
         chunkFileNames: "assets/[name].js",
         assetFileNames: (assetInfo) => {
-          const assetNames = assetInfo.names ?? [];
+          const assetNames = [...(assetInfo.names ?? []), ...(assetInfo.originalFileNames ?? [])];
           const normalizedAssetNames = assetNames.map((name) => name.toLowerCase());
 
           if (assetNames.some((name) => name.endsWith(".css"))) {
             if (normalizedAssetNames.some((name) => name.includes("system-status") || name.includes("systemstatus"))) {
               return "system-status/assets/system-status.css";
+            }
+
+            if (normalizedAssetNames.some((name) => name.includes("cache-management") || name.includes("cachemanagement"))) {
+              return "cache-management/assets/cache-management.css";
             }
 
             return "graph-workbench/assets/graph-workbench.css";

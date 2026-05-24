@@ -345,7 +345,6 @@ public sealed class DocumentProcessingServiceTests
                 Options.Create(lightRagOptions),
                 keyBuilder,
                 NullLogger<LightRagLlmCacheService>.Instance),
-            keyBuilder,
             Options.Create(lightRagOptions),
             NullLogger<DocumentProcessingService>.Instance);
     }

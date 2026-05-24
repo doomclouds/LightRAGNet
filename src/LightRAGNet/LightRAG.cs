@@ -657,16 +657,6 @@ public class LightRAG(
             keywords = keywordDecision.Keywords;
         }
 
-        if (keywordResult.ShouldSaveKeywordCache)
-        {
-            await llmCacheService.SaveKeywordsAsync(
-                keywordResult.Workspace!,
-                queryParam.Mode,
-                query,
-                keywords,
-                cancellationToken);
-        }
-
         logger.LogDebug(
             "High-level keywords: {HLKeywords}, Low-level keywords: {LLKeywords}",
             string.Join(", ", keywords.HighLevelKeywords),
@@ -967,42 +957,31 @@ public class LightRAG(
         QueryAnswerCacheContext? cacheContext,
         CancellationToken cancellationToken)
     {
-        if (cacheContext is not null)
+        async Task<string> GenerateAsync(CancellationToken token)
         {
-            var cachedResponse = await llmCacheService.TryGetQueryResponseAsync(
-                cacheContext.Workspace,
-                cacheContext.Revision,
+            return await llmService.GenerateAsync(
                 query,
-                queryParam,
-                keywords,
-                cancellationToken);
-
-            if (cachedResponse is not null)
-            {
-                return cachedResponse;
-            }
+                systemPrompt,
+                queryParam.ConversationHistory,
+                temperature: 0.3f,
+                cancellationToken: token);
         }
 
-        var response = await llmService.GenerateAsync(
+        if (cacheContext is null)
+        {
+            return await GenerateAsync(cancellationToken);
+        }
+
+        var result = await llmCacheService.GetOrCreateQueryResponseAsync(
+            cacheContext.Workspace,
+            cacheContext.Revision,
             query,
-            systemPrompt,
-            queryParam.ConversationHistory,
-            temperature: 0.3f,
-            cancellationToken: cancellationToken);
+            queryParam,
+            keywords,
+            GenerateAsync,
+            cancellationToken);
 
-        if (cacheContext is not null)
-        {
-            await llmCacheService.SaveQueryResponseAsync(
-                cacheContext.Workspace,
-                cacheContext.Revision,
-                query,
-                queryParam,
-                keywords,
-                response,
-                cancellationToken);
-        }
-
-        return response;
+        return result.Value;
     }
 
     private async Task<QueryKeywordResult> GetQueryKeywordsAsync(
@@ -1017,45 +996,32 @@ public class LightRAG(
                 {
                     HighLevelKeywords = queryParam.HighLevelKeywords,
                     LowLevelKeywords = queryParam.LowLevelKeywords
-                },
-                Workspace: null,
-                ShouldSaveKeywordCache: false);
+                });
         }
 
         if (!IsKnowledgeGraphQueryMode(queryParam.Mode))
         {
             return new QueryKeywordResult(
-                await llmService.ExtractKeywordsAsync(query, cancellationToken: cancellationToken),
-                Workspace: null,
-                ShouldSaveKeywordCache: false);
+                await llmService.ExtractKeywordsAsync(query, cancellationToken: cancellationToken));
         }
 
         var workspace = documentLifecycleService.GetDefaultWorkspace();
-        var cachedKeywords = await llmCacheService.TryGetKeywordsAsync(
+        var result = await llmCacheService.GetOrCreateKeywordsAsync(
             workspace,
             queryParam.Mode,
             query,
+            async token =>
+            {
+                var extractedKeywords = await llmService.ExtractKeywordsAsync(query, cancellationToken: token);
+                var decision = QueryKeywordPolicy.NormalizeForKg(query, extractedKeywords, queryParam.Mode);
+                return decision.ShouldFail ? extractedKeywords : decision.Keywords;
+            },
             cancellationToken);
 
-        if (cachedKeywords is not null)
-        {
-            return new QueryKeywordResult(
-                cachedKeywords,
-                workspace,
-                ShouldSaveKeywordCache: false);
-        }
-
-        var keywords = await llmService.ExtractKeywordsAsync(query, cancellationToken: cancellationToken);
-        return new QueryKeywordResult(
-            keywords,
-            workspace,
-            ShouldSaveKeywordCache: true);
+        return new QueryKeywordResult(result.Value);
     }
 
-    private sealed record QueryKeywordResult(
-        KeywordsResult Keywords,
-        string? Workspace,
-        bool ShouldSaveKeywordCache);
+    private sealed record QueryKeywordResult(KeywordsResult Keywords);
 
     private sealed record QueryAnswerCacheContext(
         string Workspace,

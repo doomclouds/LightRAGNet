@@ -158,7 +158,9 @@ public sealed class LightRAGQueryRevisionTests
             }
         });
         var fixture = CreateLightRag(llmService: llmService, vectorStore: vectorStore);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -214,7 +216,9 @@ public sealed class LightRAGQueryRevisionTests
             }
         });
         var fixture = CreateLightRag(llmService: llmService, vectorStore: vectorStore);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -291,7 +295,6 @@ public sealed class LightRAGQueryRevisionTests
             embeddingService,
             tokenizer,
             cacheService,
-            cacheKeyBuilder,
             options,
             NullLogger<DocumentProcessingService>.Instance);
 
@@ -361,7 +364,31 @@ public sealed class LightRAGQueryRevisionTests
             documentDeletionService,
             NullLogger<LightRAG>.Instance);
 
-        return new LightRagFixture(rag, cacheService);
+        return new LightRagFixture(rag, cacheService, llmCacheStore);
+    }
+
+    private static void SeedQueryCache(
+        InMemoryKvStore store,
+        LightRagCacheKeyBuilder keyBuilder,
+        string workspace,
+        long revision,
+        string query,
+        QueryParam queryParam,
+        KeywordsResult keywords,
+        string response)
+    {
+        var key = queryParam.Mode == QueryMode.Bypass
+            ? keyBuilder.BuildBypassQueryKey(query, queryParam)
+            : keyBuilder.BuildRagQueryKey(workspace, revision, query, queryParam, keywords);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                response,
+                LightRagCacheKeyBuilder.QueryCacheType,
+                query,
+                new Dictionary<string, object?> { ["workspace_query_revision"] = revision },
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .ToDictionary());
     }
 
     private static DocumentLifecycleService CreateLifecycleService(InMemoryDocumentStatusStore statusStore)
@@ -377,5 +404,6 @@ public sealed class LightRAGQueryRevisionTests
 
     private sealed record LightRagFixture(
         LightRAG Rag,
-        LightRagLlmCacheService CacheService);
+        LightRagLlmCacheService CacheService,
+        InMemoryKvStore LlmCacheStore);
 }

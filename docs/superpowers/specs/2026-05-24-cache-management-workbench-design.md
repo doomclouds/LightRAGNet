@@ -453,7 +453,7 @@ Dangerous actions：
 | Plan | Behavior | Confirmation |
 | --- | --- | --- |
 | `stale-query-cache` | 删除旧 workspace revision 的 query answer cache | No |
-| `unused-summary-cache` | 删除超过阈值未命中的 summary cache | Review first |
+| `summary-cache-review` | 复核 summary cache，后续清理前需要确认 | Review first |
 | `all-llm-cache` | 调用 `llm_cache.DropAsync()` 清空 LLM cache，并保留或重建 revision metadata | Yes |
 
 `all-llm-cache` 的 revision 行为：
