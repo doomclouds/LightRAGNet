@@ -32,6 +32,17 @@ function paged(items: MarkdownDocumentDto[], overrides: Partial<PagedResult<Mark
   };
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe('DocumentsPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -105,6 +116,34 @@ describe('DocumentsPage', () => {
         status: 'Failed'
       })
     );
+  });
+
+  it('hides stale rows and actions while a status filter reload is pending', async () => {
+    const user = userEvent.setup();
+    const initialLoad = deferred<PagedResult<MarkdownDocumentDto>>();
+    const filteredLoad = deferred<PagedResult<MarkdownDocumentDto>>();
+    const loadDocuments = vi.fn()
+      .mockReturnValueOnce(initialLoad.promise)
+      .mockReturnValueOnce(filteredLoad.promise);
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    initialLoad.resolve(paged([makeDocument({ fileName: 'completed.md', ragStatus: 'Completed' })]));
+
+    expect(await screen.findByText('completed.md')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('RAG status filter'), 'Failed');
+
+    await waitFor(() => expect(loadDocuments).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Loading documents...')).toBeInTheDocument();
+    expect(screen.queryByText('completed.md')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View completed.md' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add completed.md to RAG' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete completed.md' })).not.toBeInTheDocument();
+
+    filteredLoad.resolve(paged([makeDocument({ fileName: 'failed.md', ragStatus: 'Failed' })]));
+
+    expect(await screen.findByText('failed.md')).toBeInTheDocument();
   });
 
   it('shows loading, empty, and error states', async () => {

@@ -289,7 +289,7 @@ a {
   font-size: clamp(28px, 4vw, 40px);
 }
 
-.document-list p {
+.document-list__header p {
   margin: 0;
   color: var(--color-text-muted);
   line-height: 1.65;

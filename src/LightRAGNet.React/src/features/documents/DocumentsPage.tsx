@@ -110,7 +110,7 @@ export function DocumentsPage({
         <p className="document-list__state">No documents found.</p>
       ) : null}
 
-      {!errorMessage && documents.length > 0 ? (
+      {!isLoading && !errorMessage && documents.length > 0 ? (
         <div className="document-list__table-wrap">
           <table className="document-list__table">
             <thead>
