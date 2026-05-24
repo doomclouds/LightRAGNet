@@ -178,6 +178,24 @@ public sealed class LightRagLlmCacheService(
         return ReadWorkspaceQueryRevisionStrictAsync(workspace, cancellationToken);
     }
 
+    public async Task ClearAllEntriesPreservingWorkspaceQueryRevisionAsync(
+        string workspace,
+        long workspaceQueryRevision,
+        CancellationToken cancellationToken = default)
+    {
+        await llmCacheStore.DropAsync(cancellationToken);
+
+        await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+        {
+            [keyBuilder.BuildRevisionKey(workspace)] = new Dictionary<string, object>
+            {
+                ["revision"] = workspaceQueryRevision,
+                ["updated_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
+            }
+        }, cancellationToken);
+        await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
+    }
+
     public async Task<long> BumpWorkspaceQueryRevisionAsync(
         string workspace,
         CancellationToken cancellationToken = default)

@@ -142,4 +142,30 @@ describe("CacheManagementWorkbench", () => {
     expect(html).toContain("Mix:query:af31...");
     expect(html).not.toMatch(/prompt|return_value|provider response|authorization|api key/i);
   });
+
+  test("renders explicit destructive clear confirmation before enabling confirm", () => {
+    const html = renderToStaticMarkup(
+      <CacheManagementWorkbenchView
+        apiBase="/api-root"
+        workspace="_"
+        window="24h"
+        overview={overview}
+        isLoading={false}
+        errorMessage={null}
+        actionMessage={null}
+        pendingPlanId={null}
+        confirmingPlanId="all-llm-cache"
+        onWorkspaceChange={() => undefined}
+        onWindowChange={() => undefined}
+        onRefresh={() => undefined}
+        onCopyJson={() => undefined}
+        onBeginClear={() => undefined}
+        onCancelClear={() => undefined}
+        onConfirmClear={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Confirm destructive clear");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*Confirm/);
+  });
 });

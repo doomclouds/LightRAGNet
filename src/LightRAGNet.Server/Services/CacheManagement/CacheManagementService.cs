@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LightRAGNet.Services.QueryCache;
 
 namespace LightRAGNet.Server.Services.CacheManagement;
@@ -6,6 +7,7 @@ public sealed class CacheManagementService(
     ICacheMetricsStore metricsStore,
     CacheEntryInspector entryInspector,
     LightRagLlmCacheService llmCacheService,
+    ICacheMetricsRecorder metricsRecorder,
     CacheClearPlanner clearPlanner,
     ILogger<CacheManagementService> logger)
 {
@@ -62,7 +64,18 @@ public sealed class CacheManagementService(
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalizedWorkspace = NormalizeWorkspace(request.Workspace);
-        var currentRevision = await llmCacheService.GetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
+        var revisionResult = await llmCacheService.TryGetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
+        if (!revisionResult.Succeeded)
+        {
+            return new CacheClearResponse(
+                Succeeded: false,
+                DeletedEntries: 0,
+                CacheTypes: [],
+                Message: "Workspace query revision unavailable; cannot safely clear stale query cache.",
+                RevisionAfter: 0);
+        }
+
+        var currentRevision = revisionResult.Revision;
         var inventory = await entryInspector.InspectAsync(normalizedWorkspace, currentRevision, cancellationToken);
         var plan = clearPlanner
             .CreatePlans(inventory)
@@ -106,6 +119,35 @@ public sealed class CacheManagementService(
             _ => []
         };
 
+        if (string.Equals(request.PlanId, "all-llm-cache", StringComparison.Ordinal))
+        {
+            var clearDuration = Stopwatch.StartNew();
+            await llmCacheService.ClearAllEntriesPreservingWorkspaceQueryRevisionAsync(
+                normalizedWorkspace,
+                currentRevision,
+                cancellationToken);
+            clearDuration.Stop();
+
+            await RecordClearMetricsAsync(
+                normalizedWorkspace,
+                plan.CacheTypes,
+                clearDuration.Elapsed,
+                currentRevision,
+                cancellationToken);
+
+            logger.LogInformation(
+                "Dropped LLM cache entries for workspace {Workspace} plan {PlanId}.",
+                normalizedWorkspace,
+                request.PlanId);
+
+            return new CacheClearResponse(
+                Succeeded: true,
+                DeletedEntries: inventory.Count,
+                CacheTypes: plan.CacheTypes,
+                Message: $"Deleted {inventory.Count} cache entries for clear plan '{request.PlanId}'.",
+                RevisionAfter: currentRevision);
+        }
+
         if (keys.Count == 0)
         {
             return new CacheClearResponse(
@@ -116,7 +158,16 @@ public sealed class CacheManagementService(
                 RevisionAfter: currentRevision);
         }
 
+        var duration = Stopwatch.StartNew();
         await entryInspector.DeleteAsync(keys, cancellationToken);
+        duration.Stop();
+        await RecordClearMetricsAsync(
+            normalizedWorkspace,
+            plan.CacheTypes,
+            duration.Elapsed,
+            currentRevision,
+            cancellationToken);
+
         logger.LogInformation(
             "Deleted {DeletedEntries} cache entries for workspace {Workspace} plan {PlanId}.",
             keys.Count,
@@ -129,6 +180,31 @@ public sealed class CacheManagementService(
             CacheTypes: plan.CacheTypes,
             Message: $"Deleted {keys.Count} cache entries for clear plan '{request.PlanId}'.",
             RevisionAfter: currentRevision);
+    }
+
+    private async Task RecordClearMetricsAsync(
+        string workspace,
+        IReadOnlyList<string> cacheTypes,
+        TimeSpan duration,
+        long currentRevision,
+        CancellationToken cancellationToken)
+    {
+        foreach (var cacheType in cacheTypes)
+        {
+            try
+            {
+                await metricsRecorder.RecordClearAsync(
+                    workspace,
+                    cacheType,
+                    duration,
+                    currentRevision,
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Failed to record {CacheType} cache clear metric.", cacheType);
+            }
+        }
     }
 
     private static CacheSummaryDto CreateSummary(

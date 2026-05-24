@@ -515,7 +515,25 @@
 
 .cache-clear-row__actions {
   display: inline-flex;
+  align-items: center;
   gap: 8px;
+}
+
+.cache-clear-confirm {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #ffd5d5;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.cache-clear-confirm input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff6b6b;
 }
 
 .cache-contract-list {

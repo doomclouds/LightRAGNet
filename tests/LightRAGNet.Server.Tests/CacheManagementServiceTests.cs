@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet;
 using LightRAGNet.Core.Interfaces;
@@ -220,7 +221,8 @@ public sealed class CacheManagementServiceTests
     {
         var cacheStore = new InspectableKvStore();
         cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
-        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore, recorder);
 
         var result = await service.ClearAsync(
             new CacheClearRequest("_", "all-llm-cache", Confirm: false),
@@ -235,6 +237,7 @@ public sealed class CacheManagementServiceTests
             LightRagCacheKeyBuilder.SummaryCacheType);
         result.Message.Should().Contain("confirmation");
         cacheStore.Contains("Mix:query:current").Should().BeTrue();
+        recorder.ClearEvents.Should().BeEmpty();
     }
 
     [Fact]
@@ -321,18 +324,23 @@ public sealed class CacheManagementServiceTests
     }
 
     [Fact]
-    public async Task ClearAsync_AllCacheWithConfirmation_RemovesInventoryEntries()
+    public async Task ClearAsync_AllCacheWithConfirmation_DropsRawEntriesAndPreservesWorkspaceRevision()
     {
         var cacheStore = new InspectableKvStore();
         cacheStore.Seed("metadata:query_revision:_", new Dictionary<string, object>
         {
-            ["revision"] = 0
+            ["revision"] = 7
         });
         cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
         cacheStore.Seed("Mix:keywords:current", CreateCacheEntry(LightRagCacheKeyBuilder.KeywordsCacheType));
         cacheStore.Seed("Mix:extract:current", CreateCacheEntry(LightRagCacheKeyBuilder.ExtractCacheType));
         cacheStore.Seed("Mix:summary:current", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
-        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+        cacheStore.Seed("legacy:malformed", new Dictionary<string, object>
+        {
+            ["return"] = "legacy value without cache type"
+        });
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore, recorder);
 
         var result = await service.ClearAsync(
             new CacheClearRequest("_", "all-llm-cache", Confirm: true),
@@ -345,9 +353,163 @@ public sealed class CacheManagementServiceTests
             LightRagCacheKeyBuilder.KeywordsCacheType,
             LightRagCacheKeyBuilder.ExtractCacheType,
             LightRagCacheKeyBuilder.SummaryCacheType);
+        cacheStore.DeleteCallCount.Should().Be(0);
+        cacheStore.DropCallCount.Should().Be(1);
+        cacheStore.UpsertCallCount.Should().Be(1);
         cacheStore.IndexDoneCallbackCount.Should().Be(1);
         cacheStore.Count.Should().Be(1);
         cacheStore.Contains("metadata:query_revision:_").Should().BeTrue();
+        cacheStore.Contains("legacy:malformed").Should().BeFalse();
+        (await cacheStore.GetByIdAsync("metadata:query_revision:_", CancellationToken.None))!["revision"].Should().Be(7L);
+        recorder.ClearEvents.Should().BeEquivalentTo(
+        [
+            new RecordedClearMetric("_", LightRagCacheKeyBuilder.QueryCacheType, 7),
+            new RecordedClearMetric("_", LightRagCacheKeyBuilder.KeywordsCacheType, 7),
+            new RecordedClearMetric("_", LightRagCacheKeyBuilder.ExtractCacheType, 7),
+            new RecordedClearMetric("_", LightRagCacheKeyBuilder.SummaryCacheType, 7)
+        ]);
+    }
+
+    [Fact]
+    public async Task ClearAsync_WithJsonKvStore_AllCacheDropsMalformedEntriesAndKeepsRevision()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        try
+        {
+            var writeStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+            await writeStore.UpsertAsync(
+                new Dictionary<string, Dictionary<string, object>>
+                {
+                    ["metadata:query_revision:workspace-a"] = new()
+                    {
+                        ["revision"] = 5
+                    },
+                    ["Mix:query:workspace-a-current"] = CreateCacheEntry(
+                        LightRagCacheKeyBuilder.QueryCacheType,
+                        workspace: "workspace-a",
+                        workspaceQueryRevision: 5),
+                    ["Mix:summary:workspace-a"] = CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType),
+                    ["legacy:malformed"] = new()
+                    {
+                        ["return"] = "legacy value without cache type"
+                    }
+                },
+                CancellationToken.None);
+            await writeStore.IndexDoneCallbackAsync(CancellationToken.None);
+            var service = CreateService(new InMemoryCacheMetricsStore([]), writeStore);
+
+            var result = await service.ClearAsync(
+                new CacheClearRequest("workspace-a", "all-llm-cache", Confirm: true),
+                CancellationToken.None);
+            var readStore = new JsonKVStore(filePath, NullLogger<JsonKVStore>.Instance);
+
+            result.Succeeded.Should().BeTrue();
+            result.DeletedEntries.Should().Be(2);
+            (await readStore.GetByIdAsync("Mix:query:workspace-a-current", CancellationToken.None)).Should().BeNull();
+            (await readStore.GetByIdAsync("Mix:summary:workspace-a", CancellationToken.None)).Should().BeNull();
+            (await readStore.GetByIdAsync("legacy:malformed", CancellationToken.None)).Should().BeNull();
+            var revision = await readStore.GetByIdAsync("metadata:query_revision:workspace-a", CancellationToken.None);
+            revision.Should().NotBeNull();
+            ReadRevisionValue(revision!["revision"]).Should().Be(5L);
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ClearAsync_AllCacheWithOnlyMalformedEntries_StillDropsStore()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("legacy:malformed", new Dictionary<string, object>
+        {
+            ["return"] = "legacy value without cache type"
+        });
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "all-llm-cache", Confirm: true),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.DeletedEntries.Should().Be(0);
+        cacheStore.DropCallCount.Should().Be(1);
+        cacheStore.Contains("legacy:malformed").Should().BeFalse();
+        cacheStore.Contains("metadata:query_revision:_").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_StaleQueryCache_WhenRevisionReadFails_DoesNotDeleteOrRecordMetrics()
+    {
+        var cacheStore = new InspectableKvStore
+        {
+            ThrowOnRevisionRead = true
+        };
+        cacheStore.Seed("metadata:query_revision:workspace-a", new Dictionary<string, object>
+        {
+            ["revision"] = 3
+        });
+        cacheStore.Seed(
+            "Mix:query:workspace-a-current",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 3));
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore, recorder);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("workspace-a", "stale-query-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.DeletedEntries.Should().Be(0);
+        result.Message.ToLowerInvariant().Should().Contain("workspace query revision");
+        result.Message.Should().Contain("cannot safely clear stale query cache");
+        cacheStore.DeleteCallCount.Should().Be(0);
+        cacheStore.DropCallCount.Should().Be(0);
+        recorder.ClearEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ClearAsync_StaleQueryCache_RecordsClearMetricAfterSuccessfulDelete()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("metadata:query_revision:workspace-a", new Dictionary<string, object>
+        {
+            ["revision"] = 3
+        });
+        cacheStore.Seed(
+            "Mix:query:workspace-a-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 2));
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore, recorder);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("workspace-a", "stale-query-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        recorder.ClearEvents.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new RecordedClearMetric("workspace-a", LightRagCacheKeyBuilder.QueryCacheType, 3));
+    }
+
+    [Fact]
+    public async Task ClearAsync_NoMatchingEntries_DoesNotRecordClearMetric()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore, recorder);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "stale-query-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        recorder.ClearEvents.Should().BeEmpty();
     }
 
     [Fact]
@@ -436,7 +598,8 @@ public sealed class CacheManagementServiceTests
 
     private static CacheManagementService CreateService(
         ICacheMetricsStore metricsStore,
-        IKVStore cacheStore)
+        IKVStore cacheStore,
+        ICacheMetricsRecorder? metricsRecorder = null)
     {
         return new CacheManagementService(
             metricsStore,
@@ -445,7 +608,9 @@ public sealed class CacheManagementServiceTests
                 cacheStore,
                 Options.Create(new LightRAGOptions()),
                 new LightRagCacheKeyBuilder(),
+                metricsRecorder ?? new RecordingCacheMetricsRecorder(),
                 NullLogger<LightRagLlmCacheService>.Instance),
+            metricsRecorder ?? new RecordingCacheMetricsRecorder(),
             new CacheClearPlanner(),
             NullLogger<CacheManagementService>.Instance);
     }
@@ -487,6 +652,11 @@ public sealed class CacheManagementServiceTests
             ChunkId: chunkId).ToDictionary();
     }
 
+    private static long ReadRevisionValue(object value)
+    {
+        return value is JsonElement json ? json.GetInt64() : Convert.ToInt64(value);
+    }
+
     private sealed class InMemoryCacheMetricsStore(IReadOnlyList<CacheMetricEvent> seed) : ICacheMetricsStore
     {
         private readonly List<CacheMetricEvent> metrics = seed.ToList();
@@ -524,7 +694,13 @@ public sealed class CacheManagementServiceTests
 
         public int DeleteCallCount { get; private set; }
 
+        public int DropCallCount { get; private set; }
+
         public int IndexDoneCallbackCount { get; private set; }
+
+        public int UpsertCallCount { get; private set; }
+
+        public bool ThrowOnRevisionRead { get; init; }
 
         public bool Contains(string id)
         {
@@ -546,6 +722,11 @@ public sealed class CacheManagementServiceTests
         public Task<Dictionary<string, object>?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (ThrowOnRevisionRead && id.StartsWith("metadata:query_revision:", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Revision read failed.");
+            }
+
             return Task.FromResult(items.TryGetValue(id, out var item)
                 ? item.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
                 : null);
@@ -567,7 +748,14 @@ public sealed class CacheManagementServiceTests
             Dictionary<string, Dictionary<string, object>> data,
             CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            UpsertCallCount++;
+            foreach (var pair in data)
+            {
+                items[pair.Key] = pair.Value.ToDictionary(value => value.Key, value => value.Value, StringComparer.Ordinal);
+            }
+
+            return Task.CompletedTask;
         }
 
         public Task DeleteAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
@@ -596,7 +784,56 @@ public sealed class CacheManagementServiceTests
 
         public Task DropAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            DropCallCount++;
+            items.Clear();
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record RecordedClearMetric(string Workspace, string CacheType, long? Revision);
+
+    private sealed class RecordingCacheMetricsRecorder : ICacheMetricsRecorder
+    {
+        public List<RecordedClearMetric> ClearEvents { get; } = [];
+
+        public Task RecordReadAsync(
+            string workspace,
+            string cacheType,
+            string outcome,
+            string? mode,
+            TimeSpan duration,
+            TimeSpan? factoryDuration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordSaveAsync(
+            string workspace,
+            string cacheType,
+            string? mode,
+            TimeSpan duration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordClearAsync(
+            string workspace,
+            string cacheType,
+            TimeSpan duration,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            duration.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
+            ClearEvents.Add(new RecordedClearMetric(workspace, cacheType, revision));
+            return Task.CompletedTask;
         }
     }
 }

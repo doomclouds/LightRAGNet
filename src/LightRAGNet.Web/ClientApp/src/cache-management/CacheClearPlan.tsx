@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ShieldAlert, Trash2, X } from "lucide-react";
 
 import type { CacheClearPlanDto } from "../types/cacheManagement";
@@ -20,6 +21,12 @@ export function CacheClearPlan({
   onCancelClear,
   onConfirmClear
 }: Props) {
+  const [confirmedPlanId, setConfirmedPlanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setConfirmedPlanId(null);
+  }, [confirmingPlanId]);
+
   return (
     <section className="cache-panel">
       <header className="cache-panel__head">
@@ -37,6 +44,7 @@ export function CacheClearPlan({
             const tone = getRiskTone(plan.risk);
             const isPending = pendingPlanId === plan.id;
             const isConfirming = confirmingPlanId === plan.id;
+            const destructiveClearConfirmed = confirmedPlanId === plan.id;
 
             return (
               <article className={`cache-clear-row cache-clear-row--${tone}`} key={plan.id}>
@@ -54,11 +62,20 @@ export function CacheClearPlan({
 
                 {isConfirming ? (
                   <div className="cache-clear-row__actions">
+                    <label className="cache-clear-confirm">
+                      <input
+                        type="checkbox"
+                        checked={destructiveClearConfirmed}
+                        onChange={(event) => setConfirmedPlanId(event.target.checked ? plan.id : null)}
+                        disabled={isPending}
+                      />
+                      <span>Confirm destructive clear</span>
+                    </label>
                     <button
                       className="cache-button cache-button--danger"
                       type="button"
                       onClick={() => onConfirmClear(plan)}
-                      disabled={isPending}
+                      disabled={isPending || !destructiveClearConfirmed}
                     >
                       <ShieldAlert aria-hidden="true" size={16} />
                       Confirm
