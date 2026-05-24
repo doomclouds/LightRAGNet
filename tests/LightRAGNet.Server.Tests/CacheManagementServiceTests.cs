@@ -112,6 +112,7 @@ public sealed class CacheManagementServiceTests
         overview.Summary.OverallHitRate.Should().BeNull();
         overview.Families.Select(family => family.CacheType).Should().Equal("query", "keywords", "extract", "summary");
         overview.Families.Should().OnlyContain(family => family.HitRate == null);
+        overview.Families.Should().OnlyContain(family => family.ValueLevel == "NotMeasured");
         overview.Insights.Should().ContainSingle().Which.Level.Should().Be("info");
     }
 
@@ -132,9 +133,11 @@ public sealed class CacheManagementServiceTests
         overview.ClearPlan.Should().NotContain(plan => plan.Id == "unused-summary-cache");
         summaryPlan.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
         summaryPlan.EntryCount.Should().Be(1);
+        summaryPlan.Risk.Should().Be("Medium");
         summaryPlan.RequiresConfirmation.Should().BeTrue();
         summaryPlan.Title.Should().Contain("Review");
         summaryPlan.Impact.Should().Contain("review", Exactly.Once());
+        overview.ClearPlan.Select(plan => plan.Risk).Should().Equal("Low", "Medium", "High");
     }
 
     [Fact]
@@ -165,8 +168,50 @@ public sealed class CacheManagementServiceTests
         overview.EntrySamples.Should().ContainSingle(sample => sample.State == "current");
         overview.EntrySamples.Should().ContainSingle(sample => sample.State == "other workspace");
         overview.EntrySamples.Should().ContainSingle(sample => sample.State == "unknown revision");
+        var queryFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "query").Subject;
+        queryFamily.RiskLevel.Should().Be("OldRevision");
         var stalePlan = overview.ClearPlan.Should().ContainSingle(plan => plan.Id == "stale-query-cache").Subject;
         stalePlan.EntryCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_WithoutOldQueryRevision_ReturnsCurrentQueryFamilyRisk()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("metadata:query_revision:workspace-a", new Dictionary<string, object>
+        {
+            ["revision"] = 3
+        });
+        cacheStore.Seed(
+            "Mix:query:workspace-a-current",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 3));
+        cacheStore.Seed(
+            "Mix:query:workspace-b-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-b", workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:query:unknown-workspace",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: null, workspaceQueryRevision: 2));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var overview = await service.GetOverviewAsync("workspace-a", "24h");
+
+        var queryFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "query").Subject;
+        queryFamily.RiskLevel.Should().Be("Current");
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_WithExtractInventory_ReturnsDocLinkedExtractFamilyRisk()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed(
+            "Mix:extract:doc-linked",
+            CreateCacheEntry(LightRagCacheKeyBuilder.ExtractCacheType, chunkId: "chunk-1"));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var overview = await service.GetOverviewAsync("_", "24h");
+
+        var extractFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "extract").Subject;
+        extractFamily.RiskLevel.Should().Be("DocLinked");
     }
 
     private static CacheManagementService CreateService(
@@ -206,7 +251,8 @@ public sealed class CacheManagementServiceTests
     private static Dictionary<string, object> CreateCacheEntry(
         string cacheType,
         string? workspace = "_",
-        long workspaceQueryRevision = 0)
+        long workspaceQueryRevision = 0,
+        string? chunkId = null)
     {
         return new LightRagCacheEntry(
             ReturnValue: "secret return value",
@@ -218,7 +264,7 @@ public sealed class CacheManagementServiceTests
                 ["workspace_query_revision"] = workspaceQueryRevision
             },
             CreateTime: 1234,
-            ChunkId: null).ToDictionary();
+            ChunkId: chunkId).ToDictionary();
     }
 
     private sealed class InMemoryCacheMetricsStore(IReadOnlyList<CacheMetricEvent> seed) : ICacheMetricsStore

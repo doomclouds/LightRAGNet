@@ -136,19 +136,23 @@ public sealed class CacheManagementService(
                 var hits = CountOutcome(familyReads, CacheReadOutcome.Hit);
                 var misses = CountOutcome(familyReads, CacheReadOutcome.Miss);
                 var attempts = hits + misses;
-                var entryCount = inventory.Count(entry => string.Equals(entry.CacheType, cacheType, StringComparison.Ordinal));
+                var familyInventory = inventory
+                    .Where(entry => string.Equals(entry.CacheType, cacheType, StringComparison.Ordinal))
+                    .ToList();
+                var entryCount = familyInventory.Count;
+                var hitRate = attempts > 0 ? (double)hits / attempts : (double?)null;
                 var averageMissFactoryDuration = AverageMissFactoryDuration(familyReads);
 
                 return new CacheFamilyDto(
                     cacheType,
                     GetDisplayName(cacheType),
-                    attempts > 0 ? (double)hits / attempts : null,
+                    hitRate,
                     hits,
                     misses,
                     attempts,
                     entryCount,
-                    GetValueLevel(cacheType),
-                    GetRiskLevel(cacheType),
+                    GetValueLevel(attempts, hitRate),
+                    GetRiskLevel(cacheType, familyInventory),
                     hits,
                     EstimateLatencySavedMs(averageMissFactoryDuration, hits),
                     CreateFamilyMessage(cacheType, attempts, entryCount));
@@ -249,28 +253,37 @@ public sealed class CacheManagementService(
         };
     }
 
-    private static string GetValueLevel(string cacheType)
+    private static string GetValueLevel(int attempts, double? hitRate)
     {
-        return cacheType switch
+        if (attempts == 0 || hitRate is null)
         {
-            LightRagCacheKeyBuilder.QueryCacheType => "high",
-            LightRagCacheKeyBuilder.KeywordsCacheType => "medium",
-            LightRagCacheKeyBuilder.ExtractCacheType => "high",
-            LightRagCacheKeyBuilder.SummaryCacheType => "medium",
-            _ => "unknown"
+            return "NotMeasured";
+        }
+
+        return hitRate.Value switch
+        {
+            >= 0.8d => "VeryHigh",
+            >= 0.6d => "High",
+            >= 0.3d => "Medium",
+            _ => "Low"
         };
     }
 
-    private static string GetRiskLevel(string cacheType)
+    private static string GetRiskLevel(string cacheType, IReadOnlyList<CacheInventoryEntry> familyInventory)
     {
-        return cacheType switch
+        if (string.Equals(cacheType, LightRagCacheKeyBuilder.QueryCacheType, StringComparison.Ordinal)
+            && familyInventory.Any(entry => string.Equals(entry.State, "old revision", StringComparison.Ordinal)))
         {
-            LightRagCacheKeyBuilder.QueryCacheType => "medium",
-            LightRagCacheKeyBuilder.KeywordsCacheType => "low",
-            LightRagCacheKeyBuilder.ExtractCacheType => "low",
-            LightRagCacheKeyBuilder.SummaryCacheType => "medium",
-            _ => "unknown"
-        };
+            return "OldRevision";
+        }
+
+        if (string.Equals(cacheType, LightRagCacheKeyBuilder.ExtractCacheType, StringComparison.Ordinal)
+            && familyInventory.Any(entry => string.Equals(entry.State, "doc-linked", StringComparison.Ordinal)))
+        {
+            return "DocLinked";
+        }
+
+        return "Current";
     }
 
     private static string CreateFamilyMessage(string cacheType, int attempts, int entryCount)
