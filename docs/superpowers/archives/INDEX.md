@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-24-server-operational-readiness-archives.md](./2026-05/2026-05-24-server-operational-readiness-archives.md): 增加证据驱动的 `GET /api/system/health` 和 React `System Status` 入口，用结构化 evidence、remediation、fix-first 与 feature impact 支撑开发排障。
 - [2026-05-22-graph-workbench-python-parity-archives.md](./2026-05/2026-05-22-graph-workbench-python-parity-archives.md): 将 Knowledge Graph tab 收敛为 Python LightRAG 风格的 React Sigma 图谱工作台，补齐浮层控件、节点/边语义缩放、Settings、Label、Fullscreen、relationships 和可配置 max nodes 边界。
 - [2026-05-22-managedcode-markitdown-document-intake-archives.md](./2026-05/2026-05-22-managedcode-markitdown-document-intake-archives.md): 为 PDF/DOCX 增加离线上传、原始文件 artifact、`Add to RAG` 触发转换、`converted.md` 持久化和 Web 批量上传入口。
 - [2026-05-21-document-intake-pipeline-parity-archives.md](./2026-05/2026-05-21-document-intake-pipeline-parity-archives.md): 将 Markdown/text 文档接入升级为带 `track_id`、后台队列、状态追踪、retry/cancel 和 Web 基础操作的 intake pipeline。
