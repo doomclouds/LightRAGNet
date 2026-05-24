@@ -126,6 +126,45 @@ describe("RagChatWorkbench", () => {
     expect(link?.getAttribute("target")).toBe("_blank");
   });
 
+  test.each(["ConvertedMarkdown", "OriginalArtifact"] as const)(
+    "normalizes safe document preview urls for %s references",
+    async (openKind) => {
+      window.history.pushState({}, "", "/app/chat");
+      const message = createAssistantMessage({
+        metadata: {
+          type: "metadata",
+          mode: "Mix",
+          stream: false,
+          includeReferences: true,
+          responseType: "Multiple Paragraphs",
+          cachePolicy: "Cacheable request",
+          references: [
+            {
+              referenceId: openKind,
+              filePath: "/uploads/doc.md",
+              fileName: `${openKind}.md`,
+              previewUrl: "http://localhost/app/document-preview/12",
+              openKind
+            }
+          ],
+          highLevelKeywords: [],
+          lowLevelKeywords: [],
+          diagnostics: {}
+        }
+      });
+
+      await act(async () => {
+        root.render(<AssistantMessage message={message} onOpenDetails={() => undefined} />);
+      });
+
+      const link = host.querySelector<HTMLAnchorElement>("a[href='/app/document-preview/12']");
+
+      expect(link).not.toBeNull();
+      expect(link?.textContent).toContain(openKind);
+      expect(link?.getAttribute("target")).toBe("_blank");
+    }
+  );
+
   test("renders unresolved references as plain text labels", async () => {
     const message = createAssistantMessage({
       metadata: {

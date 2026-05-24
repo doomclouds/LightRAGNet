@@ -63,10 +63,6 @@ function getReferenceHref(reference: RagQueryReference): string | null {
     return null;
   }
 
-  if (reference.openKind !== "DocumentPreview") {
-    return reference.previewUrl;
-  }
-
   try {
     const url = new URL(reference.previewUrl, window.location.origin);
     const match = url.pathname.match(/(?:^|\/)document-preview\/(\d+)$/);
