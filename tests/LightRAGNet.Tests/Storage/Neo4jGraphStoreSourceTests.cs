@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 
 namespace LightRAGNet.Tests.Storage;
@@ -12,12 +13,16 @@ public sealed class Neo4jGraphStoreSourceTests
 
         var normalizedSource = source.Replace("\r\n", "\n");
 
+        Regex.IsMatch(
+                normalizedSource,
+                """
+                (?ms)^\s*UNWIND labels\(n\) as label\s*$.*?^\s*WITH label\s*$.*?^\s*WHERE label <> \$workspaceLabel\s*$
+                """)
+            .Should()
+            .BeTrue();
+
         normalizedSource.Should().Contain(
-            """
-            UNWIND labels(n) as label
-                                 WITH label
-                                 WHERE label <>
-            """);
+            "RunAsync(query, new { limit, workspaceLabel = _workspaceLabel })");
     }
 
     private static string ReadRepositoryFile(params string[] relativeParts)
