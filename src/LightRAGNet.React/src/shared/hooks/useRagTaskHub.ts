@@ -22,10 +22,14 @@ export function useRagTaskHub(apiBase: string, handlers: RagTaskHubHandlers): Us
 
     void client.start({
       onTaskStatusUpdated(update: TaskStatusUpdate) {
-        handlersRef.current.onTaskStatusUpdated?.(update);
+        if (isMounted) {
+          handlersRef.current.onTaskStatusUpdated?.(update);
+        }
       },
       onDataCleared() {
-        handlersRef.current.onDataCleared?.();
+        if (isMounted) {
+          handlersRef.current.onDataCleared?.();
+        }
       },
       onConnectionStateChanged(state) {
         if (isMounted) {
