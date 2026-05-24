@@ -464,42 +464,19 @@ public sealed class LightRagLlmCacheService(
                 disabledFactoryDuration.Elapsed);
         }
 
+        CacheReadResult<T> read;
+        TimeSpan lookupElapsed;
         var lookupDuration = Stopwatch.StartNew();
         try
         {
-            var read = await tryRead(cancellationToken);
+            read = await tryRead(cancellationToken);
             lookupDuration.Stop();
-            if (read.Outcome == CacheReadOutcome.Hit)
-            {
-                await RecordReadMetricAsync(
-                    workspace,
-                    cacheType,
-                    CacheReadOutcome.Hit,
-                    mode,
-                    lookupDuration.Elapsed,
-                    null,
-                    cacheKey,
-                    revision,
-                    cancellationToken);
-                return CacheValueResult<T>.FromHit(read.Value, cacheType, cacheKey, lookupDuration.Elapsed);
-            }
-
-            return await CreateAndMaybeSaveAsync(
-                workspace,
-                cacheType,
-                read.Outcome,
-                mode,
-                revision,
-                cacheKey,
-                lookupDuration.Elapsed,
-                factory,
-                shouldSave,
-                save,
-                cancellationToken);
+            lookupElapsed = lookupDuration.Elapsed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             lookupDuration.Stop();
+            lookupElapsed = lookupDuration.Elapsed;
             logger.LogWarning(ex, "Failed to read {CacheType} cache entry {CacheKey}.", cacheType, cacheKey);
             var errorFactoryDuration = Stopwatch.StartNew();
             var errorValue = await factory(cancellationToken);
@@ -520,10 +497,37 @@ public sealed class LightRagLlmCacheService(
                 saved: false,
                 cacheKey: null,
                 cacheType,
-                lookupDuration.Elapsed,
+                lookupElapsed,
                 errorFactoryDuration.Elapsed);
         }
 
+        if (read.Outcome == CacheReadOutcome.Hit)
+        {
+            await RecordReadMetricAsync(
+                workspace,
+                cacheType,
+                CacheReadOutcome.Hit,
+                mode,
+                lookupElapsed,
+                null,
+                cacheKey,
+                revision,
+                cancellationToken);
+            return CacheValueResult<T>.FromHit(read.Value, cacheType, cacheKey, lookupElapsed);
+        }
+
+        return await CreateAndMaybeSaveAsync(
+            workspace,
+            cacheType,
+            read.Outcome,
+            mode,
+            revision,
+            cacheKey,
+            lookupElapsed,
+            factory,
+            shouldSave,
+            save,
+            cancellationToken);
     }
 
     private async Task<CacheValueResult<T>> CreateAndMaybeSaveAsync<T>(

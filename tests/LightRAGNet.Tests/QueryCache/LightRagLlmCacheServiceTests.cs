@@ -588,6 +588,36 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
+    public async Task GetOrCreateQueryResponseAsync_WhenFactoryThrowsOnMiss_DoesNotRetryFactoryOrSave()
+    {
+        var store = new InMemoryKvStore();
+        var recorder = new RecordingCacheMetricsRecorder();
+        var queryParam = new QueryParam { Mode = QueryMode.Mix };
+        var keywords = new KeywordsResult();
+        var service = CreateService(store, recorder: recorder);
+        var factoryCalls = 0;
+
+        var act = async () => await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            1,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ =>
+            {
+                factoryCalls++;
+                throw new InvalidOperationException("factory failed");
+            });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("factory failed");
+        factoryCalls.Should().Be(1);
+        store.UpsertCalls.Should().BeEmpty();
+        recorder.Reads.Should().NotContain(read => read.Outcome == CacheReadOutcome.Error);
+        recorder.Saves.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task TryGetSummaryAsync_WhenCacheTypeMismatch_ReturnsNull()
     {
         var store = new InMemoryKvStore();
