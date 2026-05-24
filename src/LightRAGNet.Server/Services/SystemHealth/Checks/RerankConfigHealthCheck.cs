@@ -33,7 +33,7 @@ public sealed class RerankConfigHealthCheck(IOptions<AliyunRerankOptions> option
                 Category,
                 "Rerank API key is missing.",
                 "Configure Rerank:ApiKey or set the DASHSCOPE_API_KEY environment variable.",
-                ["RerankQuality"],
+                ["Rerank Quality"],
                 evidence);
 
         return Task.FromResult(result);

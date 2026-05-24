@@ -90,7 +90,7 @@ public sealed class SystemHealthCheckTests
             var result = await check.CheckAsync(CancellationToken.None);
 
             result.Status.Should().Be(SystemHealthStatus.Degraded);
-            result.Affects.Should().Contain("RerankQuality");
+            result.Affects.Should().Contain("Rerank Quality");
             result.Evidence.Should().ContainKey("configured").WhoseValue.Should().Be(false);
         }
         finally
@@ -187,8 +187,36 @@ public sealed class SystemHealthCheckTests
         var result = await check.CheckAsync(CancellationToken.None);
 
         result.Status.Should().Be(SystemHealthStatus.Degraded);
+        result.Message.Should().Contain("stale");
+        result.Remediation.Should().Contain("stale");
         result.Evidence.Should().ContainKey("processing").WhoseValue.Should().Be(1);
         result.Evidence.Should().ContainKey("staleActive").WhoseValue.Should().Be(1);
+        factory.CreateCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task DocumentConversionQueueHealthCheck_WhenFailedConversionExists_ReturnsDegraded()
+    {
+        await using var fixture = await SqliteFixture.CreateAsync();
+        fixture.Context.MarkdownDocuments.Add(new MarkdownDocument
+        {
+            FileName = "failed.pdf",
+            Content = string.Empty,
+            FileSize = 10,
+            UploadTime = DateTime.UtcNow,
+            ConversionStatus = DocumentConversionStatus.Failed
+        });
+        await fixture.Context.SaveChangesAsync(CancellationToken.None);
+        var factory = new CountingDbContextFactory(fixture.Options);
+        var check = new DocumentConversionQueueHealthCheck(factory);
+
+        var result = await check.CheckAsync(CancellationToken.None);
+
+        result.Status.Should().Be(SystemHealthStatus.Degraded);
+        result.Message.Should().Contain("failed");
+        result.Remediation.Should().Contain("failed");
+        result.Evidence.Should().ContainKey("failed").WhoseValue.Should().Be(1);
+        result.Evidence.Should().ContainKey("staleActive").WhoseValue.Should().Be(0);
         factory.CreateCount.Should().Be(1);
     }
 

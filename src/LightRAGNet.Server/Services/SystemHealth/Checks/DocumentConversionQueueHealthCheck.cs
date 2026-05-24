@@ -46,14 +46,14 @@ public sealed class DocumentConversionQueueHealthCheck(IDbContextFactory<AppDbCo
             ["staleActive"] = staleActive
         };
 
-        if (staleActive > 0)
+        if (failed > 0 || staleActive > 0)
         {
             return SystemHealthCheckResult.Degraded(
                 Id,
                 Name,
                 Category,
-                "Document conversion queue has stale active conversions.",
-                "Review queued or processing conversions and restart the conversion worker if needed.",
+                "Document conversion queue has failed or stale active conversions.",
+                "Review failed conversions and stale queued or processing conversions; retry failed documents or restart the conversion worker if needed.",
                 ["PDF/DOCX Conversion"],
                 evidence);
         }
