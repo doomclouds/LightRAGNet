@@ -134,34 +134,37 @@ docker compose up -d
 }
 ```
 
-4. 启动 Server 和 Web：
+4. 启动 API Server 和 React 前端：
 
 ```powershell
-dotnet run --project src/LightRAGNet.Server
-dotnet run --project src/LightRAGNet.Web
+.\scripts\dev-start.ps1
 ```
 
 默认地址：
 
 - API Server: `http://localhost:5261`
-- Web UI: `http://localhost:5241`
+- React UI: `http://127.0.0.1:5173/documents`
 - Qdrant REST: `http://localhost:6333`
 - Neo4j Browser: `http://localhost:7474`
 
-也可以使用开发脚本只启动 Server / Web：
+停止开发服务：
 
 ```powershell
-.\scripts\dev-start.ps1
 .\scripts\dev-stop.ps1
 ```
 
-图谱工作台前端单独构建：
+如果在 Git Bash 中运行，可以使用 `.sh` 包装脚本：
+
+```bash
+./scripts/dev-start.sh
+./scripts/dev-stop.sh
+```
+
+也可以分步启动：
 
 ```powershell
-Set-Location .\src\LightRAGNet.Web\ClientApp
-npm install
-npm run build
-Set-Location ..\..\..
+dotnet run --project src/LightRAGNet.Server
+npm run dev --prefix src/LightRAGNet.React
 ```
 
 ## Web 使用路径

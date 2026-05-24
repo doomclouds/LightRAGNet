@@ -133,19 +133,38 @@ Configure `src/LightRAGNet.Server/appsettings.Development.json` and keep real AP
 }
 ```
 
-Run the API and Web UI:
+Run the API server and React frontend:
 
 ```powershell
-dotnet run --project src/LightRAGNet.Server
-dotnet run --project src/LightRAGNet.Web
+.\scripts\dev-start.ps1
 ```
 
 Default endpoints:
 
 - API Server: `http://localhost:5261`
-- Web UI: `http://localhost:5241`
+- React UI: `http://127.0.0.1:5173/documents`
 - Qdrant REST: `http://localhost:6333`
 - Neo4j Browser: `http://localhost:7474`
+
+Stop development services:
+
+```powershell
+.\scripts\dev-stop.ps1
+```
+
+Git Bash wrappers are also available:
+
+```bash
+./scripts/dev-start.sh
+./scripts/dev-stop.sh
+```
+
+You can still start the two services manually:
+
+```powershell
+dotnet run --project src/LightRAGNet.Server
+npm run dev --prefix src/LightRAGNet.React
+```
 
 ## C# Example
 

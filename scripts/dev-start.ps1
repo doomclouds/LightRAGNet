@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ServerUrl = "http://localhost:5261",
-    [string]$WebUrl = "http://localhost:5241",
+    [string]$ReactUrl = "http://127.0.0.1:5173",
     [string]$ApiBaseUrl = $ServerUrl,
     [int]$ReadyTimeoutSeconds = 60,
     [switch]$SkipNpmInstall,
@@ -149,8 +149,60 @@ $($envLines -join [Environment]::NewLine)
     }
 }
 
+function Start-ReactService {
+    param(
+        [string]$Name,
+        [string]$AppPath,
+        [string]$Url,
+        [string]$ApiBaseUrl,
+        [string]$RuntimeDir,
+        [string]$LogsDir
+    )
+
+    $uri = [Uri]$Url
+    $hostName = $uri.Host
+    $port = $uri.Port
+    if ($port -le 0) {
+        throw "ReactUrl must include an explicit port: $Url"
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $stdoutLog = Join-Path $LogsDir "$Name-$timestamp.out.log"
+    $stderrLog = Join-Path $LogsDir "$Name-$timestamp.err.log"
+    $runnerPath = Join-Path $RuntimeDir "$Name.run.ps1"
+    $vitePath = Join-Path $AppPath "node_modules\.bin\vite.cmd"
+
+    $runner = @"
+`$ErrorActionPreference = 'Stop'
+Set-Location '$(Escape-SingleQuoted $AppPath)'
+`$env:VITE_LIGHTRAG_API_BASE = '$(Escape-SingleQuoted $ApiBaseUrl)'
+& '$(Escape-SingleQuoted $vitePath)' --host '$(Escape-SingleQuoted $hostName)' --port $port
+"@
+
+    Set-Content -LiteralPath $runnerPath -Value $runner -Encoding utf8
+
+    $process = Start-Process `
+        -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runnerPath) `
+        -WorkingDirectory $AppPath `
+        -RedirectStandardOutput $stdoutLog `
+        -RedirectStandardError $stderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+
+    [pscustomobject]@{
+        name = $Name
+        pid = $process.Id
+        url = $Url
+        stdoutLog = $stdoutLog
+        stderrLog = $stderrLog
+        runner = $runnerPath
+        startedAt = (Get-Date).ToString("o")
+    }
+}
+
 $repoRoot = Get-RepoRoot
-$clientApp = Join-Path $repoRoot "src\LightRAGNet.Web\ClientApp"
+$reactApp = Join-Path $repoRoot "src\LightRAGNet.React"
 $runtimeDir = Join-Path $repoRoot "artifacts\dev-runtime"
 $logsDir = Join-Path $runtimeDir "logs"
 $stateFile = Join-Path $runtimeDir "dev-services.json"
@@ -159,19 +211,19 @@ New-Item -ItemType Directory -Path $runtimeDir, $logsDir -Force | Out-Null
 
 Write-Step "Repo: $repoRoot"
 
-Push-Location $clientApp
+Push-Location $reactApp
 try {
     if (-not $SkipNpmInstall) {
-        if (-not (Test-Path -LiteralPath (Join-Path $clientApp "node_modules"))) {
-            Write-Step "Installing React workbench packages..."
+        if (-not (Test-Path -LiteralPath (Join-Path $reactApp "node_modules"))) {
+            Write-Step "Installing standalone React packages..."
             npm install
         } else {
-            Write-Step "React workbench packages already installed. Use -SkipNpmInstall to skip this check explicitly."
+            Write-Step "Standalone React packages already installed. Use -SkipNpmInstall to skip this check explicitly."
         }
     }
 
     if (-not $SkipClientBuild) {
-        Write-Step "Building React graph workbench..."
+        Write-Step "Building standalone React frontend..."
         npm run build
     }
 } finally {
@@ -180,11 +232,14 @@ try {
 
 $existingServices = Read-State $stateFile
 $services = @()
+$desiredServiceNames = @("server", "react")
 
 foreach ($service in $existingServices) {
-    if (Test-RunningProcess ([int]$service.pid)) {
+    if ($desiredServiceNames -contains ([string]$service.name) -and (Test-RunningProcess ([int]$service.pid))) {
         Write-Step "$($service.name) is already running at $($service.url) (PID $($service.pid))."
         $services += $service
+    } elseif (Test-RunningProcess ([int]$service.pid)) {
+        Write-Step "Ignoring stale dev service state for $($service.name) at $($service.url) (PID $($service.pid))."
     }
 }
 
@@ -200,16 +255,15 @@ if (-not ($services | Where-Object { $_.name -eq "server" })) {
         -RepoRoot $repoRoot
 }
 
-if (-not ($services | Where-Object { $_.name -eq "web" })) {
-    Write-Step "Starting LightRAGNet.Web on $WebUrl..."
-    $services += Start-DevService `
-        -Name "web" `
-        -ProjectPath (Join-Path $repoRoot "src\LightRAGNet.Web") `
-        -Url $WebUrl `
-        -ExtraEnvironment @{ ApiBaseUrl = $ApiBaseUrl } `
+if (-not ($services | Where-Object { $_.name -eq "react" })) {
+    Write-Step "Starting LightRAGNet.React on $ReactUrl..."
+    $services += Start-ReactService `
+        -Name "react" `
+        -AppPath $reactApp `
+        -Url $ReactUrl `
+        -ApiBaseUrl $ApiBaseUrl `
         -RuntimeDir $runtimeDir `
-        -LogsDir $logsDir `
-        -RepoRoot $repoRoot
+        -LogsDir $logsDir
 }
 
 $state = [pscustomobject]@{
@@ -221,18 +275,19 @@ $state = [pscustomobject]@{
 $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
 
 Wait-HttpReady "Server" $ServerUrl $ReadyTimeoutSeconds
-Wait-HttpReady "Web" "$WebUrl/graph-view" $ReadyTimeoutSeconds
+Wait-HttpReady "React" "$ReactUrl/documents" $ReadyTimeoutSeconds
 
 Write-Host ""
 Write-Step "Development services are ready."
 Write-Host "  Server: $ServerUrl"
-Write-Host "  Web:    $WebUrl"
-Write-Host "  Graph:  $WebUrl/graph-view"
+Write-Host "  React:  $ReactUrl"
+Write-Host "  Docs:   $ReactUrl/documents"
+Write-Host "  Upload: $ReactUrl/documents/upload"
 Write-Host "  Logs:   $logsDir"
 Write-Host ""
 Write-Host "Stop with:"
 Write-Host "  .\scripts\dev-stop.ps1"
 
 if ($OpenBrowser) {
-    Start-Process $WebUrl
+    Start-Process "$ReactUrl/documents"
 }
