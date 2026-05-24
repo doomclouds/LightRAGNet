@@ -136,14 +136,13 @@ describe('DocumentsPage', () => {
     const loadDocuments = vi.fn().mockResolvedValue(
       paged([makeDocument({ fileName: 'system-architecture.md' })])
     );
-    const loadDocument = vi.fn().mockResolvedValue(
-      makeDocument({
-        fileName: 'system-architecture.md',
-        content: '# Architecture'
-      })
-    );
+    const loadPreview = vi.fn().mockResolvedValue({
+      contentType: 'text/markdown',
+      content: '# Architecture',
+      fileName: 'system-architecture.md'
+    });
 
-    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadPreview={loadPreview} />);
 
     await user.click(await screen.findByRole('button', { name: 'View system-architecture.md' }));
 
@@ -162,14 +161,13 @@ describe('DocumentsPage', () => {
     const loadDocuments = vi.fn().mockResolvedValue(
       paged([makeDocument({ fileName: 'system-architecture.md' })])
     );
-    const loadDocument = vi.fn().mockResolvedValue(
-      makeDocument({
-        fileName: 'system-architecture.md',
-        content: '# Architecture'
-      })
-    );
+    const loadPreview = vi.fn().mockResolvedValue({
+      contentType: 'text/markdown',
+      content: '# Architecture',
+      fileName: 'system-architecture.md'
+    });
 
-    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadPreview={loadPreview} />);
 
     const viewButton = await screen.findByRole('button', { name: 'View system-architecture.md' });
     await user.click(viewButton);
@@ -190,14 +188,13 @@ describe('DocumentsPage', () => {
     const loadDocuments = vi.fn().mockResolvedValue(
       paged([makeDocument({ fileName: 'system-architecture.md' })])
     );
-    const loadDocument = vi.fn().mockResolvedValue(
-      makeDocument({
-        fileName: 'system-architecture.md',
-        content: '# Architecture'
-      })
-    );
+    const loadPreview = vi.fn().mockResolvedValue({
+      contentType: 'text/markdown',
+      content: '# Architecture',
+      fileName: 'system-architecture.md'
+    });
 
-    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadPreview={loadPreview} />);
 
     await user.click(await screen.findByRole('button', { name: 'View system-architecture.md' }));
 

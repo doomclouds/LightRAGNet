@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { getApiBase } from '@/api/http';
 import {
   addToRagSystem,
   cancelDocumentPipeline,
   deleteMarkdownDocument,
-  getMarkdownDocument,
   getMarkdownDocuments,
   retryDocument
 } from '@/api/documentsApi';
@@ -33,7 +33,7 @@ type DocumentsQuery = {
 };
 
 type LoadDocumentsFn = (apiBase: string, query: DocumentsQuery) => Promise<PagedResult<MarkdownDocumentDto>>;
-type LoadDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
+type LoadPreviewFn = (apiBase: string, id: number) => Promise<DocumentPreviewContent>;
 type AddToRagFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
 type PipelineActionFn = (apiBase: string, id: number) => Promise<DocumentPipelineActionResult>;
 type RemoveDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDeleteClientResult>;
@@ -43,7 +43,7 @@ type DataClearedSubscriptionFn = (handler: () => void) => () => void;
 type DocumentsPageProps = {
   apiBase?: string;
   loadDocuments?: LoadDocumentsFn;
-  loadDocument?: LoadDocumentFn;
+  loadPreview?: LoadPreviewFn;
   addToRag?: AddToRagFn;
   retry?: PipelineActionFn;
   cancelPipeline?: PipelineActionFn;
@@ -67,7 +67,7 @@ const statusOptionSet = new Set(statusOptions);
 export function DocumentsPage({
   apiBase = getApiBase(),
   loadDocuments = getMarkdownDocuments,
-  loadDocument = getMarkdownDocument,
+  loadPreview = getDocumentPreviewContent,
   addToRag = addToRagSystem,
   retry = retryDocument,
   cancelPipeline = cancelDocumentPipeline,
@@ -338,7 +338,7 @@ export function DocumentsPage({
     return Boolean(documentActionTokens[id]);
   }
 
-  async function handleView(document: MarkdownDocumentDto) {
+  function handleView(document: MarkdownDocumentDto) {
     const token = beginDocumentAction(document.id);
     if (!token) {
       return;
@@ -346,16 +346,8 @@ export function DocumentsPage({
 
     previewTriggerRef.current = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : null;
     setErrorMessage(null);
-
-    try {
-      const loadedDocument = await loadDocument(apiBase, document.id);
-      updateDocument(loadedDocument);
-      setPreviewDocument(loadedDocument);
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, 'Failed to load document preview'));
-    } finally {
-      finishDocumentAction(document.id, token);
-    }
+    setPreviewDocument(document);
+    finishDocumentAction(document.id, token);
   }
 
   function closePreview() {
@@ -598,7 +590,12 @@ export function DocumentsPage({
       ) : null}
 
       {previewDocument ? (
-        <DocumentPreviewPanel apiBase={apiBase} document={previewDocument} onClose={closePreview} />
+        <DocumentPreviewPanel
+          apiBase={apiBase}
+          document={previewDocument}
+          loadPreview={loadPreview}
+          onClose={closePreview}
+        />
       ) : null}
 
       <footer className="document-list__footer">

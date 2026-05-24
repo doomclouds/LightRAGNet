@@ -103,10 +103,10 @@ describe("RagChatWorkbench", () => {
     expect(selectOptions("Debug output")).toEqual(["Answer", "ContextOnly", "PromptOnly"]);
   });
 
-  test("renders preview references as new-tab links", async () => {
+  test("renders recognizable document preview references as frontend new-tab links", async () => {
     await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" });
 
-    const link = host.querySelector<HTMLAnchorElement>("a[href='http://localhost/document-preview/1']");
+    const link = host.querySelector<HTMLAnchorElement>("a[href='/document-preview/1']");
 
     expect(link).not.toBeNull();
     expect(link?.getAttribute("target")).toBe("_blank");
@@ -146,6 +146,40 @@ describe("RagChatWorkbench", () => {
 
     expect(references).not.toBeNull();
     expect(references?.textContent).toContain("unresolved.md");
+    expect(references?.querySelector("a")).toBeNull();
+  });
+
+  test("does not create document preview links from file paths", async () => {
+    const message = createAssistantMessage({
+      metadata: {
+        type: "metadata",
+        mode: "Mix",
+        stream: false,
+        includeReferences: true,
+        responseType: "Multiple Paragraphs",
+        cachePolicy: "Cacheable request",
+        references: [
+          {
+            referenceId: "file-path-only",
+            filePath: "/document-preview/99",
+            fileName: "path-only.md",
+            previewUrl: null,
+            openKind: "DocumentPreview"
+          }
+        ],
+        highLevelKeywords: [],
+        lowLevelKeywords: [],
+        diagnostics: {}
+      }
+    });
+
+    await act(async () => {
+      root.render(<AssistantMessage message={message} onOpenDetails={() => undefined} />);
+    });
+
+    const references = host.querySelector("[aria-label='References']");
+
+    expect(references?.textContent).toContain("path-only.md");
     expect(references?.querySelector("a")).toBeNull();
   });
 

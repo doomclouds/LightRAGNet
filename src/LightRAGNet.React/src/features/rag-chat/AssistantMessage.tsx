@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { ChatMessage } from "@/types/ragChat";
+import type { ChatMessage, RagQueryReference } from "@/types/ragChat";
 
 type Props = {
   message: ChatMessage;
@@ -33,15 +33,17 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
 
       {references.length ? (
         <div className="rag-chat__references" aria-label="References">
-          {references.map((reference) =>
-            reference.previewUrl ? (
-              <a key={reference.referenceId} href={reference.previewUrl} target="_blank" rel="noopener noreferrer">
+          {references.map((reference) => {
+            const href = getReferenceHref(reference);
+
+            return href ? (
+              <a key={reference.referenceId} href={href} target="_blank" rel="noopener noreferrer">
                 {reference.fileName || reference.filePath}
               </a>
             ) : (
               <span key={reference.referenceId}>{reference.fileName || reference.filePath}</span>
-            )
-          )}
+            );
+          })}
         </div>
       ) : null}
 
@@ -54,4 +56,22 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
       ) : null}
     </article>
   );
+}
+
+function getReferenceHref(reference: RagQueryReference): string | null {
+  if (!reference.previewUrl) {
+    return null;
+  }
+
+  if (reference.openKind !== "DocumentPreview") {
+    return reference.previewUrl;
+  }
+
+  try {
+    const url = new URL(reference.previewUrl, window.location.origin);
+    const match = url.pathname.match(/(?:^|\/)document-preview\/(\d+)$/);
+    return match ? `/document-preview/${match[1]}` : reference.previewUrl;
+  } catch {
+    return reference.previewUrl;
+  }
 }

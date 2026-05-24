@@ -1,24 +1,64 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import type { MarkdownDocumentDto } from './documentTypes';
+
+type LoadPreviewFn = (apiBase: string, documentId: number) => Promise<DocumentPreviewContent>;
 
 type DocumentPreviewPanelProps = {
   apiBase: string;
   document: MarkdownDocumentDto;
   onClose: () => void;
+  loadPreview?: LoadPreviewFn;
 };
 
-export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPreviewPanelProps) {
+export function DocumentPreviewPanel({
+  apiBase,
+  document,
+  onClose,
+  loadPreview = getDocumentPreviewContent
+}: DocumentPreviewPanelProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [preview, setPreview] = useState<DocumentPreviewContent | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const downloadHref = getDownloadHref(apiBase, document.fileUrl);
-  const hasContent = Boolean(document.content?.trim());
+  const hasContent = Boolean(preview?.content?.trim());
   const fullPreviewHref = `/document-preview/${document.id}`;
 
   useEffect(() => {
     closeButtonRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    setPreview(null);
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    loadPreview(apiBase, document.id)
+      .then((nextPreview) => {
+        if (isActive) {
+          setPreview(nextPreview);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load document preview.');
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [apiBase, document.id, loadPreview]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
@@ -44,7 +84,7 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
       >
         <header className="document-preview__header">
           <div>
-            <h2>{document.fileName}</h2>
+            <h2>{preview?.fileName || document.fileName}</h2>
             <dl className="document-preview__meta">
               <div>
                 <dt>File Size</dt>
@@ -54,6 +94,12 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
                 <dt>Upload Time</dt>
                 <dd>{formatDateTime(document.uploadTime)}</dd>
               </div>
+              {preview?.contentType ? (
+                <div>
+                  <dt>Content Type</dt>
+                  <dd>{preview.contentType}</dd>
+                </div>
+              ) : null}
             </dl>
           </div>
           <div className="document-preview__tools">
@@ -70,11 +116,18 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
         </header>
 
         <div className="document-preview__content">
-          {hasContent ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{document.content}</ReactMarkdown>
-          ) : (
+          {isLoading ? <p className="document-preview__empty">Loading preview...</p> : null}
+          {errorMessage ? (
+            <p className="document-preview__empty" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
+          {!isLoading && !errorMessage && hasContent ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
+          ) : null}
+          {!isLoading && !errorMessage && !hasContent ? (
             <p className="document-preview__empty">No preview content available.</p>
-          )}
+          ) : null}
         </div>
       </aside>
     </>

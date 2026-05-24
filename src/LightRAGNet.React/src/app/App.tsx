@@ -5,6 +5,7 @@ import { type AppRoute, resolveRoute } from './router';
 import { DocumentsPage } from '@/features/documents/DocumentsPage';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 import { UploadDocumentPage } from '@/features/documents/UploadDocumentPage';
+import { DocumentPreviewPage } from '@/features/document-preview/DocumentPreviewPage';
 import { CacheManagementWorkbench } from '@/features/cache-management/CacheManagementWorkbench';
 import { RagChatWorkbench } from '@/features/rag-chat/RagChatWorkbench';
 import { SystemStatusWorkbench } from '@/features/system-status/SystemStatusWorkbench';
@@ -61,6 +62,8 @@ export function App() {
           subscribeToTaskUpdates={subscribeToTaskUpdates}
           subscribeToDataCleared={subscribeToDataCleared}
         />
+      ) : route.id === 'document-preview' ? (
+        <DocumentPreviewPage apiBase={apiBase} documentId={getPreviewDocumentId(window.location.pathname)} />
       ) : route.id === 'rag-chat' ? (
         <RagChatWorkbench apiBase={apiBase} />
       ) : route.id === 'graph' ? (
@@ -74,6 +77,12 @@ export function App() {
       )}
     </AppLayout>
   );
+}
+
+function getPreviewDocumentId(pathname: string): number | undefined {
+  const idText = pathname.split('/').filter(Boolean).at(1);
+  const id = Number(idText);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
 type GraphRouteProps = {
