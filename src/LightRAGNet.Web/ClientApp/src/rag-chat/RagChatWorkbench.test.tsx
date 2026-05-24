@@ -63,7 +63,7 @@ describe("RagChatWorkbench", () => {
     expect(link?.getAttribute("rel")).toContain("noreferrer");
   });
 
-  test("does not render unresolved references as plain text links", async () => {
+  test("renders unresolved references as plain text labels", async () => {
     const message = createAssistantMessage({
       metadata: {
         type: "metadata",
@@ -91,8 +91,11 @@ describe("RagChatWorkbench", () => {
       root.render(<AssistantMessage message={message} onOpenDetails={() => undefined} />);
     });
 
-    expect(host.querySelector("[aria-label='References']")).toBeNull();
-    expect(host.textContent).not.toContain("unresolved.md");
+    const references = host.querySelector("[aria-label='References']");
+
+    expect(references).not.toBeNull();
+    expect(references?.textContent).toContain("unresolved.md");
+    expect(references?.querySelector("a")).toBeNull();
   });
 
   test("opens message details and loads retrieval data", async () => {

@@ -51,3 +51,4 @@
 
 - The visual QA finding about React Sigma's default white canvas was fixed during closeout and covered by `reactPageThemeUsage.test.ts`.
 - The Blazor React island host now guards dynamic JS import against dispose races for RAG Chat; existing islands may still benefit from a shared host pattern in a later refactor.
+- Final review corrected RAG Chat reference rendering so unresolved/external references remain visible as plain source labels, while only references with `previewUrl` render new-tab links.

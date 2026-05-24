@@ -10,7 +10,7 @@ type Props = {
 
 export function AssistantMessage({ message, onOpenDetails }: Props) {
   const metadata = message.metadata;
-  const previewReferences = metadata?.references.filter((reference) => reference.previewUrl) ?? [];
+  const references = metadata?.references ?? [];
 
   return (
     <article className="rag-chat__message rag-chat__message--assistant">
@@ -31,13 +31,17 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
         </div>
       ) : null}
 
-      {previewReferences.length ? (
+      {references.length ? (
         <div className="rag-chat__references" aria-label="References">
-          {previewReferences.map((reference) => (
-            <a key={reference.referenceId} href={reference.previewUrl ?? ""} target="_blank" rel="noopener noreferrer">
-              {reference.fileName || reference.filePath}
-            </a>
-          ))}
+          {references.map((reference) =>
+            reference.previewUrl ? (
+              <a key={reference.referenceId} href={reference.previewUrl} target="_blank" rel="noopener noreferrer">
+                {reference.fileName || reference.filePath}
+              </a>
+            ) : (
+              <span key={reference.referenceId}>{reference.fileName || reference.filePath}</span>
+            )
+          )}
         </div>
       ) : null}
 
