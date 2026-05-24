@@ -351,6 +351,27 @@ public sealed class CacheManagementServiceTests
     }
 
     [Fact]
+    public async Task ClearAsync_NoMatchingEntries_ReturnsSuccessWithoutDeleteOrFlush()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "stale-query-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.DeletedEntries.Should().Be(0);
+        result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.QueryCacheType);
+        result.RevisionAfter.Should().Be(0);
+        result.Message.Should().Contain("matched");
+        cacheStore.DeleteCallCount.Should().Be(0);
+        cacheStore.IndexDoneCallbackCount.Should().Be(0);
+        cacheStore.Contains("Mix:query:current").Should().BeTrue();
+    }
+
+    [Fact]
     public async Task ClearAsync_WithJsonKvStore_PersistsDeletedEntries()
     {
         var filePath = Path.Combine(Path.GetTempPath(), "LightRAGNet.Tests", $"{Guid.NewGuid():N}.json");
@@ -501,6 +522,8 @@ public sealed class CacheManagementServiceTests
 
         public int Count => items.Count;
 
+        public int DeleteCallCount { get; private set; }
+
         public int IndexDoneCallbackCount { get; private set; }
 
         public bool Contains(string id)
@@ -550,6 +573,7 @@ public sealed class CacheManagementServiceTests
         public Task DeleteAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            DeleteCallCount++;
             foreach (var id in ids)
             {
                 items.Remove(id);
