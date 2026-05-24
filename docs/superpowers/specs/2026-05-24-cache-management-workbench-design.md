@@ -32,7 +32,7 @@ Open Web Cache Management
 - 能分辨 `query`、`keywords`、`extract`、`summary` 的收益和风险。
 - 能看到 provider calls avoided 和 estimated latency saved。
 - 能知道哪些 cache 可以清、清了会损失什么。
-- 前端不自行估算命中率；所有效率指标来自后端记录的 cache attempt / hit / miss 证据。
+- 前端不自行估算命中率；所有效率指标来自后端记录的 cache read outcome 证据。
 
 ## Product Decisions
 
@@ -43,6 +43,7 @@ Open Web Cache Management
 - React 只展示后端 DTO，不重算 hit rate、saved calls、risk 或 clear plan。
 - 首版聚焦 `llm_cache` 系列：`query`、`keywords`、`extract`、`summary` 和 query revision metadata。
 - 首版记录 rolling metrics，用于回答“缓存效率高不高”；不能只扫描 KV entry count。
+- 首版将运行时缓存访问逐步收口为 `GetOrCreate` 风格 API，让 hit/miss/factory generation duration 在同一个边界内被观察。
 - 首版允许清理缓存，但每个清理动作必须展示影响面。
 - 首版不展示完整 prompt、return value、provider response 或任何 secret。
 - 首版不做自动清理调度，不做成本金额估算，不接入外部计费 API。
@@ -89,7 +90,7 @@ Open Web Cache Management
 
 | Area | Scope |
 | --- | --- |
-| Metrics recording | 在 cache read/write 路径记录 attempt、hit、miss、save、duration 和 cache type |
+| Metrics recording | 在 cache read/write 路径记录 read outcome、save、duration、factory duration 和 cache type |
 | Metrics store | 增加轻量持久化 store，支持按 workspace、cache type、time window 聚合 |
 | Entry summary | 扫描 `llm_cache` entries，按 cache type、workspace、revision state、last observed state 聚合 |
 | Overview API | 返回 summary、family metrics、trend、insights、clear plan、entry samples |
@@ -133,7 +134,7 @@ hitRate = hits / attempts
 attempts = hits + misses
 ```
 
-如果某个 family 没有 attempt 记录：
+如果某个 family 没有 read 记录：
 
 - `hitRate` 返回 `null`。
 - UI 显示 `Not measured`。
@@ -165,7 +166,7 @@ estimatedLatencySavedMs = sum(hitsByType * recentAverageMissDurationMsByType)
 
 ### Value Level
 
-后端按命中率、attempt 数、saved calls 和 entry count 生成 value level：
+后端按命中率、read attempt 数、saved calls 和 entry count 生成 value level：
 
 | Level | Rule |
 | --- | --- |
@@ -210,16 +211,68 @@ src/LightRAGNet.Server/
     CacheClearPlanner.cs
 ```
 
-`LightRagLlmCacheService` 在这些路径记录 metrics：
+Runtime cache access should move toward `GetOrCreate` methods instead of scattering `TryGet -> generate -> Save` across callers.
 
-- `TryGetKeywordsAsync`：attempt + hit/miss + duration。
-- `SaveKeywordsAsync`：save + duration。
-- `TryGetQueryResponseAsync`：attempt + hit/miss + duration。
-- `SaveQueryResponseAsync`：save + duration。
-- `TryGetExtractAsync`：attempt + hit/miss + duration。
-- `SaveExtractAsync`：save + duration。
-- `TryGetSummaryAsync`：attempt + hit/miss + duration。
-- `SaveSummaryAsync`：save + duration。
+`LightRagLlmCacheService` adds these primary runtime APIs:
+
+```csharp
+Task<CacheValueResult<KeywordsResult>> GetOrCreateKeywordsAsync(
+    string workspace,
+    QueryMode mode,
+    string query,
+    Func<CancellationToken, Task<KeywordsResult>> factory,
+    CancellationToken cancellationToken);
+
+Task<CacheValueResult<string>> GetOrCreateQueryResponseAsync(
+    string workspace,
+    long workspaceQueryRevision,
+    string query,
+    QueryParam queryParam,
+    KeywordsResult keywords,
+    Func<CancellationToken, Task<string>> factory,
+    CancellationToken cancellationToken);
+
+Task<CacheValueResult<string>> GetOrCreateExtractAsync(
+    string canonicalPrompt,
+    string chunkId,
+    Func<CancellationToken, Task<string>> factory,
+    CancellationToken cancellationToken);
+
+Task<CacheValueResult<string>> GetOrCreateSummaryAsync(
+    string canonicalPrompt,
+    Func<CancellationToken, Task<string>> factory,
+    CancellationToken cancellationToken);
+```
+
+`CacheValueResult<T>` returns:
+
+```csharp
+public sealed record CacheValueResult<T>(
+    T Value,
+    bool CacheEnabled,
+    bool Hit,
+    bool Saved,
+    string? CacheKey,
+    string CacheType,
+    TimeSpan CacheLookupDuration,
+    TimeSpan? FactoryDuration);
+```
+
+Existing `TryGet...` and `Save...` methods may remain during migration for focused tests and low-risk compatibility, but production call sites should use `GetOrCreate` after this feature.
+
+Why this boundary matters:
+
+- Hit/miss is known only after parsing and validating the cache entry, not from `IKVStore.GetByIdAsync` alone.
+- Provider generation duration is known only around the miss factory, not in a later management API.
+- Saved-call and estimated latency metrics are meaningful only when cache lookup and miss generation share one observable operation.
+- Callers no longer need to duplicate “try, generate, save, remember key” logic.
+
+`LightRagLlmCacheService` records metrics from the `GetOrCreate` boundary:
+
+- one `read` event per runtime cache lookup, with `outcome = hit | miss | invalid | disabled | error`。
+- one `save` event when a miss result is persisted。
+- one `clear` event when management APIs delete entries。
+- `FactoryDuration` is recorded only for misses that call the factory。
 
 记录失败不能影响原业务路径：
 
@@ -245,10 +298,11 @@ src/LightRAGNet.Server/
   "timestamp": "2026-05-24T12:00:00Z",
   "workspace": "_",
   "cacheType": "query",
-  "operation": "hit",
+  "operation": "read",
+  "outcome": "hit",
   "mode": "Mix",
   "durationMs": 4,
-  "providerDurationMs": null,
+  "factoryDurationMs": null,
   "cacheKeyPrefix": "Mix:query:af31",
   "revision": 12
 }
@@ -257,13 +311,23 @@ src/LightRAGNet.Server/
 Allowed operations：
 
 ```text
-attempt
-hit
-miss
+read
 save
 delete
 clear
 ```
+
+Allowed read outcomes：
+
+```text
+hit
+miss
+invalid
+disabled
+error
+```
+
+`read` is a single event. Do not write separate `attempt` and `hit/miss` events, because partial metrics writes would create inconsistent hit-rate math.
 
 Store requirements：
 
@@ -485,11 +549,15 @@ Entry drilldown uses `cacheKeyPrefix` and metadata summaries only.
 
 Core tests：
 
-- `LightRagLlmCacheService` records hit/miss/save metrics for query, keywords, extract and summary。
+- `LightRagLlmCacheService` `GetOrCreate...` methods return cached values on hits and call factories on misses。
+- `GetOrCreate...` records one `read` metric with `hit` / `miss` / `invalid` / `disabled` / `error` outcome。
+- `GetOrCreate...` records `factoryDurationMs` for misses that invoke the factory。
+- `GetOrCreate...` records `save` metrics only when miss results are persisted。
+- Existing `TryGet...` / `Save...` compatibility methods do not become the primary production path after this feature。
 - Metrics recorder failure does not break cache reads or writes。
 - `OperationCanceledException` is not swallowed。
 - JSON metrics store persists events with atomic write and retention。
-- Hit rate is computed from metrics attempts, not entry count。
+- Hit rate is computed from `read` metrics, not entry count。
 
 Server tests：
 
