@@ -1,27 +1,16 @@
 import { useCallback, useRef } from 'react';
 import { getApiBase } from '@/api/http';
 import { AppLayout } from './AppLayout';
-import { resolveRoute } from './router';
+import { type AppRoute, resolveRoute } from './router';
 import { DocumentsPage } from '@/features/documents/DocumentsPage';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 import { UploadDocumentPage } from '@/features/documents/UploadDocumentPage';
 import { useRagTaskHub } from '@/shared/hooks/useRagTaskHub';
+import { PageHeader } from '@/shared/components/PageHeader';
+import { StatusPill } from '@/shared/components/StatusPill';
 
 export function App() {
   const route = resolveRoute();
-
-  return (
-    <AppLayout>
-      {route.path === '/documents/upload' ? (
-        <UploadDocumentPage />
-      ) : (
-        <DocumentsRoute />
-      )}
-    </AppLayout>
-  );
-}
-
-function DocumentsRoute() {
   const apiBase = getApiBase();
   const taskUpdateSubscribersRef = useRef(new Set<(update: TaskStatusUpdate) => void>());
   const dataClearedSubscribersRef = useRef(new Set<() => void>());
@@ -42,7 +31,7 @@ function DocumentsRoute() {
     };
   }, []);
 
-  useRagTaskHub(apiBase, {
+  const { connectionState } = useRagTaskHub(apiBase, {
     onTaskStatusUpdated(update) {
       taskUpdateSubscribersRef.current.forEach((handler) => handler(update));
     },
@@ -52,10 +41,54 @@ function DocumentsRoute() {
   });
 
   return (
+    <AppLayout currentPath={window.location.pathname} connectionStatus={connectionState}>
+      {route.id === 'upload' ? (
+        <UploadDocumentPage />
+      ) : route.id === 'documents' ? (
+        <DocumentsRoute
+          apiBase={apiBase}
+          subscribeToTaskUpdates={subscribeToTaskUpdates}
+          subscribeToDataCleared={subscribeToDataCleared}
+        />
+      ) : (
+        <PlaceholderRoute route={route} />
+      )}
+    </AppLayout>
+  );
+}
+
+type DocumentsRouteProps = {
+  apiBase: string;
+  subscribeToTaskUpdates: (handler: (update: TaskStatusUpdate) => void) => () => void;
+  subscribeToDataCleared: (handler: () => void) => () => void;
+};
+
+function DocumentsRoute({
+  apiBase,
+  subscribeToTaskUpdates,
+  subscribeToDataCleared
+}: DocumentsRouteProps) {
+  return (
     <DocumentsPage
       apiBase={apiBase}
       subscribeToTaskUpdates={subscribeToTaskUpdates}
       subscribeToDataCleared={subscribeToDataCleared}
     />
+  );
+}
+
+function PlaceholderRoute({ route }: { route: AppRoute }) {
+  return (
+    <section className="lrn-panel app-placeholder" aria-label={route.title}>
+      <PageHeader
+        title={route.title}
+        description={route.description}
+        meta={<StatusPill tone="accent">Pending migration</StatusPill>}
+      />
+      <p>
+        This standalone React route is registered in the shell. Its production workflow will be migrated in a later
+        task.
+      </p>
+    </section>
   );
 }

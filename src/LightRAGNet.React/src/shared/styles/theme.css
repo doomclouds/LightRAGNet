@@ -1,15 +1,41 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Segoe UI", "Microsoft YaHei", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     sans-serif;
-  --color-bg: #f7f8fb;
-  --color-surface: #ffffff;
-  --color-surface-muted: #eef2f7;
-  --color-border: #d6dde8;
-  --color-text: #142033;
-  --color-text-muted: #607089;
-  --color-primary: #2563eb;
-  --color-primary-strong: #1d4ed8;
-  --shadow-soft: 0 12px 30px rgb(20 32 51 / 0.08);
+  --app-bg: #0d1117;
+  --panel-bg: #151b23;
+  --panel-bg-elevated: #1a222d;
+  --panel-border: #303946;
+  --text-primary: #edf2f7;
+  --text-secondary: #a9b4c2;
+  --text-muted: #7d8998;
+  --accent: #4cc9f0;
+  --accent-soft: rgba(76, 201, 240, .13);
+  --accent-border: rgba(76, 201, 240, .42);
+  --danger: #ff6b6b;
+  --danger-soft: rgba(255, 107, 107, .13);
+  --warning: #f6c85f;
+  --warning-soft: rgba(246, 200, 95, .14);
+  --success: #7bd88f;
+  --success-soft: rgba(123, 216, 143, .13);
+  --control-bg: #151b23;
+  --control-border: #303946;
+  --shadow-panel: 0 18px 42px rgba(0, 0, 0, .24);
+  --shadow-popover: 0 18px 34px rgba(0, 0, 0, .34);
+  --shadow-modal: 0 28px 70px rgba(0, 0, 0, .48);
+  --scrim: rgba(2, 6, 12, .72);
+  --radius-panel: 8px;
+  --radius-control: 6px;
+
+  --color-bg: var(--app-bg);
+  --color-surface: var(--panel-bg);
+  --color-surface-muted: var(--panel-bg-elevated);
+  --color-border: var(--panel-border);
+  --color-text: var(--text-primary);
+  --color-text-muted: var(--text-secondary);
+  --color-primary: var(--accent);
+  --color-primary-strong: #c7f3ff;
+  --color-primary-soft: var(--accent-soft);
+  --shadow-soft: var(--shadow-panel);
 }
