@@ -62,6 +62,7 @@ export function createRagTaskHubClient(
     }
 
     connection.onreconnecting(() => {
+      lifecycleGeneration += 1;
       isStartedAndJoined = false;
       emitConnectionState('Reconnecting');
     });
