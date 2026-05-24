@@ -30,15 +30,14 @@ export function useRagTaskHub(apiBase: string, handlers: RagTaskHubHandlers): Us
       onConnectionStateChanged(state) {
         if (isMounted) {
           setConnectionState(state);
+          handlersRef.current.onConnectionStateChanged?.(state);
         }
-
-        handlersRef.current.onConnectionStateChanged?.(state);
       }
     });
 
     return () => {
       isMounted = false;
-      void client.stop();
+      void client.stop().catch(() => undefined);
     };
   }, [apiBase]);
 

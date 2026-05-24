@@ -7,10 +7,17 @@ function createConnection(overrides?: Partial<RagTaskHubConnection>): RagTaskHub
     onreconnecting: vi.fn(),
     onreconnected: vi.fn(),
     onclose: vi.fn(),
+    invoke: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     ...overrides
   };
+}
+
+type EventRegistration = [eventName: string, callback: (...args: unknown[]) => void];
+
+function getEventRegistrations(connection: RagTaskHubConnection): EventRegistration[] {
+  return vi.mocked(connection.on).mock.calls as EventRegistration[];
 }
 
 describe('ragTaskHubClient', () => {
@@ -23,7 +30,7 @@ describe('ragTaskHubClient', () => {
     expect(factory).toHaveBeenCalledWith('http://localhost:5261/hubs/ragtask');
   });
 
-  it('registers task status and data cleared event handlers', () => {
+  it('registers task status and data cleared event dispatchers', () => {
     const connection = createConnection();
     const client = createRagTaskHubClient('http://localhost:5261', () => connection);
     const onTaskStatusUpdated = vi.fn();
@@ -31,11 +38,82 @@ describe('ragTaskHubClient', () => {
 
     client.configure({ onTaskStatusUpdated, onDataCleared });
 
-    expect(connection.on).toHaveBeenCalledWith('TaskStatusUpdated', onTaskStatusUpdated);
-    expect(connection.on).toHaveBeenCalledWith('DataCleared', onDataCleared);
+    expect(connection.on).toHaveBeenCalledWith('TaskStatusUpdated', expect.any(Function));
+    expect(connection.on).toHaveBeenCalledWith('DataCleared', expect.any(Function));
   });
 
-  it('starts and stops the hub connection', async () => {
+  it('joins all tasks group after start before reporting connected', async () => {
+    const connection = createConnection();
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    await client.start({ onConnectionStateChanged });
+
+    expect(connection.start).toHaveBeenCalledTimes(1);
+    expect(connection.invoke).toHaveBeenCalledWith('JoinAllTasksGroup');
+    expect(onConnectionStateChanged).toHaveBeenCalledWith('Connected');
+    expect(vi.mocked(connection.invoke).mock.invocationCallOrder[0])
+      .toBeLessThan(onConnectionStateChanged.mock.invocationCallOrder[0]);
+  });
+
+  it('rejoins all tasks group after reconnected before reporting connected', async () => {
+    const connection = createConnection();
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    await client.start({ onConnectionStateChanged });
+    onConnectionStateChanged.mockClear();
+
+    const onReconnected = vi.mocked(connection.onreconnected).mock.calls[0]?.[0];
+    onReconnected?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(connection.invoke).toHaveBeenCalledTimes(2);
+    expect(connection.invoke).toHaveBeenLastCalledWith('JoinAllTasksGroup');
+    expect(onConnectionStateChanged).toHaveBeenCalledWith('Connected');
+  });
+
+  it('does not register task event handlers more than once when configured repeatedly', async () => {
+    const connection = createConnection();
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+
+    client.configure({ onTaskStatusUpdated: vi.fn(), onDataCleared: vi.fn() });
+    client.configure({ onTaskStatusUpdated: vi.fn(), onDataCleared: vi.fn() });
+    await client.start({ onTaskStatusUpdated: vi.fn(), onDataCleared: vi.fn() });
+
+    const taskStatusRegistrations = getEventRegistrations(connection).filter(([eventName]) => eventName === 'TaskStatusUpdated');
+    const dataClearedRegistrations = getEventRegistrations(connection).filter(([eventName]) => eventName === 'DataCleared');
+
+    expect(taskStatusRegistrations).toHaveLength(1);
+    expect(dataClearedRegistrations).toHaveLength(1);
+  });
+
+  it('dispatches task events to the latest configured handlers', () => {
+    const connection = createConnection();
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const staleTaskStatusUpdated = vi.fn();
+    const latestTaskStatusUpdated = vi.fn();
+    const staleDataCleared = vi.fn();
+    const latestDataCleared = vi.fn();
+
+    client.configure({ onTaskStatusUpdated: staleTaskStatusUpdated, onDataCleared: staleDataCleared });
+    client.configure({ onTaskStatusUpdated: latestTaskStatusUpdated, onDataCleared: latestDataCleared });
+
+    const taskStatusDispatcher = getEventRegistrations(connection).find(([eventName]) => eventName === 'TaskStatusUpdated')?.[1];
+    const dataClearedDispatcher = getEventRegistrations(connection).find(([eventName]) => eventName === 'DataCleared')?.[1];
+    const update = { documentId: 7, status: 'Processing', progress: 50 };
+
+    taskStatusDispatcher?.(update);
+    dataClearedDispatcher?.();
+
+    expect(staleTaskStatusUpdated).not.toHaveBeenCalled();
+    expect(latestTaskStatusUpdated).toHaveBeenCalledWith(update);
+    expect(staleDataCleared).not.toHaveBeenCalled();
+    expect(latestDataCleared).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves all tasks group and stops the hub connection', async () => {
     const connection = createConnection();
     const client = createRagTaskHubClient('http://localhost:5261', () => connection);
     const onConnectionStateChanged = vi.fn();
@@ -43,8 +121,24 @@ describe('ragTaskHubClient', () => {
     await client.start({ onConnectionStateChanged });
     await client.stop();
 
-    expect(connection.start).toHaveBeenCalledTimes(1);
-    expect(onConnectionStateChanged).toHaveBeenCalledWith('Connected');
+    expect(connection.invoke).toHaveBeenCalledWith('LeaveAllTasksGroup');
+    expect(connection.stop).toHaveBeenCalledTimes(1);
+    expect(onConnectionStateChanged).toHaveBeenLastCalledWith('Disconnected');
+  });
+
+  it('continues stopping when leaving all tasks group fails', async () => {
+    const connection = createConnection({
+      invoke: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Leave failed'))
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+
+    await client.start();
+    await expect(client.stop()).resolves.toBeUndefined();
+
+    expect(connection.invoke).toHaveBeenLastCalledWith('LeaveAllTasksGroup');
     expect(connection.stop).toHaveBeenCalledTimes(1);
   });
 
@@ -58,5 +152,19 @@ describe('ragTaskHubClient', () => {
     await client.start({ onConnectionStateChanged });
 
     expect(onConnectionStateChanged).toHaveBeenCalledWith('ServerNotStarted');
+  });
+
+  it('reports server not started when joining all tasks group fails', async () => {
+    const connection = createConnection({
+      invoke: vi.fn().mockRejectedValue(new Error('Join failed'))
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    await client.start({ onConnectionStateChanged });
+
+    expect(connection.invoke).toHaveBeenCalledWith('JoinAllTasksGroup');
+    expect(onConnectionStateChanged).toHaveBeenCalledWith('ServerNotStarted');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
   });
 });
