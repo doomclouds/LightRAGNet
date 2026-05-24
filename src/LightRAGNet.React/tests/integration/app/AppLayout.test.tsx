@@ -89,7 +89,7 @@ describe('AppLayout', () => {
     expect(navigation.getByRole('link', { name: 'Document Preview' })).toHaveAttribute('href', '/document-preview');
   });
 
-  it('renders the connected SignalR status in the shell statusbar', async () => {
+  it('renders SignalR status changes in the shell statusbar', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(paged([])), {
         status: 200,
@@ -99,11 +99,14 @@ describe('AppLayout', () => {
 
     render(<App />);
 
+    const statusbar = screen.getByRole('contentinfo', { name: 'Application status' });
+    expect(statusbar).toHaveTextContent('SignalR Connecting');
+
     await act(async () => {
       client.capturedHandlers?.onConnectionStateChanged?.('Connected');
     });
 
-    expect(screen.getByRole('contentinfo', { name: 'Application status' })).toHaveTextContent('SignalR Connected');
+    expect(statusbar).toHaveTextContent('SignalR Connected');
   });
 
   it('wires the production document route to task hub updates', async () => {

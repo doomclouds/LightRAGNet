@@ -61,6 +61,58 @@ describe('useRagTaskHub', () => {
     unmount();
   });
 
+  it('reports connecting before the hub client resolves startup', async () => {
+    const client = createClient();
+    createRagTaskHubClientMock.mockReturnValue(client);
+
+    const { result, unmount } = renderHook(() => useRagTaskHub('http://localhost:5261', {}));
+
+    expect(result.current.connectionState).toBe('Connecting');
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    unmount();
+  });
+
+  it('reports connected when hub startup succeeds', async () => {
+    const client = createClient();
+    client.start = vi.fn(async (handlers?: RagTaskHubHandlers) => {
+      client.capturedHandlers = handlers;
+      handlers?.onConnectionStateChanged?.('Connected');
+    });
+    createRagTaskHubClientMock.mockReturnValue(client);
+
+    const { result, unmount } = renderHook(() => useRagTaskHub('http://localhost:5261', {}));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.connectionState).toBe('Connected');
+
+    unmount();
+  });
+
+  it('reports server not started when hub startup fails', async () => {
+    const client = createClient();
+    client.start = vi.fn(async () => {
+      throw new Error('Server unavailable');
+    });
+    createRagTaskHubClientMock.mockReturnValue(client);
+
+    const { result, unmount } = renderHook(() => useRagTaskHub('http://localhost:5261', {}));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.connectionState).toBe('ServerNotStarted');
+
+    unmount();
+  });
+
   it('does not call external handlers after unmount', async () => {
     const client = createClient();
     createRagTaskHubClientMock.mockReturnValue(client);

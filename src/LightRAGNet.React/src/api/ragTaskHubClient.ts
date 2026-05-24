@@ -2,7 +2,12 @@ import { HubConnectionBuilder } from '@microsoft/signalr';
 import { buildUrl } from './http';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 
-export type RagTaskHubConnectionState = 'Connected' | 'Disconnected' | 'Reconnecting' | 'ServerNotStarted';
+export type RagTaskHubConnectionState =
+  | 'Connecting'
+  | 'Connected'
+  | 'Disconnected'
+  | 'Reconnecting'
+  | 'ServerNotStarted';
 
 export type RagTaskHubHandlers = {
   onTaskStatusUpdated?: (update: TaskStatusUpdate) => void;
