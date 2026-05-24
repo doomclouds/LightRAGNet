@@ -30,6 +30,17 @@ function paged(items: MarkdownDocumentDto[]): PagedResult<MarkdownDocumentDto> {
   };
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe('DocumentPreviewDrawer', () => {
   it('loads drawer content through the safe preview API and keeps the full preview route', async () => {
     const user = userEvent.setup();
@@ -53,5 +64,59 @@ describe('DocumentPreviewDrawer', () => {
       '/document-preview/42'
     );
     await waitFor(() => expect(loadPreview).toHaveBeenCalledWith(apiBase, 42));
+  });
+
+  it('ignores late preview responses after the drawer is closed', async () => {
+    const user = userEvent.setup();
+    const preview = deferred<{ contentType: string; content: string; fileName: string }>();
+    const loadDocuments = vi.fn().mockResolvedValue(paged([makeDocument()]));
+    const loadPreview = vi.fn().mockReturnValue(preview.promise);
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadPreview={loadPreview} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View system-architecture.md' }));
+    await user.click(await screen.findByRole('button', { name: 'Close preview' }));
+
+    preview.resolve({
+      contentType: 'text/markdown',
+      content: '# Late Preview',
+      fileName: 'late.md'
+    });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'Late Preview' })).not.toBeInTheDocument();
+  });
+
+  it('keeps quick document switches from rendering stale drawer content', async () => {
+    const user = userEvent.setup();
+    const firstPreview = deferred<{ contentType: string; content: string; fileName: string }>();
+    const secondPreview = deferred<{ contentType: string; content: string; fileName: string }>();
+    const loadDocuments = vi.fn().mockResolvedValue(paged([
+      makeDocument({ id: 1, fileName: 'first.md' }),
+      makeDocument({ id: 2, fileName: 'second.md' })
+    ]));
+    const loadPreview = vi.fn()
+      .mockReturnValueOnce(firstPreview.promise)
+      .mockReturnValueOnce(secondPreview.promise);
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadPreview={loadPreview} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View first.md' }));
+    await user.click(await screen.findByRole('button', { name: 'View second.md' }));
+
+    secondPreview.resolve({
+      contentType: 'text/markdown',
+      content: '# Second Drawer',
+      fileName: 'second.md'
+    });
+    firstPreview.resolve({
+      contentType: 'text/markdown',
+      content: '# First Drawer',
+      fileName: 'first.md'
+    });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Preview second.md' });
+    expect(await within(dialog).findByRole('heading', { name: 'Second Drawer' })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('heading', { name: 'First Drawer' })).not.toBeInTheDocument();
   });
 });

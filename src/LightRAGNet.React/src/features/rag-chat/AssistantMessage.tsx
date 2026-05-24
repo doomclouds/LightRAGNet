@@ -70,8 +70,34 @@ function getReferenceHref(reference: RagQueryReference): string | null {
   try {
     const url = new URL(reference.previewUrl, window.location.origin);
     const match = url.pathname.match(/(?:^|\/)document-preview\/(\d+)$/);
-    return match ? `/document-preview/${match[1]}` : reference.previewUrl;
+    return match ? `${getCurrentPathBase()}/document-preview/${match[1]}` : reference.previewUrl;
   } catch {
     return reference.previewUrl;
   }
+}
+
+function getCurrentPathBase(): string {
+  const segments = window.location.pathname.split('/').filter(Boolean);
+  const knownRouteIndex = segments.findIndex((segment) =>
+    segment === "rag-chat" ||
+    segment === "documents" ||
+    segment === "graph-view" ||
+    segment === "system-status" ||
+    segment === "cache-management" ||
+    segment === "document-preview"
+  );
+
+  if (knownRouteIndex >= 0) {
+    return toPathBase(segments.slice(0, knownRouteIndex));
+  }
+
+  if (segments.length <= 1) {
+    return toPathBase(segments);
+  }
+
+  return toPathBase(segments.slice(0, 1));
+}
+
+function toPathBase(segments: string[]): string {
+  return segments.length > 0 ? `/${segments.join("/")}` : "";
 }

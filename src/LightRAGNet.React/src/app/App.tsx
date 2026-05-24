@@ -79,8 +79,10 @@ export function App() {
   );
 }
 
-function getPreviewDocumentId(pathname: string): number | undefined {
-  const idText = pathname.split('/').filter(Boolean).at(1);
+export function getPreviewDocumentId(pathname: string): number | undefined {
+  const segments = pathname.split('/').filter(Boolean);
+  const routeIndex = segments.findIndex((segment) => segment === 'document-preview');
+  const idText = routeIndex >= 0 ? segments.at(routeIndex + 1) : undefined;
   const id = Number(idText);
   return Number.isInteger(id) && id > 0 ? id : undefined;
 }

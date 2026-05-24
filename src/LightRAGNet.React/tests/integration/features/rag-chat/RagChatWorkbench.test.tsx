@@ -26,6 +26,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
+  window.history.pushState({}, "", "/");
   queryRagStream.mockReset();
   getRagQueryData.mockReset();
 });
@@ -112,6 +113,17 @@ describe("RagChatWorkbench", () => {
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toContain("noopener");
     expect(link?.getAttribute("rel")).toContain("noreferrer");
+  });
+
+  test("keeps current path base when normalizing document preview references", async () => {
+    window.history.pushState({}, "", "/app/chat");
+
+    await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/app/document-preview/1" });
+
+    const link = host.querySelector<HTMLAnchorElement>("a[href='/app/document-preview/1']");
+
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("target")).toBe("_blank");
   });
 
   test("renders unresolved references as plain text labels", async () => {

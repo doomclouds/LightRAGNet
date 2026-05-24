@@ -68,11 +68,15 @@ export const routes: AppRoute[] = [
 export function resolveRoute(pathname: string = window.location.pathname): AppRoute {
   const normalizedPath = normalizePath(pathname);
 
-  if (normalizedPath === '/document-preview' || normalizedPath.startsWith('/document-preview/')) {
+  if (isDocumentPreviewPath(normalizedPath)) {
     return routes.find((route) => route.id === 'document-preview') ?? routes[0];
   }
 
   return routes.find((route) => route.path === normalizedPath) ?? routes[0];
+}
+
+function isDocumentPreviewPath(pathname: string): boolean {
+  return /(?:^|\/)document-preview(?:\/|$)/.test(pathname);
 }
 
 function normalizePath(pathname: string): string {
