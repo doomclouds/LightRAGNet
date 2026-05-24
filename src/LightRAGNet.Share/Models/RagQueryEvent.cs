@@ -60,4 +60,7 @@ public sealed class RagQueryReferenceDto
 {
     public string ReferenceId { get; init; } = string.Empty;
     public string FilePath { get; init; } = string.Empty;
+    public string FileName { get; init; } = string.Empty;
+    public string? PreviewUrl { get; init; }
+    public string OpenKind { get; init; } = "ExternalOrUnresolved";
 }

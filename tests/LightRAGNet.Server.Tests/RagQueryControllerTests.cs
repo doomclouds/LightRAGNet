@@ -66,7 +66,7 @@ public sealed class RagQueryControllerTests
     [Fact]
     public async Task QueryDataAsync_WhenQueryIsBlank_ReturnsBadRequest()
     {
-        var controller = new RagQueryController(null!, NullLogger<RagQueryController>.Instance);
+        var controller = new RagQueryController(null!, null!, NullLogger<RagQueryController>.Instance);
 
         var result = await controller.QueryDataAsync(new RagQueryRequest { Query = " " });
 

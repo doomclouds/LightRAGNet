@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Server.Services.DocumentPreview;
 using LightRAGNet.Share.Models;
 
 namespace LightRAGNet.Server.Services;
@@ -50,7 +51,10 @@ public static class RagQueryRequestMapper
         };
     }
 
-    public static QueryMetadataEvent ToMetadataEvent(RagQueryRequest request, QueryResult result)
+    public static QueryMetadataEvent ToMetadataEvent(
+        RagQueryRequest request,
+        QueryResult result,
+        IReadOnlyList<RagQueryReferenceDto>? references = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(result);
@@ -64,7 +68,7 @@ public static class RagQueryRequestMapper
             IncludeReferences = request.IncludeReferences,
             ResponseType = NormalizeResponseType(request.ResponseType),
             CachePolicy = request.Stream ? "Streaming request" : "Cacheable request",
-            References = request.IncludeReferences ? result.ReferenceList.Select(ToReferenceDto).ToArray() : [],
+            References = request.IncludeReferences ? references ?? result.ReferenceList.Select(ToReferenceDto).ToArray() : [],
             HighLevelKeywords = GetMetadataKeywords(metadata, "high_level_keywords", request.HighLevelKeywords),
             LowLevelKeywords = GetMetadataKeywords(metadata, "low_level_keywords", request.LowLevelKeywords),
             Diagnostics = ToDiagnostics(metadata)
@@ -125,8 +129,19 @@ public static class RagQueryRequestMapper
         return new RagQueryReferenceDto
         {
             ReferenceId = item.ReferenceId,
-            FilePath = item.FilePath
+            FilePath = item.FilePath,
+            FileName = ExtractReferenceFileName(item),
+            OpenKind = ReferenceOpenKind.ExternalOrUnresolved
         };
+    }
+
+    private static string ExtractReferenceFileName(ReferenceItem item)
+    {
+        var normalizedPath = Uri.UnescapeDataString(item.FilePath.Replace('\\', '/')).TrimEnd('/');
+        var fileName = Path.GetFileName(normalizedPath);
+        return string.IsNullOrWhiteSpace(fileName)
+            ? item.ReferenceId
+            : fileName;
     }
 
     private static IReadOnlyDictionary<string, string> ToDiagnostics(IReadOnlyDictionary<string, object>? metadata)
