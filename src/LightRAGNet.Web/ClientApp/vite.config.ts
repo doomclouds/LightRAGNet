@@ -4,22 +4,35 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "../wwwroot/graph-workbench",
-    emptyOutDir: true,
+    outDir: "../wwwroot",
+    emptyOutDir: false,
     manifest: false,
     sourcemap: false,
     rollupOptions: {
       preserveEntrySignatures: "strict",
       input: {
-        graphWorkbench: "src/graph-workbench/main.tsx"
+        graphWorkbench: "src/graph-workbench/main.tsx",
+        cacheManagement: "src/cache-management/main.tsx"
       },
       output: {
         format: "es",
-        entryFileNames: "assets/graph-workbench.js",
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.name === "cacheManagement") {
+            return "cache-management/assets/cache-management.js";
+          }
+
+          return "graph-workbench/assets/graph-workbench.js";
+        },
         chunkFileNames: "assets/[name].js",
         assetFileNames: (assetInfo) => {
-          if (assetInfo.names?.some((name) => name.endsWith(".css"))) {
-            return "assets/graph-workbench.css";
+          const assetNames = [...(assetInfo.names ?? []), ...(assetInfo.originalFileNames ?? [])];
+
+          if (assetNames.some((name) => name === "cacheManagement.css" || name.endsWith("cache-management.css"))) {
+            return "cache-management/assets/cache-management.css";
+          }
+
+          if (assetNames.some((name) => name === "graphWorkbench.css" || name.endsWith(".css"))) {
+            return "graph-workbench/assets/graph-workbench.css";
           }
 
           return "assets/[name][extname]";
