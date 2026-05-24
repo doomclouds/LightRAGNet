@@ -48,13 +48,19 @@ public sealed class LightRagLlmCacheService(
             async ct =>
             {
                 var data = await llmCacheStore.GetByIdAsync(key, ct);
-                if (!LightRagCacheEntry.TryFromDictionary(data, out var entry)
-                    || !TryDeserializeKeywordPayload(entry.ReturnValue, out var payload))
+                if (data is null)
                 {
-                    return (false, new KeywordsResult());
+                    return CacheReadResult<KeywordsResult>.Miss();
                 }
 
-                return (true, new KeywordsResult
+                if (!LightRagCacheEntry.TryFromDictionary(data, out var entry)
+                    || !string.Equals(entry.CacheType, LightRagCacheKeyBuilder.KeywordsCacheType, StringComparison.Ordinal)
+                    || !TryDeserializeKeywordPayload(entry.ReturnValue, out var payload))
+                {
+                    return CacheReadResult<KeywordsResult>.Invalid();
+                }
+
+                return CacheReadResult<KeywordsResult>.Hit(new KeywordsResult
                 {
                     HighLevelKeywords = payload.HighLevelKeywords ?? [],
                     LowLevelKeywords = payload.LowLevelKeywords ?? []
@@ -179,9 +185,15 @@ public sealed class LightRagLlmCacheService(
             async ct =>
             {
                 var data = await llmCacheStore.GetByIdAsync(key, ct);
+                if (data is null)
+                {
+                    return CacheReadResult<string>.Miss();
+                }
+
                 return LightRagCacheEntry.TryFromDictionary(data, out var entry)
-                    ? (true, entry.ReturnValue)
-                    : (false, string.Empty);
+                    && string.Equals(entry.CacheType, LightRagCacheKeyBuilder.QueryCacheType, StringComparison.Ordinal)
+                        ? CacheReadResult<string>.Hit(entry.ReturnValue)
+                        : CacheReadResult<string>.Invalid();
             },
             factory,
             response => !string.IsNullOrWhiteSpace(response),
@@ -421,7 +433,7 @@ public sealed class LightRagLlmCacheService(
         long? revision,
         bool cacheEnabled,
         string cacheKey,
-        Func<CancellationToken, Task<(bool Hit, T Value)>> tryRead,
+        Func<CancellationToken, Task<CacheReadResult<T>>> tryRead,
         Func<CancellationToken, Task<T>> factory,
         Func<T, bool> shouldSave,
         Func<T, CancellationToken, Task<bool>> save,
@@ -457,7 +469,7 @@ public sealed class LightRagLlmCacheService(
         {
             var read = await tryRead(cancellationToken);
             lookupDuration.Stop();
-            if (read.Hit)
+            if (read.Outcome == CacheReadOutcome.Hit)
             {
                 await RecordReadMetricAsync(
                     workspace,
@@ -471,6 +483,19 @@ public sealed class LightRagLlmCacheService(
                     cancellationToken);
                 return CacheValueResult<T>.FromHit(read.Value, cacheType, cacheKey, lookupDuration.Elapsed);
             }
+
+            return await CreateAndMaybeSaveAsync(
+                workspace,
+                cacheType,
+                read.Outcome,
+                mode,
+                revision,
+                cacheKey,
+                lookupDuration.Elapsed,
+                factory,
+                shouldSave,
+                save,
+                cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -499,15 +524,30 @@ public sealed class LightRagLlmCacheService(
                 errorFactoryDuration.Elapsed);
         }
 
+    }
+
+    private async Task<CacheValueResult<T>> CreateAndMaybeSaveAsync<T>(
+        string workspace,
+        string cacheType,
+        string readOutcome,
+        string? mode,
+        long? revision,
+        string cacheKey,
+        TimeSpan lookupDuration,
+        Func<CancellationToken, Task<T>> factory,
+        Func<T, bool> shouldSave,
+        Func<T, CancellationToken, Task<bool>> save,
+        CancellationToken cancellationToken)
+    {
         var factoryDuration = Stopwatch.StartNew();
         var value = await factory(cancellationToken);
         factoryDuration.Stop();
         await RecordReadMetricAsync(
             workspace,
             cacheType,
-            CacheReadOutcome.Miss,
+            readOutcome,
             mode,
-            lookupDuration.Elapsed,
+            lookupDuration,
             factoryDuration.Elapsed,
             cacheKey,
             revision,
@@ -538,7 +578,7 @@ public sealed class LightRagLlmCacheService(
             saved,
             saved ? cacheKey : null,
             cacheType,
-            lookupDuration.Elapsed,
+            lookupDuration,
             factoryDuration.Elapsed);
     }
 
@@ -560,10 +600,15 @@ public sealed class LightRagLlmCacheService(
             async ct =>
             {
                 var data = await llmCacheStore.GetByIdAsync(key, ct);
+                if (data is null)
+                {
+                    return CacheReadResult<string>.Miss();
+                }
+
                 return LightRagCacheEntry.TryFromDictionary(data, out var entry)
                     && string.Equals(entry.CacheType, cacheType, StringComparison.Ordinal)
-                        ? (true, entry.ReturnValue)
-                        : (false, string.Empty);
+                        ? CacheReadResult<string>.Hit(entry.ReturnValue)
+                        : CacheReadResult<string>.Invalid();
             },
             factory,
             response => !string.IsNullOrWhiteSpace(response),
@@ -714,6 +759,24 @@ public sealed class LightRagLlmCacheService(
         }
     }
 
+    private readonly record struct CacheReadResult<T>(string Outcome, T Value)
+    {
+        public static CacheReadResult<T> Hit(T value)
+        {
+            return new CacheReadResult<T>(CacheReadOutcome.Hit, value);
+        }
+
+        public static CacheReadResult<T> Miss()
+        {
+            return new CacheReadResult<T>(CacheReadOutcome.Miss, default!);
+        }
+
+        public static CacheReadResult<T> Invalid()
+        {
+            return new CacheReadResult<T>(CacheReadOutcome.Invalid, default!);
+        }
+    }
+
     private string BuildQueryKey(
         string workspace,
         long workspaceQueryRevision,
@@ -774,21 +837,28 @@ public sealed class LightRagLlmCacheService(
     private static bool TryDeserializeKeywordPayload(string json, out KeywordCachePayload payload)
     {
         payload = new KeywordCachePayload();
-        using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty("high_level_keywords", out _)
-            || !document.RootElement.TryGetProperty("low_level_keywords", out _))
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("high_level_keywords", out _)
+                || !document.RootElement.TryGetProperty("low_level_keywords", out _))
+            {
+                return false;
+            }
+
+            var deserialized = JsonSerializer.Deserialize<KeywordCachePayload>(json, SerializerOptions);
+            if (deserialized?.HighLevelKeywords is null || deserialized.LowLevelKeywords is null)
+            {
+                return false;
+            }
+
+            payload = deserialized;
+            return true;
+        }
+        catch (JsonException)
         {
             return false;
         }
-
-        var deserialized = JsonSerializer.Deserialize<KeywordCachePayload>(json, SerializerOptions);
-        if (deserialized?.HighLevelKeywords is null || deserialized.LowLevelKeywords is null)
-        {
-            return false;
-        }
-
-        payload = deserialized;
-        return true;
     }
 
     private sealed class NoopCacheMetricsRecorder : ICacheMetricsRecorder

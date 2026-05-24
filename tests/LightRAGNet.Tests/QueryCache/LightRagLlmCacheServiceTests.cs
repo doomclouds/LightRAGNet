@@ -173,6 +173,7 @@ public sealed class LightRagLlmCacheServiceTests
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
+        var recorder = new RecordingCacheMetricsRecorder();
         var queryParam = new QueryParam
         {
             Mode = QueryMode.Mix,
@@ -194,7 +195,7 @@ public sealed class LightRagLlmCacheServiceTests
                 null,
                 123)
             .ToDictionary());
-        var service = CreateService(store, keyBuilder: keyBuilder);
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
         var factoryCalls = 0;
 
         var result = await service.GetOrCreateQueryResponseAsync(
@@ -214,6 +215,13 @@ public sealed class LightRagLlmCacheServiceTests
         result.Saved.Should().BeFalse();
         result.CacheKey.Should().Be(key);
         factoryCalls.Should().Be(0);
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.CacheType.Should().Be(LightRagCacheKeyBuilder.QueryCacheType);
+        read.Outcome.Should().Be(CacheReadOutcome.Hit);
+        read.FactoryDuration.Should().BeNull();
+        read.CacheKey.Should().Be(key);
+        read.Revision.Should().Be(3);
+        recorder.Saves.Should().BeEmpty();
     }
 
     [Fact]
@@ -264,7 +272,8 @@ public sealed class LightRagLlmCacheServiceTests
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
-        var service = CreateService(store, keyBuilder: keyBuilder);
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
         const string canonicalPrompt = "canonical extract prompt";
         var expectedKey = keyBuilder.BuildExtractKey(canonicalPrompt);
         var factoryCalls = 0;
@@ -284,6 +293,36 @@ public sealed class LightRagLlmCacheServiceTests
         result.CacheKey.Should().Be(expectedKey);
         factoryCalls.Should().Be(1);
         store.Items.Should().ContainKey(expectedKey);
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.CacheType.Should().Be(LightRagCacheKeyBuilder.ExtractCacheType);
+        read.Outcome.Should().Be(CacheReadOutcome.Miss);
+        read.FactoryDuration.Should().NotBeNull();
+        read.CacheKey.Should().Be(expectedKey);
+        var save = recorder.Saves.Should().ContainSingle().Subject;
+        save.CacheType.Should().Be(LightRagCacheKeyBuilder.ExtractCacheType);
+        save.CacheKey.Should().Be(expectedKey);
+    }
+
+    [Fact]
+    public async Task GetOrCreateExtractAsync_WhenCacheMiss_RecordsLookupDurationWithoutFactoryTime()
+    {
+        var store = new InMemoryKvStore();
+        var recorder = new RecordingCacheMetricsRecorder();
+        var service = CreateService(store, recorder: recorder);
+
+        await service.GetOrCreateExtractAsync(
+            "canonical extract prompt",
+            "chunk-a",
+            async _ =>
+            {
+                await Task.Delay(80);
+                return "raw extract response";
+            });
+
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.Outcome.Should().Be(CacheReadOutcome.Miss);
+        read.FactoryDuration.Should().NotBeNull();
+        read.Duration.Should().BeLessThan(read.FactoryDuration!.Value);
     }
 
     [Fact]
@@ -358,13 +397,15 @@ public sealed class LightRagLlmCacheServiceTests
     public async Task GetOrCreateSummaryAsync_WhenIndexingCacheDisabled_CallsFactoryWithoutSaving()
     {
         var store = new InMemoryKvStore();
+        var recorder = new RecordingCacheMetricsRecorder();
         var service = CreateService(
             store,
             new LightRAGOptions
             {
                 EnableLlmCache = true,
                 EnableLlmCacheForEntityExtract = false
-            });
+            },
+            recorder: recorder);
         var factoryCalls = 0;
 
         var result = await service.GetOrCreateSummaryAsync(
@@ -382,6 +423,168 @@ public sealed class LightRagLlmCacheServiceTests
         result.CacheKey.Should().BeNull();
         factoryCalls.Should().Be(1);
         store.Items.Should().BeEmpty();
+        store.GetByIdCalls.Should().BeEmpty();
+        store.UpsertCalls.Should().BeEmpty();
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.CacheType.Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+        read.Outcome.Should().Be(CacheReadOutcome.Disabled);
+        read.FactoryDuration.Should().NotBeNull();
+        read.CacheKey.Should().BeNull();
+        recorder.Saves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetOrCreateSummaryAsync_WhenCacheEntryInvalid_RecordsInvalidAndSavesFactoryValue()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var recorder = new RecordingCacheMetricsRecorder();
+        const string canonicalPrompt = "canonical summary prompt";
+        var key = keyBuilder.BuildSummaryKey(canonicalPrompt);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                "raw extract response",
+                LightRagCacheKeyBuilder.ExtractCacheType,
+                canonicalPrompt,
+                null,
+                123,
+                "chunk-a")
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
+        var factoryCalls = 0;
+
+        var result = await service.GetOrCreateSummaryAsync(
+            canonicalPrompt,
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult("summary result");
+            });
+
+        result.Value.Should().Be("summary result");
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        result.CacheKey.Should().Be(key);
+        factoryCalls.Should().Be(1);
+        store.Items[key]["cache_type"].Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.CacheType.Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+        read.Outcome.Should().Be(CacheReadOutcome.Invalid);
+        read.FactoryDuration.Should().NotBeNull();
+        read.CacheKey.Should().Be(key);
+        var save = recorder.Saves.Should().ContainSingle().Subject;
+        save.CacheType.Should().Be(LightRagCacheKeyBuilder.SummaryCacheType);
+        save.CacheKey.Should().Be(key);
+    }
+
+    [Fact]
+    public async Task GetOrCreateQueryResponseAsync_WhenCacheTypeMismatch_RecordsInvalidAndCallsFactory()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var recorder = new RecordingCacheMetricsRecorder();
+        var queryParam = new QueryParam { Mode = QueryMode.Mix };
+        var keywords = new KeywordsResult();
+        var key = keyBuilder.BuildRagQueryKey("workspace-a", 1, "what is cache?", queryParam, keywords);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                "wrong entry",
+                LightRagCacheKeyBuilder.SummaryCacheType,
+                "what is cache?",
+                null,
+                123)
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
+
+        var result = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            1,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ => Task.FromResult("factory answer"));
+
+        result.Value.Should().Be("factory answer");
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        recorder.Reads.Should().ContainSingle().Which.Outcome.Should().Be(CacheReadOutcome.Invalid);
+        recorder.Saves.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task GetOrCreateKeywordsAsync_WhenPayloadMalformed_RecordsInvalidAndSavesFactoryValue()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var recorder = new RecordingCacheMetricsRecorder();
+        var key = keyBuilder.BuildKeywordKey("workspace-a", QueryMode.Mix, "what is cache?");
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                """{"highLevelKeywords":["wrong-shape"]}""",
+                LightRagCacheKeyBuilder.KeywordsCacheType,
+                "what is cache?",
+                null,
+                123)
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
+
+        var result = await service.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            "what is cache?",
+            _ => Task.FromResult(new KeywordsResult
+            {
+                HighLevelKeywords = ["rag"],
+                LowLevelKeywords = ["cache"]
+            }));
+
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        result.Value.HighLevelKeywords.Should().Equal("rag");
+        recorder.Reads.Should().ContainSingle().Which.Outcome.Should().Be(CacheReadOutcome.Invalid);
+        recorder.Saves.Should().ContainSingle().Which.CacheType.Should().Be(LightRagCacheKeyBuilder.KeywordsCacheType);
+    }
+
+    [Fact]
+    public async Task GetOrCreateQueryResponseAsync_WhenLookupThrows_RecordsErrorWithoutSaving()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var recorder = new RecordingCacheMetricsRecorder();
+        var queryParam = new QueryParam { Mode = QueryMode.Mix };
+        var keywords = new KeywordsResult();
+        var key = keyBuilder.BuildRagQueryKey("workspace-a", 1, "what is cache?", queryParam, keywords);
+        store.ThrowOnGetKey = key;
+        var service = CreateService(store, keyBuilder: keyBuilder, recorder: recorder);
+        var factoryCalls = 0;
+
+        var result = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            1,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult("factory answer");
+            });
+
+        result.Value.Should().Be("factory answer");
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeFalse();
+        result.CacheKey.Should().BeNull();
+        factoryCalls.Should().Be(1);
+        store.UpsertCalls.Should().BeEmpty();
+        var read = recorder.Reads.Should().ContainSingle().Subject;
+        read.CacheType.Should().Be(LightRagCacheKeyBuilder.QueryCacheType);
+        read.Outcome.Should().Be(CacheReadOutcome.Error);
+        read.FactoryDuration.Should().NotBeNull();
+        read.CacheKey.Should().Be(key);
+        recorder.Saves.Should().BeEmpty();
     }
 
     [Fact]
@@ -552,4 +755,75 @@ public sealed class LightRagLlmCacheServiceTests
             return Task.CompletedTask;
         }
     }
+
+    private sealed class RecordingCacheMetricsRecorder : ICacheMetricsRecorder
+    {
+        public List<RecordedRead> Reads { get; } = [];
+
+        public List<RecordedSave> Saves { get; } = [];
+
+        public Task RecordReadAsync(
+            string workspace,
+            string cacheType,
+            string outcome,
+            string? mode,
+            TimeSpan duration,
+            TimeSpan? factoryDuration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            Reads.Add(new RecordedRead(
+                workspace,
+                cacheType,
+                outcome,
+                mode,
+                duration,
+                factoryDuration,
+                cacheKey,
+                revision));
+            return Task.CompletedTask;
+        }
+
+        public Task RecordSaveAsync(
+            string workspace,
+            string cacheType,
+            string? mode,
+            TimeSpan duration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            Saves.Add(new RecordedSave(workspace, cacheType, mode, duration, cacheKey, revision));
+            return Task.CompletedTask;
+        }
+
+        public Task RecordClearAsync(
+            string workspace,
+            string cacheType,
+            TimeSpan duration,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record RecordedRead(
+        string Workspace,
+        string CacheType,
+        string Outcome,
+        string? Mode,
+        TimeSpan Duration,
+        TimeSpan? FactoryDuration,
+        string? CacheKey,
+        long? Revision);
+
+    private sealed record RecordedSave(
+        string Workspace,
+        string CacheType,
+        string? Mode,
+        TimeSpan Duration,
+        string? CacheKey,
+        long? Revision);
 }
