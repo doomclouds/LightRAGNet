@@ -1,3 +1,4 @@
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDateTime, formatFileSize } from './documentFormatters';
@@ -10,9 +11,21 @@ type DocumentPreviewPanelProps = {
 };
 
 export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPreviewPanelProps) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const downloadHref = getDownloadHref(apiBase, document.fileUrl);
   const hasContent = Boolean(document.content?.trim());
   const fullPreviewHref = `/document-preview/${document.id}`;
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+    }
+  }
 
   return (
     <>
@@ -22,6 +35,7 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
         role="dialog"
         aria-modal="true"
         aria-label={`Preview ${document.fileName}`}
+        onKeyDown={handleKeyDown}
       >
         <header className="document-preview__header">
           <div>
@@ -44,7 +58,7 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
                 Download
               </a>
             ) : null}
-            <button type="button" onClick={onClose} aria-label="Close preview">
+            <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close preview">
               Close
             </button>
           </div>

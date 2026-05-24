@@ -62,6 +62,7 @@ const statusTabs: PageTabItem[] = [
     href: `/documents?status=${encodeURIComponent(option)}`
   }))
 ];
+const statusOptionSet = new Set(statusOptions);
 
 export function DocumentsPage({
   apiBase = getApiBase(),
@@ -78,7 +79,7 @@ export function DocumentsPage({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>(() => getStatusFromLocation());
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MarkdownDocumentDto | null>(null);
@@ -88,6 +89,7 @@ export function DocumentsPage({
   const documentsRef = useRef<MarkdownDocumentDto[]>([]);
   const pageRef = useRef(page);
   const totalCountRef = useRef(totalCount);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
   const refreshTimerRef = useRef<number | undefined>(undefined);
 
   const scheduleRefresh = useCallback(() => {
@@ -159,6 +161,19 @@ export function DocumentsPage({
   useEffect(() => {
     return () => {
       window.clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      setStatus(getStatusFromLocation());
+      setPage(1);
+    }
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
     };
   }, []);
 
@@ -256,8 +271,7 @@ export function DocumentsPage({
   }, [refreshNow, subscribeToDataCleared]);
 
   function handleStatusChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    setStatus(event.target.value);
-    setPage(1);
+    applyStatusFilter(event.target.value);
   }
 
   function handleStatusTabClick(event: React.MouseEvent<HTMLDivElement>) {
@@ -274,8 +288,14 @@ export function DocumentsPage({
     }
 
     event.preventDefault();
-    setStatus(url.searchParams.get('status') ?? '');
+    applyStatusFilter(url.searchParams.get('status') ?? '');
+  }
+
+  function applyStatusFilter(nextStatus: string) {
+    const normalizedStatus = normalizeStatus(nextStatus);
+    setStatus(normalizedStatus);
     setPage(1);
+    syncStatusToUrl(normalizedStatus);
   }
 
   function updateDocument(updatedDocument: MarkdownDocumentDto) {
@@ -324,6 +344,7 @@ export function DocumentsPage({
       return;
     }
 
+    previewTriggerRef.current = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : null;
     setErrorMessage(null);
 
     try {
@@ -335,6 +356,17 @@ export function DocumentsPage({
     } finally {
       finishDocumentAction(document.id, token);
     }
+  }
+
+  function closePreview() {
+    const trigger = previewTriggerRef.current;
+    setPreviewDocument(null);
+
+    window.setTimeout(() => {
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+    }, 0);
   }
 
   async function handleAddToRag(document: MarkdownDocumentDto) {
@@ -503,9 +535,9 @@ export function DocumentsPage({
 
       <div className="document-list__summary" aria-label="Document lifecycle summary">
         <SummaryCard label="Total Documents" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
-        <SummaryCard label="Completed" value={completedCount} detail="Ready in RAG" />
-        <SummaryCard label="In Flight" value={activeCount} detail="Queued or processing" />
-        <SummaryCard label="Needs Review" value={failedCount} detail="Failed lifecycle state" />
+        <SummaryCard label="Completed" value={completedCount} detail="Completed on this page" />
+        <SummaryCard label="In Flight" value={activeCount} detail="Active on this page" />
+        <SummaryCard label="Needs Review" value={failedCount} detail="Failed on this page" />
       </div>
 
       <div className="document-list__toolbar">
@@ -566,7 +598,7 @@ export function DocumentsPage({
       ) : null}
 
       {previewDocument ? (
-        <DocumentPreviewPanel apiBase={apiBase} document={previewDocument} onClose={() => setPreviewDocument(null)} />
+        <DocumentPreviewPanel apiBase={apiBase} document={previewDocument} onClose={closePreview} />
       ) : null}
 
       <footer className="document-list__footer">
@@ -733,6 +765,24 @@ function isBusy(document: MarkdownDocumentDto): boolean {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getStatusFromLocation(): string {
+  return normalizeStatus(new URLSearchParams(window.location.search).get('status') ?? '');
+}
+
+function normalizeStatus(value: string): string {
+  const matchingStatus = statusOptions.find((option) => option.toLowerCase() === value.toLowerCase());
+  return matchingStatus && statusOptionSet.has(matchingStatus) ? matchingStatus : '';
+}
+
+function syncStatusToUrl(status: string) {
+  const nextUrl = status.length > 0 ? `/documents?status=${encodeURIComponent(status)}` : '/documents';
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+  if (currentUrl !== nextUrl) {
+    window.history.pushState({}, '', nextUrl);
+  }
 }
 
 function applyPipelinePatch(document: MarkdownDocumentDto, result: DocumentPipelineActionResult, action: 'retry' | 'cancel'): MarkdownDocumentDto {

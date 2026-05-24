@@ -121,6 +121,8 @@ describe('DocumentsPage', () => {
     const statusViews = screen.getByRole('navigation', { name: 'Document status views' });
     expect(within(statusViews).getByRole('link', { name: 'All Documents' })).toBeInTheDocument();
     expect(within(statusViews).getByRole('link', { name: 'Processing' })).toBeInTheDocument();
+    expect(screen.getByText('Active on this page')).toBeInTheDocument();
+    expect(screen.getByText('Failed on this page')).toBeInTheDocument();
 
     const table = await screen.findByRole('table', { name: 'Document lifecycle' });
     const row = within(table).getByRole('row', { name: /system-architecture\.md/i });
@@ -153,6 +155,102 @@ describe('DocumentsPage', () => {
     );
     expect(document.querySelector('.lrn-scrim')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/documents');
+  });
+
+  it('moves focus into the preview drawer and returns focus to the triggering view button on Escape', async () => {
+    const user = userEvent.setup();
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([makeDocument({ fileName: 'system-architecture.md' })])
+    );
+    const loadDocument = vi.fn().mockResolvedValue(
+      makeDocument({
+        fileName: 'system-architecture.md',
+        content: '# Architecture'
+      })
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+
+    const viewButton = await screen.findByRole('button', { name: 'View system-architecture.md' });
+    await user.click(viewButton);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close preview' });
+
+    await waitFor(() => expect(closeButton).toHaveFocus());
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Preview system-architecture.md' })).not.toBeInTheDocument());
+    expect(viewButton).toHaveFocus();
+  });
+
+  it('loads the status query filter from the documents URL and marks controls active', async () => {
+    window.history.pushState({}, '', '/documents?status=Failed');
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([makeDocument({ fileName: 'failed.md', ragStatus: 'Failed' })])
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenCalledWith(apiBase, {
+        page: 1,
+        pageSize: 10,
+        status: 'Failed'
+      })
+    );
+
+    expect(screen.getByLabelText('RAG status filter')).toHaveValue('Failed');
+    expect(screen.getByRole('link', { name: 'Failed' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('keeps status tabs, select, and the URL query in sync without leaving the page', async () => {
+    const user = userEvent.setup();
+    const loadDocuments = vi.fn().mockResolvedValue(paged([makeDocument()]));
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    await waitFor(() => expect(loadDocuments).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('link', { name: 'Processing' }));
+
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
+        page: 1,
+        pageSize: 10,
+        status: 'Processing'
+      })
+    );
+    expect(window.location.pathname).toBe('/documents');
+    expect(window.location.search).toBe('?status=Processing');
+    expect(screen.getByLabelText('RAG status filter')).toHaveValue('Processing');
+
+    await user.selectOptions(screen.getByLabelText('RAG status filter'), 'Failed');
+
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
+        page: 1,
+        pageSize: 10,
+        status: 'Failed'
+      })
+    );
+    expect(window.location.pathname).toBe('/documents');
+    expect(window.location.search).toBe('?status=Failed');
+    expect(screen.getByRole('link', { name: 'Failed' })).toHaveAttribute('aria-current', 'page');
+
+    await user.click(screen.getByRole('link', { name: 'All Documents' }));
+
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
+        page: 1,
+        pageSize: 10,
+        status: undefined
+      })
+    );
+    expect(window.location.pathname).toBe('/documents');
+    expect(window.location.search).toBe('');
+    expect(screen.getByLabelText('RAG status filter')).toHaveValue('');
   });
 
   it('reloads page one with the selected status filter', async () => {
