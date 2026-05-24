@@ -250,6 +250,40 @@ public sealed class JsonKVStoreConcurrencyTests
     }
 
     [Fact]
+    public async Task SnapshotAsync_ReturnsSafeInspectableDescriptorsOnly()
+    {
+        using var tempDirectory = new TempDirectory();
+        var store = CreateStore(tempDirectory);
+        await store.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+        {
+            ["Mix:query:abcdef0123456789"] = new(StringComparer.Ordinal)
+            {
+                ["return"] = "secret return provider payload",
+                ["cache_type"] = "query",
+                ["original_prompt"] = "secret prompt api_key authorization",
+                ["queryparam"] = new Dictionary<string, object?>
+                {
+                    ["workspace_query_revision"] = 3,
+                    ["raw_query"] = "do not expose"
+                },
+                ["create_time"] = 1234
+            }
+        });
+
+        var snapshot = await store.SnapshotAsync();
+
+        snapshot.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new
+            {
+                Key = "Mix:query:abcdef0123456789",
+                CacheType = "query",
+                WorkspaceQueryRevision = 3L,
+                HasChunkId = false,
+                CreatedAt = 1234L
+            });
+    }
+
+    [Fact]
     public async Task IndexDoneCallbackAsync_PersistsThroughAtomicWriter()
     {
         using var tempDirectory = new TempDirectory();

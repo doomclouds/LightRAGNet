@@ -1,8 +1,10 @@
 using FluentAssertions;
+using LightRAGNet;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Services.QueryCache;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Tests;
 
@@ -71,6 +73,35 @@ public sealed class CacheManagementServiceTests
         summaryPlan.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
         summaryPlan.EntryCount.Should().Be(1);
         summaryPlan.RequiresConfirmation.Should().BeTrue();
+        summaryPlan.Title.Should().Contain("Review");
+        summaryPlan.Impact.Should().Contain("review", Exactly.Once());
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_UsesCurrentWorkspaceRevisionForQueryInventoryState()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("metadata:query_revision:_", new Dictionary<string, object>
+        {
+            ["revision"] = 3
+        });
+        cacheStore.Seed(
+            "Mix:query:old-revision",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:query:current-revision",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspaceQueryRevision: 3));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var overview = await service.GetOverviewAsync("_", "24h");
+
+        overview.EntrySamples.Should().Contain(sample =>
+            sample.CacheKeyPrefix == "Mix:query:old-re"
+            && sample.State == "old revision");
+        overview.EntrySamples.Should().Contain(sample =>
+            sample.CacheKeyPrefix == "Mix:query:curren"
+            && sample.State == "current");
+        overview.Summary.StaleOrRiskyEntries.Should().Be(1);
     }
 
     private static CacheManagementService CreateService(
@@ -80,6 +111,11 @@ public sealed class CacheManagementServiceTests
         return new CacheManagementService(
             metricsStore,
             new CacheEntryInspector(cacheStore),
+            new LightRagLlmCacheService(
+                cacheStore,
+                Options.Create(new LightRAGOptions()),
+                new LightRagCacheKeyBuilder(),
+                NullLogger<LightRagLlmCacheService>.Instance),
             new CacheClearPlanner(),
             NullLogger<CacheManagementService>.Instance);
     }
@@ -101,13 +137,15 @@ public sealed class CacheManagementServiceTests
             revision: 0);
     }
 
-    private static Dictionary<string, object> CreateCacheEntry(string cacheType)
+    private static Dictionary<string, object> CreateCacheEntry(
+        string cacheType,
+        long workspaceQueryRevision = 0)
     {
         return new LightRagCacheEntry(
             ReturnValue: "secret return value",
             CacheType: cacheType,
             OriginalPrompt: "prompt with api_key and authorization",
-            QueryParam: new Dictionary<string, object?> { ["workspace_query_revision"] = 0 },
+            QueryParam: new Dictionary<string, object?> { ["workspace_query_revision"] = workspaceQueryRevision },
             CreateTime: 1234,
             ChunkId: null).ToDictionary();
     }
@@ -145,20 +183,24 @@ public sealed class CacheManagementServiceTests
             items[id] = value.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
 
-        public Task<IReadOnlyDictionary<string, Dictionary<string, object>>> SnapshotAsync(
+        public Task<IReadOnlyList<InspectableKVStoreEntry>> SnapshotAsync(
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult<IReadOnlyDictionary<string, Dictionary<string, object>>>(
-                items.ToDictionary(
-                    pair => pair.Key,
-                    pair => pair.Value.ToDictionary(value => value.Key, value => value.Value, StringComparer.Ordinal),
-                    StringComparer.Ordinal));
+            return Task.FromResult<IReadOnlyList<InspectableKVStoreEntry>>(
+                items
+                    .Select(pair => InspectableKVStoreEntry.FromRaw(pair.Key, pair.Value))
+                    .Where(entry => entry is not null)
+                    .Select(entry => entry!)
+                    .ToList());
         }
 
         public Task<Dictionary<string, object>?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(items.TryGetValue(id, out var item)
+                ? item.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+                : null);
         }
 
         public Task<List<Dictionary<string, object>>> GetByIdsAsync(

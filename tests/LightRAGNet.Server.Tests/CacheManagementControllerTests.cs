@@ -82,6 +82,44 @@ public sealed class CacheManagementControllerTests
         body.DeletedEntries.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Clear_WithUnknownPlan_ReturnsOkUnknownPlanBody()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/cache-management/clear", new CacheClearRequest(
+            Workspace: "_",
+            PlanId: "not-a-plan",
+            Confirm: true));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CacheClearResponse>();
+        body.Should().NotBeNull();
+        body!.Succeeded.Should().BeFalse();
+        body.DeletedEntries.Should().Be(0);
+        body.Message.Should().Contain("Unknown", Exactly.Once());
+    }
+
+    [Fact]
+    public async Task Clear_WhenPlanRequiresConfirmationWithoutConfirm_ReturnsRequiresConfirmationBody()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/cache-management/clear", new CacheClearRequest(
+            Workspace: "_",
+            PlanId: "all-llm-cache",
+            Confirm: false));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CacheClearResponse>();
+        body.Should().NotBeNull();
+        body!.Succeeded.Should().BeFalse();
+        body.DeletedEntries.Should().Be(0);
+        body.Message.Should().Contain("confirmation");
+    }
+
     private sealed class CacheMetricsSeederStartupFilter : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)

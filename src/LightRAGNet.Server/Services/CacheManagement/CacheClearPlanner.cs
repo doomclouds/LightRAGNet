@@ -16,19 +16,19 @@ public sealed class CacheClearPlanner
         [
             new CacheClearPlanDto(
                 "stale-query-cache",
-                "Stale query cache",
+                "Review stale query cache",
                 [LightRagCacheKeyBuilder.QueryCacheType],
                 staleQueryCount,
                 "low",
-                "Removes query answers tied to older workspace revisions.",
+                "Reviews query answers tied to older revisions before cleanup.",
                 false),
             new CacheClearPlanDto(
                 "unused-summary-cache",
-                "Unused summary cache",
+                "Review summary cache",
                 [LightRagCacheKeyBuilder.SummaryCacheType],
                 summaryCount,
                 "medium",
-                "Removes summary entries that may be recreated by future merge work.",
+                "Requires confirmation and review because summary cache entries may be reused by future merge work.",
                 true),
             new CacheClearPlanDto(
                 "all-llm-cache",
@@ -41,7 +41,7 @@ public sealed class CacheClearPlanner
                 ],
                 inventory.Count,
                 "high",
-                "Removes every LLM cache entry and may increase provider calls until cache warms again.",
+                "Reviews every LLM cache entry and may increase provider calls until cache warms again.",
                 true)
         ];
     }

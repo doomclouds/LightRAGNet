@@ -124,15 +124,16 @@ public sealed class InMemoryKvStore : IKVStore, IInspectableKVStore
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyDictionary<string, Dictionary<string, object>>> SnapshotAsync(
+    public Task<IReadOnlyList<InspectableKVStoreEntry>> SnapshotAsync(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<IReadOnlyDictionary<string, Dictionary<string, object>>>(
-            items.ToDictionary(
-                pair => pair.Key,
-                pair => Clone(pair.Value),
-                StringComparer.Ordinal));
+        return Task.FromResult<IReadOnlyList<InspectableKVStoreEntry>>(
+            items
+                .Select(pair => InspectableKVStoreEntry.FromRaw(pair.Key, pair.Value))
+                .Where(entry => entry is not null)
+                .Select(entry => entry!)
+                .ToList());
     }
 
     private static Dictionary<string, object> Clone(Dictionary<string, object> source)

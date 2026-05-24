@@ -5,6 +5,7 @@ namespace LightRAGNet.Server.Services.CacheManagement;
 public sealed class CacheManagementService(
     ICacheMetricsStore metricsStore,
     CacheEntryInspector entryInspector,
+    LightRagLlmCacheService llmCacheService,
     CacheClearPlanner clearPlanner,
     ILogger<CacheManagementService> logger)
 {
@@ -34,7 +35,8 @@ public sealed class CacheManagementService(
             .Where(metric => string.Equals(metric.Operation, CacheMetricOperation.Read, StringComparison.Ordinal))
             .Where(metric => IsHitOrMiss(metric.Outcome))
             .ToList();
-        var inventory = await entryInspector.InspectAsync(currentRevision: 0, cancellationToken);
+        var currentRevision = await llmCacheService.GetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
+        var inventory = await entryInspector.InspectAsync(currentRevision, cancellationToken);
         var summary = CreateSummary(readMetrics, inventory);
         var families = CreateFamilies(readMetrics, inventory);
         var trend = CreateTrend(readMetrics, normalizedWindow);
@@ -54,22 +56,49 @@ public sealed class CacheManagementService(
             entrySamples);
     }
 
-    public Task<CacheClearResponse> ClearAsync(
+    public async Task<CacheClearResponse> ClearAsync(
         CacheClearRequest request,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var normalizedWorkspace = NormalizeWorkspace(request.Workspace);
+        var currentRevision = await llmCacheService.GetWorkspaceQueryRevisionAsync(normalizedWorkspace, cancellationToken);
+        var inventory = await entryInspector.InspectAsync(currentRevision, cancellationToken);
+        var plan = clearPlanner
+            .CreatePlans(inventory)
+            .FirstOrDefault(item => string.Equals(item.Id, request.PlanId, StringComparison.Ordinal));
+
+        if (plan is null)
+        {
+            return new CacheClearResponse(
+                Succeeded: false,
+                DeletedEntries: 0,
+                CacheTypes: [],
+                Message: $"Unknown cache clear plan '{request.PlanId}'.",
+                RevisionAfter: currentRevision);
+        }
+
+        if (plan.RequiresConfirmation && !request.Confirm)
+        {
+            return new CacheClearResponse(
+                Succeeded: false,
+                DeletedEntries: 0,
+                CacheTypes: plan.CacheTypes,
+                Message: $"Cache clear plan '{request.PlanId}' requires confirmation.",
+                RevisionAfter: currentRevision);
+        }
+
         logger.LogInformation(
             "Cache clear requested for workspace {Workspace} plan {PlanId}, but clear execution is not implemented in this task.",
-            NormalizeWorkspace(request.Workspace),
+            normalizedWorkspace,
             request.PlanId);
 
-        return Task.FromResult(new CacheClearResponse(
+        return new CacheClearResponse(
             Succeeded: false,
             DeletedEntries: 0,
-            CacheTypes: [],
-            Message: "Cache clear execution will be implemented after clear plan filtering.",
-            RevisionAfter: null));
+            CacheTypes: plan.CacheTypes,
+            Message: "Cache clear execution will be implemented in Task 6.",
+            RevisionAfter: currentRevision);
     }
 
     private static CacheSummaryDto CreateSummary(
@@ -172,8 +201,8 @@ public sealed class CacheManagementService(
         if (staleQueryCount > 0)
         {
             insights.Add(new CacheInsightDto(
-                "Stale query cache",
-                $"{staleQueryCount} query cache entries use older workspace revisions.",
+                "Query cache revision review",
+                $"{staleQueryCount} query cache entries use older revisions.",
                 "warning"));
         }
 

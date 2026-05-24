@@ -170,13 +170,17 @@ public class JsonKVStore : IKVStore, IInspectableKVStore
         }
     }
 
-    public async Task<IReadOnlyDictionary<string, Dictionary<string, object>>> SnapshotAsync(
+    public async Task<IReadOnlyList<InspectableKVStoreEntry>> SnapshotAsync(
         CancellationToken cancellationToken = default)
     {
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            return CloneData(_data);
+            return _data
+                .Select(pair => InspectableKVStoreEntry.FromRaw(pair.Key, pair.Value))
+                .Where(entry => entry is not null)
+                .Select(entry => entry!)
+                .ToList();
         }
         finally
         {
