@@ -211,7 +211,7 @@ src/LightRAGNet.Server/
     CacheClearPlanner.cs
 ```
 
-Runtime cache access should move toward `GetOrCreate` methods instead of scattering `TryGet -> generate -> Save` across callers.
+Runtime cache access must move to `GetOrCreate` methods instead of scattering `TryGet -> generate -> Save` across callers.
 
 `LightRagLlmCacheService` adds these primary runtime APIs:
 
@@ -258,7 +258,20 @@ public sealed record CacheValueResult<T>(
     TimeSpan? FactoryDuration);
 ```
 
-Existing `TryGet...` and `Save...` methods may remain during migration for focused tests and low-risk compatibility, but production call sites should use `GetOrCreate` after this feature.
+The old runtime cache APIs must be removed by the end of this task:
+
+```text
+TryGetKeywordsAsync
+SaveKeywordsAsync
+TryGetQueryResponseAsync
+SaveQueryResponseAsync
+TryGetExtractAsync
+SaveExtractAsync
+TryGetSummaryAsync
+SaveSummaryAsync
+```
+
+All production call sites and tests should migrate to `GetOrCreate...` or lower-level test seeding helpers. Keeping both runtime APIs would split cache behavior and make metrics incomplete.
 
 Why this boundary matters:
 
@@ -553,7 +566,8 @@ Core tests：
 - `GetOrCreate...` records one `read` metric with `hit` / `miss` / `invalid` / `disabled` / `error` outcome。
 - `GetOrCreate...` records `factoryDurationMs` for misses that invoke the factory。
 - `GetOrCreate...` records `save` metrics only when miss results are persisted。
-- Existing `TryGet...` / `Save...` compatibility methods do not become the primary production path after this feature。
+- Old `TryGet...` / `Save...` runtime APIs are removed after all call sites migrate to `GetOrCreate...`。
+- Tests seed cache entries through fixtures, stores, or explicit helper methods instead of calling removed runtime APIs。
 - Metrics recorder failure does not break cache reads or writes。
 - `OperationCanceledException` is not swallowed。
 - JSON metrics store persists events with atomic write and retention。
