@@ -153,10 +153,18 @@ docker compose up -d
 .\scripts\dev-stop.ps1
 ```
 
+单独启动某一侧：
+
+```powershell
+.\scripts\dev-start.ps1 -Target Server
+.\scripts\dev-start.ps1 -Target React
+```
+
 如果在 Git Bash 中运行，可以使用 `.sh` 包装脚本：
 
 ```bash
 ./scripts/dev-start.sh
+./scripts/dev-start.sh -Target React
 ./scripts/dev-stop.sh
 ```
 

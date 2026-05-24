@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("All", "Server", "Service", "React")]
+    [string]$Target = "All",
     [string]$ServerUrl = "http://localhost:5261",
     [string]$ReactUrl = "http://127.0.0.1:5173",
     [string]$ApiBaseUrl = $ServerUrl,
@@ -77,6 +79,22 @@ function Wait-HttpReady {
     }
 
     throw $message
+}
+
+function Test-HttpReady {
+    param([string]$Url)
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+        return [int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 500
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        return $null -ne $statusCode -and $statusCode -ge 200 -and $statusCode -lt 500
+    }
 }
 
 function Read-State {
@@ -201,6 +219,45 @@ Set-Location '$(Escape-SingleQuoted $AppPath)'
     }
 }
 
+function New-ExternalServiceState {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [int]$ProcessId = 0,
+        [bool]$External = $true
+    )
+
+    [pscustomobject]@{
+        name = $Name
+        pid = $ProcessId
+        url = $Url
+        stdoutLog = $null
+        stderrLog = $null
+        runner = $null
+        external = $External
+        startedAt = $null
+    }
+}
+
+function Find-DevRunnerProcessId {
+    param(
+        [string]$Name,
+        [string]$RuntimeDir
+    )
+
+    $runnerPath = Join-Path $RuntimeDir "$Name.run.ps1"
+    $process = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*$runnerPath*" } |
+        Sort-Object ProcessId |
+        Select-Object -First 1
+
+    if ($null -eq $process) {
+        return 0
+    }
+
+    return [int]$process.ProcessId
+}
+
 $repoRoot = Get-RepoRoot
 $reactApp = Join-Path $repoRoot "src\LightRAGNet.React"
 $runtimeDir = Join-Path $repoRoot "artifacts\dev-runtime"
@@ -210,40 +267,84 @@ $stateFile = Join-Path $runtimeDir "dev-services.json"
 New-Item -ItemType Directory -Path $runtimeDir, $logsDir -Force | Out-Null
 
 Write-Step "Repo: $repoRoot"
-
-Push-Location $reactApp
-try {
-    if (-not $SkipNpmInstall) {
-        if (-not (Test-Path -LiteralPath (Join-Path $reactApp "node_modules"))) {
-            Write-Step "Installing standalone React packages..."
-            npm install
-        } else {
-            Write-Step "Standalone React packages already installed. Use -SkipNpmInstall to skip this check explicitly."
-        }
-    }
-
-    if (-not $SkipClientBuild) {
-        Write-Step "Building standalone React frontend..."
-        npm run build
-    }
-} finally {
-    Pop-Location
+if ($Target -eq "Service") {
+    $Target = "Server"
 }
+
+$wantsServer = $Target -eq "All" -or $Target -eq "Server"
+$wantsReact = $Target -eq "All" -or $Target -eq "React"
 
 $existingServices = Read-State $stateFile
 $services = @()
-$desiredServiceNames = @("server", "react")
+$knownServiceNames = @("server", "react")
+$desiredServiceNames = @()
+if ($wantsServer) {
+    $desiredServiceNames += "server"
+}
+if ($wantsReact) {
+    $desiredServiceNames += "react"
+}
 
 foreach ($service in $existingServices) {
     if ($desiredServiceNames -contains ([string]$service.name) -and (Test-RunningProcess ([int]$service.pid))) {
         Write-Step "$($service.name) is already running at $($service.url) (PID $($service.pid))."
+        $services += $service
+    } elseif ($knownServiceNames -contains ([string]$service.name) -and (Test-RunningProcess ([int]$service.pid))) {
+        Write-Step "Preserving existing $($service.name) state at $($service.url) (PID $($service.pid))."
         $services += $service
     } elseif (Test-RunningProcess ([int]$service.pid)) {
         Write-Step "Ignoring stale dev service state for $($service.name) at $($service.url) (PID $($service.pid))."
     }
 }
 
-if (-not ($services | Where-Object { $_.name -eq "server" })) {
+if ($wantsServer -and -not ($services | Where-Object { $_.name -eq "server" })) {
+    if (Test-HttpReady $ServerUrl) {
+        $serverPid = Find-DevRunnerProcessId -Name "server" -RuntimeDir $runtimeDir
+        if ($serverPid -gt 0) {
+            Write-Step "Server is already responding at $ServerUrl; reusing runner PID $serverPid."
+            $services += New-ExternalServiceState -Name "server" -Url $ServerUrl -ProcessId $serverPid -External $false
+        } else {
+            Write-Step "Server is already responding at $ServerUrl; reusing it without starting a new process."
+            $services += New-ExternalServiceState -Name "server" -Url $ServerUrl
+        }
+    }
+}
+
+if ($wantsReact -and -not ($services | Where-Object { $_.name -eq "react" })) {
+    if (Test-HttpReady "$ReactUrl/documents") {
+        $reactPid = Find-DevRunnerProcessId -Name "react" -RuntimeDir $runtimeDir
+        if ($reactPid -gt 0) {
+            Write-Step "React is already responding at $ReactUrl; reusing runner PID $reactPid."
+            $services += New-ExternalServiceState -Name "react" -Url $ReactUrl -ProcessId $reactPid -External $false
+        } else {
+            Write-Step "React is already responding at $ReactUrl; reusing it without starting a new process."
+            $services += New-ExternalServiceState -Name "react" -Url $ReactUrl
+        }
+    }
+}
+
+if ($wantsReact -and -not ($services | Where-Object { $_.name -eq "react" })) {
+    Push-Location $reactApp
+    try {
+        if (-not $SkipNpmInstall) {
+            if (-not (Test-Path -LiteralPath (Join-Path $reactApp "node_modules"))) {
+                Write-Step "Installing standalone React packages..."
+                npm install
+            } else {
+                Write-Step "Standalone React packages already installed. Use -SkipNpmInstall to skip this check explicitly."
+            }
+        }
+
+        if (-not $SkipClientBuild) {
+            Write-Step "Building standalone React frontend..."
+            npm run build
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($wantsServer -and -not ($services | Where-Object { $_.name -eq "server" })) {
     Write-Step "Starting LightRAGNet.Server on $ServerUrl..."
     $services += Start-DevService `
         -Name "server" `
@@ -255,7 +356,7 @@ if (-not ($services | Where-Object { $_.name -eq "server" })) {
         -RepoRoot $repoRoot
 }
 
-if (-not ($services | Where-Object { $_.name -eq "react" })) {
+if ($wantsReact -and -not ($services | Where-Object { $_.name -eq "react" })) {
     Write-Step "Starting LightRAGNet.React on $ReactUrl..."
     $services += Start-ReactService `
         -Name "react" `
@@ -274,20 +375,28 @@ $state = [pscustomobject]@{
 
 $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile -Encoding utf8
 
-Wait-HttpReady "Server" $ServerUrl $ReadyTimeoutSeconds
-Wait-HttpReady "React" "$ReactUrl/documents" $ReadyTimeoutSeconds
+if ($wantsServer) {
+    Wait-HttpReady "Server" $ServerUrl $ReadyTimeoutSeconds
+}
+if ($wantsReact) {
+    Wait-HttpReady "React" "$ReactUrl/documents" $ReadyTimeoutSeconds
+}
 
 Write-Host ""
 Write-Step "Development services are ready."
-Write-Host "  Server: $ServerUrl"
-Write-Host "  React:  $ReactUrl"
-Write-Host "  Docs:   $ReactUrl/documents"
-Write-Host "  Upload: $ReactUrl/documents/upload"
+if ($wantsServer) {
+    Write-Host "  Server: $ServerUrl"
+}
+if ($wantsReact) {
+    Write-Host "  React:  $ReactUrl"
+    Write-Host "  Docs:   $ReactUrl/documents"
+    Write-Host "  Upload: $ReactUrl/documents/upload"
+}
 Write-Host "  Logs:   $logsDir"
 Write-Host ""
 Write-Host "Stop with:"
 Write-Host "  .\scripts\dev-stop.ps1"
 
-if ($OpenBrowser) {
+if ($OpenBrowser -and $wantsReact) {
     Start-Process "$ReactUrl/documents"
 }

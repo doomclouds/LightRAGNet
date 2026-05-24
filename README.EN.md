@@ -152,10 +152,18 @@ Stop development services:
 .\scripts\dev-stop.ps1
 ```
 
+Start only one side:
+
+```powershell
+.\scripts\dev-start.ps1 -Target Server
+.\scripts\dev-start.ps1 -Target React
+```
+
 Git Bash wrappers are also available:
 
 ```bash
 ./scripts/dev-start.sh
+./scripts/dev-start.sh -Target React
 ./scripts/dev-stop.sh
 ```
 
