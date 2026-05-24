@@ -28,13 +28,22 @@ export function UploadDocumentPage({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    if (isUploading) {
+      return;
+    }
+
     const selectedFiles = Array.from(event.target.files ?? []);
+    const filesToValidate = selectedFiles.slice(0, maxFiles);
     const nextMessages: string[] = [];
     const nextFiles: File[] = [];
     const seenNames = new Set<string>();
     let blockingErrors = false;
 
-    for (const file of selectedFiles) {
+    if (selectedFiles.length > maxFiles) {
+      nextMessages.push('Only 10 files can be selected. Extra files were ignored.');
+    }
+
+    for (const file of filesToValidate) {
       const normalizedName = file.name.toLowerCase();
       const isSupported = acceptedExtensions.some((extension) => normalizedName.endsWith(extension));
 
@@ -57,16 +66,7 @@ export function UploadDocumentPage({
       }
 
       seenNames.add(normalizedName);
-
-      if (nextFiles.length >= maxFiles) {
-        continue;
-      }
-
       nextFiles.push(file);
-    }
-
-    if (selectedFiles.length > maxFiles) {
-      nextMessages.push('Only 10 files can be selected. Extra files were ignored.');
     }
 
     setFiles(nextFiles);
@@ -132,6 +132,7 @@ export function UploadDocumentPage({
             multiple
             accept={acceptedExtensions.join(',')}
             aria-label="Choose documents"
+            disabled={isUploading}
             onChange={handleFileChange}
           />
         </label>

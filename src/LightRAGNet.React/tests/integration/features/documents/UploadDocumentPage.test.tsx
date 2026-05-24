@@ -111,6 +111,76 @@ describe('UploadDocumentPage', () => {
     expect(screen.queryByText('doc-11.md')).not.toBeInTheDocument();
   });
 
+  it('ignores invalid files after the ten file limit and still uploads the first ten files', async () => {
+    const user = userEvent.setup();
+    const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(10));
+    const files = [...Array.from({ length: 10 }, (_, index) => makeFile(`doc-${index + 1}.md`, 1024)), makeFile('tool.exe', 1024)];
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    fireEvent.change(screen.getByLabelText('Choose documents'), {
+      target: {
+        files
+      }
+    });
+
+    expect(screen.getByText(/Only 10 files can be selected/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Unsupported file type: tool\.exe/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    await waitFor(() => expect(uploadDocuments).toHaveBeenCalledTimes(1));
+    expect(uploadDocuments.mock.calls[0][1]).toHaveLength(10);
+    expect(uploadDocuments.mock.calls[0][1]).toEqual(files.slice(0, 10));
+  });
+
+  it('disables the picker and ignores selection changes while uploading', async () => {
+    const user = userEvent.setup();
+    let resolveUpload: (value: DocumentSubmissionResponse) => void = () => {};
+    const uploadDocuments = vi.fn(
+      () =>
+        new Promise<DocumentSubmissionResponse>((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    const initialFiles = [makeFile('one.md', 1024)];
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    const input = screen.getByLabelText('Choose documents');
+    await user.upload(input, initialFiles);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    await waitFor(() => expect(uploadDocuments).toHaveBeenCalledTimes(1));
+    expect(input).toBeDisabled();
+
+    fireEvent.change(input, {
+      target: {
+        files: [makeFile('changed.md', 1024)]
+      }
+    });
+
+    expect(screen.getByText('one.md')).toBeInTheDocument();
+    expect(screen.queryByText('changed.md')).not.toBeInTheDocument();
+
+    resolveUpload(successfulUpload(1));
+    await waitFor(() => expect(screen.getByText(/Uploaded 1 documents successfully/i)).toBeInTheDocument());
+  });
+
+  it('accepts uppercase extensions and files exactly at the 10 MB limit', async () => {
+    const user = userEvent.setup();
+    const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(1));
+    const file = makeFile('REPORT.PDF', 10 * 1024 * 1024, 'application/pdf');
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    await user.upload(screen.getByLabelText('Choose documents'), file);
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    await waitFor(() => expect(uploadDocuments).toHaveBeenCalledTimes(1));
+    expect(uploadDocuments).toHaveBeenCalledWith(apiBase, [file]);
+  });
+
   it('shows a message when upload is clicked without a selection', async () => {
     const user = userEvent.setup();
     const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(0));
