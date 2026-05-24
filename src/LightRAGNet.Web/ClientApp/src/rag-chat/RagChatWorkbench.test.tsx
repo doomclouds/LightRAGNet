@@ -98,7 +98,7 @@ describe("RagChatWorkbench", () => {
     expect(references?.querySelector("a")).toBeNull();
   });
 
-  test("opens message details and loads retrieval data", async () => {
+  test("opens message details in a portal and auto-loads tabbed retrieval data", async () => {
     let resolveRetrievalData: (value: unknown) => void = () => undefined;
     getRagQueryData.mockReturnValue(
       new Promise((resolve) => {
@@ -109,26 +109,39 @@ describe("RagChatWorkbench", () => {
 
     await clickButton("View query details");
 
-    expect(host.textContent).toContain("Query details");
-    expect(host.textContent).toContain("Request");
-    expect(host.textContent).toContain("Metadata");
-    expect(host.textContent).toContain("Retrieval Data");
-    expect(host.textContent).toContain("Raw diagnostics");
-
-    await clickButton("Load retrieval data");
-    expect(host.textContent).toContain("Loading retrieval data");
+    expect(host.querySelector("[role='dialog']")).toBeNull();
+    expect(document.body.textContent).toContain("Query details");
+    expect(document.body.textContent).toContain("Entities");
+    expect(document.body.textContent).toContain("Relationships");
+    expect(document.body.textContent).toContain("Chunks");
+    expect(document.body.textContent).toContain("References");
+    expect(document.body.textContent).toContain("Metadata");
+    expect(document.body.textContent).toContain("Diagnostics");
+    expect(document.body.textContent).toContain("Raw JSON");
+    expect(document.body.textContent).toContain("Loading retrieval data");
     expect((getRagQueryData.mock.calls[0]?.[2] as { signal?: AbortSignal } | undefined)?.signal).toBeInstanceOf(AbortSignal);
 
     await act(async () => {
       resolveRetrievalData({
         status: "ok",
         message: "loaded",
-        data: { chunks: [{ id: "chunk-1" }] },
+        data: {
+          entities: [{ entity: "entity-1" }],
+          relationships: [{ relation: "relation-1" }],
+          chunks: [{ id: "chunk-1" }],
+          references: [{ fileName: "reference-1.md" }]
+        },
         metadata: { elapsedMs: 12 }
       });
     });
 
-    expect(host.textContent).toContain("chunk-1");
+    expect(document.body.textContent).toContain("entity-1");
+    expect(document.body.querySelector(".rag-chat__detail-table")).not.toBeNull();
+    await clickButton("Chunks");
+    expect(document.body.textContent).toContain("chunk-1");
+    await clickButton("Diagnostics");
+    expect(document.body.textContent).toContain("source");
+    expect(document.body.textContent).toContain("test-preview");
     expect(getRagQueryData).toHaveBeenCalledTimes(1);
   });
 
@@ -143,7 +156,6 @@ describe("RagChatWorkbench", () => {
     await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" });
 
     await clickButton("View query details");
-    await clickButton("Load retrieval data");
     expect(capturedSignal?.aborted).toBe(false);
 
     await clickButton("x");
@@ -156,9 +168,8 @@ describe("RagChatWorkbench", () => {
     await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" });
 
     await clickButton("View query details");
-    await clickButton("Load retrieval data");
 
-    expect(host.textContent).toContain("retrieval exploded");
+    expect(document.body.textContent).toContain("retrieval exploded");
 
     await clickButton("x");
 
@@ -242,7 +253,9 @@ function getControl(label: string): Element {
 }
 
 async function clickButton(label: string): Promise<void> {
-  const button = [...host.querySelectorAll("button")].find((item) => item.textContent?.includes(label));
+  const button = [...document.body.querySelectorAll("button")].find(
+    (item) => item.textContent?.includes(label) || item.getAttribute("aria-label")?.includes(label)
+  );
 
   if (!button) {
     throw new Error(`Missing button: ${label}`);

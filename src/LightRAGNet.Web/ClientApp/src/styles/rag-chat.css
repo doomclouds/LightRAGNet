@@ -196,7 +196,7 @@
 .rag-chat__dialog-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 2500;
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, .62);
@@ -204,8 +204,10 @@
 }
 
 .rag-chat__dialog {
-  width: min(980px, 100%);
-  max-height: min(820px, 94vh);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  width: min(1120px, 100%);
+  max-height: min(780px, calc(100vh - 44px));
   overflow: hidden;
 }
 
@@ -214,11 +216,99 @@
 }
 
 .rag-chat__dialog-body {
-  display: grid;
-  gap: 12px;
-  max-height: calc(94vh - 84px);
+  min-height: 0;
   overflow: auto;
   padding: 14px;
+}
+
+.rag-chat__dialog-toolbar {
+  margin: 0;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 10px 14px;
+}
+
+.rag-chat__detail-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 8px 10px 0;
+}
+
+.rag-chat__detail-tab {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.rag-chat__detail-tab:hover,
+.rag-chat__detail-tab:focus-visible,
+.rag-chat__detail-tab--active {
+  border-color: var(--panel-border);
+  background: var(--panel-bg-elevated);
+  color: var(--text-primary);
+}
+
+.rag-chat__muted {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.rag-chat__table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-control);
+  margin-bottom: 10px;
+}
+
+.rag-chat__detail-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  background: var(--panel-bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.rag-chat__detail-table th,
+.rag-chat__detail-table td {
+  max-width: 420px;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.rag-chat__detail-table th {
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+
+.rag-chat__detail-table tbody tr:last-child th,
+.rag-chat__detail-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.rag-chat__detail-table--kv {
+  min-width: 0;
+}
+
+.rag-chat__detail-table--kv th {
+  width: 210px;
 }
 
 .rag-chat__dialog-toolbar {

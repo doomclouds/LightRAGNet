@@ -51,9 +51,12 @@
 }
 
 .graph-workbench__sigma.react-sigma,
-.graph-workbench__sigma .sigma-container,
-.graph-workbench__sigma canvas {
+.graph-workbench__sigma .sigma-container {
   background: var(--app-bg);
+}
+
+.graph-workbench__sigma canvas {
+  background: transparent;
 }
 
 .graph-workbench__top-left {

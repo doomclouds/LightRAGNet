@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-24-graph-workbench-sigma-canvas-background-problem.md](./2026-05/2026-05-24-graph-workbench-sigma-canvas-background-problem.md): React Sigma 多层 canvas 不能逐层涂背景色；暗色底色应放在容器上，canvas 保持透明，否则上层交互层会盖住节点和边。
 - [2026-05-24-json-kv-delete-flush-problem.md](./2026-05/2026-05-24-json-kv-delete-flush-problem.md): `JsonKVStore.DeleteAsync` 只改内存，用户可见删除必须跟随 `IndexDoneCallbackAsync` 并用真实 JSON round-trip 测试防止重启后数据复活。
 - [2026-05-22-graph-workbench-camera-focus-coordinate-race-problem.md](./2026-05/2026-05-22-graph-workbench-camera-focus-coordinate-race-problem.md): React Sigma 选中节点后必须等 refresh 完成再读取 display coordinates，否则相机会拿原始 graph 坐标跳出视野，表现为搜索结果点击后图谱消失。
 - [2026-05-22-graph-workbench-sigma-settings-instability-problem.md](./2026-05/2026-05-22-graph-workbench-sigma-settings-instability-problem.md): React Sigma renderer settings 必须保持稳定引用，避免 program class 在 render 中重建导致 Sigma 实例反复销毁、WebGL context 被清理并出现知识图谱白屏。

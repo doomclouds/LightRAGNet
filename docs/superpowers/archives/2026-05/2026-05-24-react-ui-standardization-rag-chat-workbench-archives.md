@@ -36,6 +36,7 @@
 - `2026-05-24` Full solution: first run failed because a Playwright QA Web server process locked `LightRAGNet.Web` DLLs; after stopping the Web process, `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal` passed with `429` core tests, `36` web tests, and `220` server tests.
 - `2026-05-24` Diff/conflict checks: `git diff --check` exited `0` with only LF/CRLF warnings; `rg -n "^(<<<<<<<|=======|>>>>>>>)" src tests docs` returned no matches.
 - `2026-05-24` Visual QA: Playwright screenshots verified `/` desktop and mobile RAG Chat, `/cache-management`, `/system-status`, and `/graph-view`; graph canvas initially showed a white Sigma background, then commit `809ba97` fixed it and `output/playwright/graph-view-dark-fixed.png` confirmed dark canvas readability.
+- `2026-05-24` User validation follow-up fixed two React migration regressions: Knowledge Graph dark canvas was blank because Sigma canvas layers were painted opaque, and RAG Chat query details were too small/incomplete. Verification reran `npm test`, `npm run build`, `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`, and Playwright screenshots `output/playwright/graph-dark-after-fix.png` / `output/playwright/rag-details-dialog-zindex-fixed.png`.
 
 ## Source Documents
 
@@ -45,10 +46,12 @@
 
 ## Related Problems
 
-- None promoted yet. Same-thread reusable signals are tracked in this archive's Notes and should be promoted only if they recur.
+- [Graph Workbench Sigma Canvas Background Problem](../../problems/2026-05/2026-05-24-graph-workbench-sigma-canvas-background-problem.md)
 
 ## Notes
 
 - The visual QA finding about React Sigma's default white canvas was fixed during closeout and covered by `reactPageThemeUsage.test.ts`.
+- Follow-up dark-mode debugging showed that making every Sigma canvas dark is wrong for multi-layer renderers: the container should own the dark background and canvas layers must remain transparent.
+- React RAG Chat query details now render through a body-level portal, sit above Blazor fixed chrome, auto-load full retrieval data, and restore tabbed views for entities, relationships, chunks, references, metadata, diagnostics, request, and raw JSON.
 - The Blazor React island host now guards dynamic JS import against dispose races for RAG Chat; existing islands may still benefit from a shared host pattern in a later refactor.
 - Final review corrected RAG Chat reference rendering so unresolved/external references remain visible as plain source labels, while only references with `previewUrl` render new-tab links.
