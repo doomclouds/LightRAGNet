@@ -56,9 +56,18 @@ $services = @($state.services)
 
 foreach ($service in $services) {
     $servicePid = [int]$service.pid
-    if (Get-Process -Id $servicePid -ErrorAction SilentlyContinue) {
+    $isExternal = $false
+    if ($null -ne $service.PSObject.Properties["external"]) {
+        $isExternal = [bool]$service.external
+    }
+
+    if ($servicePid -gt 0 -and (Get-Process -Id $servicePid -ErrorAction SilentlyContinue)) {
         Write-Step "Stopping $($service.name) (PID $servicePid)..."
         Stop-ProcessTree -ProcessId $servicePid
+    } elseif ($servicePid -le 0 -and $isExternal) {
+        Write-Step "$($service.name) is externally managed at $($service.url); skipping stop."
+    } elseif ($servicePid -le 0) {
+        Write-Step "$($service.name) has no tracked PID; skipping stop."
     } else {
         Write-Step "$($service.name) is already stopped (PID $servicePid)."
     }

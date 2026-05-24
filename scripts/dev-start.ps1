@@ -390,6 +390,7 @@ if ($wantsServer) {
 if ($wantsReact) {
     Write-Host "  React:"
     Write-Host "    $ReactUrl/"
+    Write-Host "    $ReactUrl/rag-chat"
     Write-Host "    $ReactUrl/documents"
     Write-Host "    $ReactUrl/documents/upload"
     Write-Host "    $ReactUrl/document-preview"

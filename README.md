@@ -145,6 +145,7 @@ docker compose up -d
 - API Server: `http://localhost:5261`
 - React UI:
   - `http://127.0.0.1:5173/`
+  - `http://127.0.0.1:5173/rag-chat`
   - `http://127.0.0.1:5173/documents`
   - `http://127.0.0.1:5173/documents/upload`
   - `http://127.0.0.1:5173/document-preview`
