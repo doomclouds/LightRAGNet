@@ -23,11 +23,12 @@ Task 1 of the React full UI migration passed spec review, but code-quality revie
 - Safe document preview links should be recognized from backend-provided `/document-preview/{id}` URLs, not from `openKind` alone, because converted/original artifact references can still use the same preview route.
 - Preview API clients should branch on `content-type` before reading the body so plain-text preview responses and non-JSON error bodies are not consumed or masked by JSON parsing fallback.
 - SignalR reconnect handlers that await group rejoin work need lifecycle generation guards for `close`, `stop`, and repeated `reconnecting` events so stale promises cannot overwrite the latest connection state.
+- Targeted .NET test commands can return exit code 0 while skipping a project that is not recognized as a test project; when verifying `LightRAGNet.Server.Tests`, force `-p:IsTestProject=true` or inspect executed test counts.
 - Subagents working in an isolated worktree should verify path and branch before edits; file editing tools should use absolute paths when there is any risk of defaulting to the parent session cwd.
 
 ## Why It Might Matter
 
-These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, allow stale reconnect promises to overwrite current shell status, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, route safe preview links through the wrong frontend base path, lose preview error messages by double-reading response bodies, or write to the wrong checkout during subagent-driven work.
+These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, allow stale reconnect promises to overwrite current shell status, trust an empty targeted .NET test run, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, route safe preview links through the wrong frontend base path, lose preview error messages by double-reading response bodies, or write to the wrong checkout during subagent-driven work.
 
 ## What Is Missing
 
@@ -41,6 +42,7 @@ These are small foundation mistakes that can propagate across migrated pages. If
 - Whether path-base aware preview URL normalization needs a shared helper instead of feature-local parsing.
 - Whether mixed JSON/text API clients need a shared response reader for content negotiation and error preservation.
 - Whether SignalR client lifecycle generation should become a shared helper if more hub clients add async reconnect work.
+- Whether `LightRAGNet.Server.Tests` project metadata should be fixed so normal `dotnet test --filter ...` cannot silently skip tests.
 - A completed requirement archive for the full React UI migration that can absorb these as implementation lessons.
 
 ## Likely Next Route
