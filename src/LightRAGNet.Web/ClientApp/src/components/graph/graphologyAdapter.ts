@@ -4,6 +4,11 @@ import type { GraphEdgeDto, GraphNodeDto, GraphViewDto, JsonValue } from "../../
 
 export type SigmaGraphAttributes = Record<string, JsonValue | undefined>;
 
+export const GraphLabelPalette = {
+  label: "#edf2f7",
+  dimmedLabel: "#a9b4c2"
+} as const;
+
 const minNodeSize = 4;
 const maxNodeSize = 20;
 
@@ -159,7 +164,7 @@ export function createGraphologyGraph(
       size: isSelected ? Math.max(size + 4, 13) : size,
       color: isSelected ? "#0f766e" : node.color,
       borderColor: isSelected ? "#0f172a" : "#ffffff",
-      labelColor: "#172026",
+      labelColor: GraphLabelPalette.label,
       domainType: node.type ?? undefined,
       properties: node.properties
     });
@@ -180,7 +185,7 @@ export function createGraphologyGraph(
       color: isSelected ? "#dc2626" : getEdgeColor(edge),
       type: "curvedNoArrow",
       originalWeight: readEdgeWeight(edge),
-      labelColor: "#172026",
+      labelColor: GraphLabelPalette.label,
       domainType: edge.type ?? undefined,
       properties: edge.properties ?? {}
     });
