@@ -24,6 +24,11 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
     if (event.key === 'Escape') {
       event.preventDefault();
       onClose();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      trapTabFocus(event);
     }
   }
 
@@ -74,6 +79,40 @@ export function DocumentPreviewPanel({ apiBase, document, onClose }: DocumentPre
       </aside>
     </>
   );
+}
+
+function trapTabFocus(event: KeyboardEvent<HTMLElement>) {
+  const focusableElements = getFocusableElements(event.currentTarget);
+
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const firstElement = focusableElements[0];
+  const lastElement = focusableElements[focusableElements.length - 1];
+  const activeElement = document.activeElement;
+
+  if (event.shiftKey) {
+    if (activeElement === firstElement || !event.currentTarget.contains(activeElement)) {
+      event.preventDefault();
+      lastElement.focus();
+    }
+    return;
+  }
+
+  if (activeElement === lastElement || !event.currentTarget.contains(activeElement)) {
+    event.preventDefault();
+    firstElement.focus();
+  }
+}
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
 export function getDownloadHref(apiBase: string, fileUrl?: string | null): string | null {

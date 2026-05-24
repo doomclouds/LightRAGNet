@@ -185,6 +185,40 @@ describe('DocumentsPage', () => {
     expect(viewButton).toHaveFocus();
   });
 
+  it('traps tab focus inside the preview drawer while it is open', async () => {
+    const user = userEvent.setup();
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([makeDocument({ fileName: 'system-architecture.md' })])
+    );
+    const loadDocument = vi.fn().mockResolvedValue(
+      makeDocument({
+        fileName: 'system-architecture.md',
+        content: '# Architecture'
+      })
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View system-architecture.md' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close preview' });
+    const fullPreviewLink = within(dialog).getByRole('link', { name: 'Open full preview' });
+    const previousPageButton = screen.getByRole('button', { name: 'Previous' });
+
+    await waitFor(() => expect(closeButton).toHaveFocus());
+
+    await user.tab();
+
+    expect(fullPreviewLink).toHaveFocus();
+    expect(previousPageButton).not.toHaveFocus();
+
+    await user.tab({ shift: true });
+
+    expect(closeButton).toHaveFocus();
+    expect(previousPageButton).not.toHaveFocus();
+  });
+
   it('loads the status query filter from the documents URL and marks controls active', async () => {
     window.history.pushState({}, '', '/documents?status=Failed');
     const loadDocuments = vi.fn().mockResolvedValue(
