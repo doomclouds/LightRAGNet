@@ -137,12 +137,14 @@ public sealed class SystemHealthCheckTests
             UploadTime = DateTime.UtcNow
         });
         await fixture.Context.SaveChangesAsync(CancellationToken.None);
-        var check = new SqliteHealthCheck(fixture.Context);
+        var factory = new CountingDbContextFactory(fixture.Options);
+        var check = new SqliteHealthCheck(factory);
 
         var result = await check.CheckAsync(CancellationToken.None);
 
         result.Status.Should().Be(SystemHealthStatus.Healthy);
         result.Evidence.Should().ContainKey("documentCount").WhoseValue.Should().Be(1);
+        factory.CreateCount.Should().Be(1);
     }
 
     [Fact]
@@ -179,13 +181,15 @@ public sealed class SystemHealthCheckTests
             ConversionStartedAt = DateTime.UtcNow.AddMinutes(-45)
         });
         await fixture.Context.SaveChangesAsync(CancellationToken.None);
-        var check = new DocumentConversionQueueHealthCheck(fixture.Context);
+        var factory = new CountingDbContextFactory(fixture.Options);
+        var check = new DocumentConversionQueueHealthCheck(factory);
 
         var result = await check.CheckAsync(CancellationToken.None);
 
         result.Status.Should().Be(SystemHealthStatus.Degraded);
         result.Evidence.Should().ContainKey("processing").WhoseValue.Should().Be(1);
         result.Evidence.Should().ContainKey("staleActive").WhoseValue.Should().Be(1);
+        factory.CreateCount.Should().Be(1);
     }
 
     private sealed class FakeRagTaskStateStore(List<RagTask> tasks) : IRagTaskStateStore
@@ -231,11 +235,17 @@ public sealed class SystemHealthCheckTests
     {
         private readonly SqliteConnection connection;
 
-        private SqliteFixture(SqliteConnection connection, AppDbContext context)
+        private SqliteFixture(
+            SqliteConnection connection,
+            DbContextOptions<AppDbContext> options,
+            AppDbContext context)
         {
             this.connection = connection;
+            Options = options;
             Context = context;
         }
+
+        public DbContextOptions<AppDbContext> Options { get; }
 
         public AppDbContext Context { get; }
 
@@ -248,13 +258,24 @@ public sealed class SystemHealthCheckTests
                 .Options;
             var context = new AppDbContext(options);
             await context.Database.EnsureCreatedAsync(CancellationToken.None);
-            return new SqliteFixture(connection, context);
+            return new SqliteFixture(connection, options, context);
         }
 
         public async ValueTask DisposeAsync()
         {
             await Context.DisposeAsync();
             await connection.DisposeAsync();
+        }
+    }
+
+    private sealed class CountingDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
+    {
+        public int CreateCount { get; private set; }
+
+        public AppDbContext CreateDbContext()
+        {
+            CreateCount++;
+            return new AppDbContext(options);
         }
     }
 }

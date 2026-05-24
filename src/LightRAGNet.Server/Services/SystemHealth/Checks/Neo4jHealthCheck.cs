@@ -16,6 +16,8 @@ public sealed class Neo4jHealthCheck(
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         await using var session = driver.AsyncSession();
         var cursor = await session.RunAsync("RETURN 1 AS ok");
         var record = await cursor.SingleAsync(cancellationToken: cancellationToken);

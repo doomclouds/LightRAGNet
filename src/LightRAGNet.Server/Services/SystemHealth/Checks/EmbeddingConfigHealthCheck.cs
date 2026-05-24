@@ -13,6 +13,8 @@ public sealed class EmbeddingConfigHealthCheck(IOptions<AliyunEmbeddingOptions> 
 
     public Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var value = options.Value;
         var (configured, source) = GetApiKeySource(value.ApiKey);
         var dimensionConfigured = value.Dimension > 0;

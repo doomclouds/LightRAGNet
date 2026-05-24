@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LightRAGNet.Server.Services.SystemHealth.Checks;
 
-public sealed class SqliteHealthCheck(AppDbContext dbContext) : ISystemHealthCheck
+public sealed class SqliteHealthCheck(IDbContextFactory<AppDbContext> dbContextFactory) : ISystemHealthCheck
 {
     public string Id => "sqlite";
 
@@ -13,6 +13,9 @@ public sealed class SqliteHealthCheck(AppDbContext dbContext) : ISystemHealthChe
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var dbContext = dbContextFactory.CreateDbContext();
+
         var canConnect = await dbContext.Database.CanConnectAsync(cancellationToken);
         if (!canConnect)
         {

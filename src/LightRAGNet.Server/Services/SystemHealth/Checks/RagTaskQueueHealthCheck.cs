@@ -15,6 +15,8 @@ public sealed class RagTaskQueueHealthCheck(IRagTaskStateStore stateStore) : ISy
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var tasks = await stateStore.LoadAllTasksAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var pending = tasks.Count(task => task.Status == RagTaskStatus.Pending);

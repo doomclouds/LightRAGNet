@@ -16,6 +16,8 @@ public sealed class QdrantHealthCheck(
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var collections = await client.ListCollectionsAsync(cancellationToken);
         var value = options.Value;
 

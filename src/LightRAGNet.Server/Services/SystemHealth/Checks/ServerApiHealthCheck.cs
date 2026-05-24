@@ -10,6 +10,8 @@ public sealed class ServerApiHealthCheck : ISystemHealthCheck
 
     public Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         return Task.FromResult(SystemHealthCheckResult.Healthy(
             Id,
             Name,

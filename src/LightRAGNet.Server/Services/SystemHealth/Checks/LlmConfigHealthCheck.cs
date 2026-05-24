@@ -13,6 +13,8 @@ public sealed class LlmConfigHealthCheck(IOptions<DeepSeekOptions> options) : IS
 
     public Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var value = options.Value;
         var (configured, source) = GetApiKeySource(value.ApiKey, "DEEPSEEK_API_KEY");
         var evidence = new Dictionary<string, object?>

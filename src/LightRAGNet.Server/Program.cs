@@ -55,7 +55,10 @@ if (connectionString.StartsWith("Data Source="))
     }
 }
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContext<AppDbContext>(
+    options => options.UseSqlite(connectionString),
+    optionsLifetime: ServiceLifetime.Singleton);
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlite(connectionString));
 
 builder.Services.Configure<DocumentArtifactStoreOptions>(options =>

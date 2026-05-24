@@ -15,6 +15,8 @@ public sealed class WorkingDirHealthCheck(
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var path = options.Value.RootPath;
         var probePath = Path.Combine(path, $".health-probe-{Guid.NewGuid():N}.tmp");
 

@@ -1,10 +1,9 @@
 using LightRAGNet.Server.Data;
-using LightRAGNet.Server.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LightRAGNet.Server.Services.SystemHealth.Checks;
 
-public sealed class DocumentConversionQueueHealthCheck(AppDbContext dbContext) : ISystemHealthCheck
+public sealed class DocumentConversionQueueHealthCheck(IDbContextFactory<AppDbContext> dbContextFactory) : ISystemHealthCheck
 {
     private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(30);
 
@@ -16,6 +15,9 @@ public sealed class DocumentConversionQueueHealthCheck(AppDbContext dbContext) :
 
     public async Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var dbContext = dbContextFactory.CreateDbContext();
+
         var documents = await dbContext.MarkdownDocuments
             .Select(document => new ConversionProbeDocument
             {
