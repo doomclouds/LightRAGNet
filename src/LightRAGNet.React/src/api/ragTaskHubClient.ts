@@ -43,6 +43,8 @@ export function createRagTaskHubClient(
   let currentHandlers: RagTaskHubHandlers = {};
   let connectionCallbacksConfigured = false;
   let taskEventDispatchersConfigured = false;
+  let isStartedAndJoined = false;
+  let startPromise: Promise<void> | undefined;
 
   function emitConnectionState(state: RagTaskHubConnectionState): void {
     currentHandlers.onConnectionStateChanged?.(state);
@@ -53,13 +55,25 @@ export function createRagTaskHubClient(
       return;
     }
 
-    connection.onreconnecting(() => emitConnectionState('Reconnecting'));
+    connection.onreconnecting(() => {
+      isStartedAndJoined = false;
+      emitConnectionState('Reconnecting');
+    });
     connection.onreconnected(() => {
       void joinAllTasksGroup()
-        .then(() => emitConnectionState('Connected'))
-        .catch(() => emitConnectionState('Disconnected'));
+        .then(() => {
+          isStartedAndJoined = true;
+          emitConnectionState('Connected');
+        })
+        .catch(() => {
+          isStartedAndJoined = false;
+          emitConnectionState('Disconnected');
+        });
     });
-    connection.onclose(() => emitConnectionState('Disconnected'));
+    connection.onclose(() => {
+      isStartedAndJoined = false;
+      emitConnectionState('Disconnected');
+    });
     connectionCallbacksConfigured = true;
   }
 
@@ -91,6 +105,30 @@ export function createRagTaskHubClient(
     configureTaskEventDispatchers();
   }
 
+  async function startConnection(): Promise<void> {
+    try {
+      await connection.start();
+    } catch {
+      emitConnectionState('ServerNotStarted');
+      return;
+    }
+
+    try {
+      await joinAllTasksGroup();
+      isStartedAndJoined = true;
+      emitConnectionState('Connected');
+    } catch (error) {
+      try {
+        await connection.stop();
+      } catch {
+        // Best effort cleanup after a half-open start.
+      }
+
+      isStartedAndJoined = false;
+      emitConnectionState('Disconnected');
+    }
+  }
+
   return {
     configure,
     async start(handlers?: RagTaskHubHandlers): Promise<void> {
@@ -100,21 +138,22 @@ export function createRagTaskHubClient(
         configureConnectionCallbacks();
       }
 
-      try {
-        await connection.start();
-        await joinAllTasksGroup();
-        emitConnectionState('Connected');
-      } catch {
-        emitConnectionState('ServerNotStarted');
+      if (isStartedAndJoined) {
+        return;
       }
+
+      if (!startPromise) {
+        startPromise = startConnection().finally(() => {
+          startPromise = undefined;
+        });
+      }
+
+      await startPromise;
     },
     async stop(): Promise<void> {
       await leaveAllTasksGroup();
-      try {
-        await connection.stop();
-      } catch {
-        // Cleanup callers should not get unhandled promise rejections from SignalR shutdown.
-      }
+      await connection.stop();
+      isStartedAndJoined = false;
       emitConnectionState('Disconnected');
     }
   };
