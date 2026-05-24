@@ -22,6 +22,12 @@ export const routes: AppRoute[] = [
     description: 'Chat with the knowledge workspace from the standalone React shell.'
   },
   {
+    id: 'rag-chat',
+    path: '/rag-chat',
+    title: 'RAG Chat',
+    description: 'Chat with the knowledge workspace from the standalone React shell.'
+  },
+  {
     id: 'documents',
     path: '/documents',
     title: 'Documents',

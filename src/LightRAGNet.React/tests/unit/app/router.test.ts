@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { resolveRoute } from '@/app/router';
+import { resolveRoute, routes } from '@/app/router';
 
 describe('resolveRoute', () => {
   it.each([
     ['/', 'rag-chat'],
+    ['/rag-chat', 'rag-chat'],
     ['/documents', 'documents'],
     ['/documents/upload', 'upload'],
     ['/graph-view', 'graph'],
@@ -17,5 +18,9 @@ describe('resolveRoute', () => {
 
   it('falls back unknown paths to rag chat', () => {
     expect(resolveRoute('/missing-route').id).toBe('rag-chat');
+  });
+
+  it('registers rag chat as an explicit standalone alias', () => {
+    expect(routes).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'rag-chat', path: '/rag-chat' })]));
   });
 });

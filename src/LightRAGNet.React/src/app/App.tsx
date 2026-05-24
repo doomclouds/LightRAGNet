@@ -5,6 +5,7 @@ import { type AppRoute, resolveRoute } from './router';
 import { DocumentsPage } from '@/features/documents/DocumentsPage';
 import type { TaskStatusUpdate } from '@/features/documents/documentTypes';
 import { UploadDocumentPage } from '@/features/documents/UploadDocumentPage';
+import { RagChatWorkbench } from '@/features/rag-chat/RagChatWorkbench';
 import { useRagTaskHub } from '@/shared/hooks/useRagTaskHub';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { StatusPill } from '@/shared/components/StatusPill';
@@ -51,6 +52,8 @@ export function App() {
           subscribeToTaskUpdates={subscribeToTaskUpdates}
           subscribeToDataCleared={subscribeToDataCleared}
         />
+      ) : route.id === 'rag-chat' ? (
+        <RagChatWorkbench apiBase={apiBase} />
       ) : (
         <PlaceholderRoute route={route} />
       )}
