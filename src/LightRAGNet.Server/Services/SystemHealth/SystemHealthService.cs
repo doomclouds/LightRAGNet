@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
@@ -218,8 +219,11 @@ public sealed class SystemHealthService
 
     private static IReadOnlyList<SystemHealthFeatureImpact> BuildFeatureImpacts(IReadOnlyList<SystemHealthCheckResult> results)
     {
-        return results
+        var failedResults = results
             .Where(result => result.Status is SystemHealthStatus.Unhealthy or SystemHealthStatus.Degraded)
+            .ToList();
+
+        var knownImpacts = failedResults
             .Where(result => FeatureDefinitions.ContainsKey(result.Id))
             .GroupBy(result => FeatureDefinitions[result.Id].Feature)
             .Select(group =>
@@ -237,7 +241,19 @@ public sealed class SystemHealthService
                     string.Join("; ", impacted.Select(result => result.Message)),
                     impacted.Select(result => result.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                     [new SystemHealthLink(definition.LinkLabel, definition.Href)]);
-            })
+            });
+
+        var genericImpacts = failedResults
+            .Where(result => !FeatureDefinitions.ContainsKey(result.Id) && result.Affects.Count > 0)
+            .Select(result => new SystemHealthFeatureImpact(
+                string.Join(", ", result.Affects),
+                result.Status,
+                result.Message,
+                [result.Id],
+                []));
+
+        return knownImpacts
+            .Concat(genericImpacts)
             .OrderBy(impact => impact.Status == SystemHealthStatus.Unhealthy ? 0 : 1)
             .ThenBy(impact => impact.Feature, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -272,9 +288,36 @@ public sealed class SystemHealthService
         {
             IReadOnlyDictionary<string, object?> nested => RedactEvidence(nested),
             IDictionary<string, object?> nested => RedactEvidence(nested.AsReadOnly()),
+            IDictionary nested => RedactDictionary(nested),
+            IEnumerable nested when value is not string => RedactEnumerable(nested),
             string text => RedactSensitiveString(text),
             _ => value
         };
+    }
+
+    private static IReadOnlyDictionary<string, object?> RedactDictionary(IDictionary dictionary)
+    {
+        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        foreach (DictionaryEntry entry in dictionary)
+        {
+            var key = entry.Key?.ToString() ?? string.Empty;
+            sanitized[key] = RedactEvidenceValue(key, entry.Value);
+        }
+
+        return sanitized;
+    }
+
+    private static IReadOnlyList<object?> RedactEnumerable(IEnumerable enumerable)
+    {
+        var sanitized = new List<object?>();
+
+        foreach (var item in enumerable)
+        {
+            sanitized.Add(RedactEvidenceValue(string.Empty, item));
+        }
+
+        return sanitized;
     }
 
     private static bool IsSensitiveKey(string key)
@@ -291,8 +334,23 @@ public sealed class SystemHealthService
 
     private static string RedactSensitiveString(string value)
     {
-        return Regex.Replace(
+        var sanitized = Regex.Replace(
             value,
+            @"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^@\s/]+)@",
+            "$1$2:<redacted>@");
+
+        sanitized = Regex.Replace(
+            sanitized,
+            @"(?i)(authorization\s*:\s*bearer\s+)[^;,\s}""']+",
+            "$1<redacted>");
+
+        sanitized = Regex.Replace(
+            sanitized,
+            @"(?i)([""']?(?:apiKey|apikey|password|token|authorization|connectionString)[""']?\s*:\s*[""'])[^""']+([""'])",
+            "$1<redacted>$2");
+
+        return Regex.Replace(
+            sanitized,
             @"(?i)\b(apiKey|apikey|password|token|authorization|connectionString)\s*=\s*[^;\s,]+",
             "$1=<redacted>");
     }

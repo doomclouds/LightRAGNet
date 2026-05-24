@@ -2,6 +2,7 @@ using FluentAssertions;
 using LightRAGNet.Server.Services.SystemHealth;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace LightRAGNet.Server.Tests;
 
@@ -102,6 +103,59 @@ public sealed class SystemHealthServiceTests
     }
 
     [Fact]
+    public async Task GetHealthAsync_RedactsNestedStringDictionariesAndSensitiveStringsInCollections()
+    {
+        var service = CreateService(FakeCheck.Unhealthy(
+            "llm-config",
+            new Dictionary<string, object?>
+            {
+                ["nested"] = new Dictionary<string, string>
+                {
+                    ["password"] = "nested-password-secret",
+                    ["apiKey"] = "nested-api-key-secret",
+                    ["uri"] = "https://example.test"
+                },
+                ["messages"] = new[]
+                {
+                    "Authorization: Bearer bearer-token-secret",
+                    "password=inline-password-secret",
+                    "{\"apiKey\":\"json-api-key-secret\",\"token\":\"json-token-secret\",\"connectionString\":\"json-connection-secret\"}",
+                    "neo4j://user:uri-password-secret@localhost:7687"
+                }
+            }));
+
+        var response = await service.GetHealthAsync();
+
+        var evidenceJson = JsonSerializer.Serialize(response.Checks.Single().Evidence);
+        evidenceJson.Should().NotContain("nested-password-secret");
+        evidenceJson.Should().NotContain("nested-api-key-secret");
+        evidenceJson.Should().NotContain("bearer-token-secret");
+        evidenceJson.Should().NotContain("inline-password-secret");
+        evidenceJson.Should().NotContain("json-api-key-secret");
+        evidenceJson.Should().NotContain("json-token-secret");
+        evidenceJson.Should().NotContain("json-connection-secret");
+        evidenceJson.Should().NotContain("uri-password-secret");
+        evidenceJson.Should().Contain("https://example.test");
+    }
+
+    [Fact]
+    public async Task GetHealthAsync_RedactsSensitiveValuesFromExceptionEvidence()
+    {
+        var service = CreateService(FakeCheck.Throwing(
+            "qdrant",
+            new InvalidOperationException("payload {\"apiKey\":\"exception-api-secret\"}; Authorization: Bearer exception-bearer-secret; password=exception-password-secret")));
+
+        var response = await service.GetHealthAsync();
+
+        var evidenceJson = JsonSerializer.Serialize(response.Checks.Single().Evidence);
+        evidenceJson.Should().NotContain("exception-api-secret");
+        evidenceJson.Should().NotContain("exception-bearer-secret");
+        evidenceJson.Should().NotContain("exception-password-secret");
+        response.Checks.Single().Evidence["errorMessage"].Should().BeOfType<string>()
+            .Which.Should().Contain("<redacted>");
+    }
+
+    [Fact]
     public async Task GetHealthAsync_BuildsFeatureImpactsFromAffectedChecks()
     {
         var service = CreateService(FakeCheck.Degraded(
@@ -120,7 +174,7 @@ public sealed class SystemHealthServiceTests
     public async Task GetHealthAsync_WhenCheckTimesOut_CancelsCheckTokenAndIncludesTimeoutMs()
     {
         var cancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var service = CreateService(TimeSpan.FromMilliseconds(50), FakeCheck.ObservesCancellation("qdrant", cancellationObserved));
+        var service = CreateService(TimeSpan.FromMilliseconds(150), FakeCheck.ObservesCancellation("qdrant", cancellationObserved));
 
         var response = await service.GetHealthAsync();
 
@@ -128,7 +182,7 @@ public sealed class SystemHealthServiceTests
         var check = response.Checks.Single();
         check.Status.Should().Be(SystemHealthStatus.Unhealthy);
         check.Evidence.Should().ContainKey("errorType").WhoseValue.Should().Be(nameof(TimeoutException));
-        check.Evidence.Should().ContainKey("timeoutMs").WhoseValue.Should().Be(50L);
+        check.Evidence.Should().ContainKey("timeoutMs").WhoseValue.Should().Be(150L);
     }
 
     [Fact]
@@ -154,6 +208,33 @@ public sealed class SystemHealthServiceTests
         var impact = response.FeatureImpacts.Single(impact => impact.Feature == "KG Query Modes");
         impact.Links.Should().ContainSingle()
             .Which.Should().Be(new SystemHealthLink("Open Graph", "/graph-view"));
+    }
+
+    [Fact]
+    public async Task GetHealthAsync_WhenUnknownFailedCheckHasAffects_BuildsGenericFeatureImpact()
+    {
+        var service = CreateService(FakeCheck.Degraded(
+            "custom-provider",
+            affects: ["Custom Search", "Custom Indexing"]));
+
+        var response = await service.GetHealthAsync();
+
+        response.FeatureImpacts.Should().ContainSingle(impact => impact.Feature == "Custom Search, Custom Indexing")
+            .Which.Should().Match<SystemHealthFeatureImpact>(impact =>
+                impact.Status == SystemHealthStatus.Degraded &&
+                impact.Reason == "degraded" &&
+                impact.AffectedBy.SequenceEqual(new[] { "custom-provider" }) &&
+                impact.Links.Count == 0);
+    }
+
+    [Fact]
+    public async Task GetHealthAsync_WhenUnknownFailedCheckHasNoAffects_DoesNotBuildGenericFeatureImpact()
+    {
+        var service = CreateService(FakeCheck.Degraded("custom-provider"));
+
+        var response = await service.GetHealthAsync();
+
+        response.FeatureImpacts.Should().BeEmpty();
     }
 
     private static SystemHealthService CreateService(params ISystemHealthCheck[] checks)
