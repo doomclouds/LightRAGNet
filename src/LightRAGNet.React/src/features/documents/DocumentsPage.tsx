@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiBase } from '@/api/http';
 import {
   addToRagSystem,
@@ -10,11 +10,16 @@ import {
 } from '@/api/documentsApi';
 import { DocumentPreviewPanel } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
+import {
+  shouldRefreshForMissingTaskStatus,
+  shouldRefreshForTaskStatus
+} from './documentStatus';
 import type {
   DocumentPipelineActionResult,
   MarkdownDocumentDeleteClientResult,
   MarkdownDocumentDto,
-  PagedResult
+  PagedResult,
+  TaskStatusUpdate
 } from './documentTypes';
 
 type DocumentsQuery = {
@@ -28,6 +33,8 @@ type LoadDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentD
 type AddToRagFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDto>;
 type PipelineActionFn = (apiBase: string, id: number) => Promise<DocumentPipelineActionResult>;
 type RemoveDocumentFn = (apiBase: string, id: number) => Promise<MarkdownDocumentDeleteClientResult>;
+type TaskUpdateSubscriptionFn = (handler: (update: TaskStatusUpdate) => void) => () => void;
+type DataClearedSubscriptionFn = (handler: () => void) => () => void;
 
 type DocumentsPageProps = {
   apiBase?: string;
@@ -37,6 +44,8 @@ type DocumentsPageProps = {
   retry?: PipelineActionFn;
   cancelPipeline?: PipelineActionFn;
   removeDocument?: RemoveDocumentFn;
+  subscribeToTaskUpdates?: TaskUpdateSubscriptionFn;
+  subscribeToDataCleared?: DataClearedSubscriptionFn;
 };
 
 const pageSize = 10;
@@ -49,7 +58,9 @@ export function DocumentsPage({
   addToRag = addToRagSystem,
   retry = retryDocument,
   cancelPipeline = cancelDocumentPipeline,
-  removeDocument = deleteMarkdownDocument
+  removeDocument = deleteMarkdownDocument,
+  subscribeToTaskUpdates,
+  subscribeToDataCleared
 }: DocumentsPageProps) {
   const [documents, setDocuments] = useState<MarkdownDocumentDto[]>([]);
   const [page, setPage] = useState(1);
@@ -62,6 +73,22 @@ export function DocumentsPage({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [documentActionTokens, setDocumentActionTokens] = useState<Record<number, string>>({});
   const documentActionTokensRef = useRef<Record<number, string>>({});
+  const documentsRef = useRef<MarkdownDocumentDto[]>([]);
+  const pageRef = useRef(page);
+  const totalCountRef = useRef(totalCount);
+  const refreshTimerRef = useRef<number | undefined>(undefined);
+
+  const scheduleRefresh = useCallback(() => {
+    window.clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = window.setTimeout(() => {
+      setRefreshVersion((current) => current + 1);
+    }, 240);
+  }, []);
+
+  const refreshNow = useCallback(() => {
+    window.clearTimeout(refreshTimerRef.current);
+    setRefreshVersion((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -76,6 +103,8 @@ export function DocumentsPage({
           return;
         }
 
+        documentsRef.current = result.items;
+        totalCountRef.current = result.totalCount;
         setDocuments(result.items);
         setTotalPages(Math.max(1, result.totalPages));
         setTotalCount(result.totalCount);
@@ -85,6 +114,8 @@ export function DocumentsPage({
           return;
         }
 
+        documentsRef.current = [];
+        totalCountRef.current = 0;
         setDocuments([]);
         setTotalPages(1);
         setTotalCount(0);
@@ -100,6 +131,117 @@ export function DocumentsPage({
       isActive = false;
     };
   }, [apiBase, loadDocuments, page, refreshVersion, status]);
+
+  useEffect(() => {
+    documentsRef.current = documents;
+  }, [documents]);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    totalCountRef.current = totalCount;
+  }, [totalCount]);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
+
+  const applyTaskStatusUpdate = useCallback((update: TaskStatusUpdate): { found: boolean; oldStatus?: string | null } => {
+    const targetDocument = documentsRef.current.find((document) => document.id === update.documentId);
+
+    if (!targetDocument) {
+      return { found: false };
+    }
+
+    const oldStatus = targetDocument.ragStatus;
+    const nextDocuments = documentsRef.current.map((document) => (
+      document.id === update.documentId ? applyTaskUpdateToDocument(document, update) : document
+    ));
+
+    documentsRef.current = nextDocuments;
+    setDocuments(nextDocuments);
+    setPreviewDocument((current) => (
+      current?.id === update.documentId ? applyTaskUpdateToDocument(current, update) : current
+    ));
+
+    return { found: true, oldStatus };
+  }, []);
+
+  const removeDeletedDocumentFromCurrentPage = useCallback((documentId: number) => {
+    const currentPage = pageRef.current;
+    const nextTotalCount = Math.max(0, totalCountRef.current - 1);
+    const nextTotalPages = Math.max(1, Math.ceil(nextTotalCount / pageSize));
+    const nextPage = Math.min(currentPage, nextTotalPages);
+    const nextDocuments = documentsRef.current.filter((document) => document.id !== documentId);
+
+    documentsRef.current = nextDocuments;
+    totalCountRef.current = nextTotalCount;
+    pageRef.current = nextPage;
+    setDocuments(nextDocuments);
+    setPreviewDocument((current) => (current?.id === documentId ? null : current));
+    setTotalCount(nextTotalCount);
+    setTotalPages(nextTotalPages);
+
+    if (nextPage !== currentPage) {
+      setPage(nextPage);
+    } else {
+      scheduleRefresh();
+    }
+  }, [scheduleRefresh]);
+
+  useEffect(() => {
+    if (!subscribeToTaskUpdates) {
+      return undefined;
+    }
+
+    return subscribeToTaskUpdates((update) => {
+      const { found, oldStatus } = applyTaskStatusUpdate(update);
+
+      if (!found) {
+        if (shouldRefreshForMissingTaskStatus(update, status)) {
+          scheduleRefresh();
+        }
+        return;
+      }
+
+      if (update.operationType === 'DeleteDocument' && update.status === 'Completed') {
+        removeDeletedDocumentFromCurrentPage(update.documentId);
+        return;
+      }
+
+      if (shouldRefreshForTaskStatus(update, oldStatus, status)) {
+        scheduleRefresh();
+      }
+    });
+  }, [
+    applyTaskStatusUpdate,
+    removeDeletedDocumentFromCurrentPage,
+    scheduleRefresh,
+    status,
+    subscribeToTaskUpdates
+  ]);
+
+  useEffect(() => {
+    if (!subscribeToDataCleared) {
+      return undefined;
+    }
+
+    return subscribeToDataCleared(() => {
+      documentsRef.current = [];
+      totalCountRef.current = 0;
+      pageRef.current = 1;
+      setDocuments([]);
+      setPreviewDocument(null);
+      setTotalCount(0);
+      setTotalPages(1);
+      setPage(1);
+      refreshNow();
+    });
+  }, [refreshNow, subscribeToDataCleared]);
 
   function handleStatusChange(event: React.ChangeEvent<HTMLSelectElement>) {
     setStatus(event.target.value);
@@ -462,5 +604,32 @@ function applyPipelinePatch(document: MarkdownDocumentDto, result: DocumentPipel
     ragErrorMessage: null,
     ragProgress: result.status === 'Processing' ? document.ragProgress : 0,
     activeRagTaskId: action === 'cancel' ? null : document.activeRagTaskId
+  };
+}
+
+function applyTaskUpdateToDocument(document: MarkdownDocumentDto, update: TaskStatusUpdate): MarkdownDocumentDto {
+  if (update.operationType === 'DeleteDocument') {
+    return {
+      ...document,
+      ragStatus: update.status === 'Failed' ? 'DeletionFailed' : 'Deleting',
+      ragErrorMessage: update.errorMessage ?? null,
+      ragCurrentStage: update.currentStage ?? null,
+      ragProgress: update.progress
+    };
+  }
+
+  return {
+    ...document,
+    ragStatus: update.status,
+    ragCurrentStage: update.currentStage ?? null,
+    ragProgress: update.progress,
+    ragErrorMessage: update.errorMessage ?? (update.status === 'Failed' ? document.ragErrorMessage : null),
+    isInRagSystem: update.status === 'Completed' ? true : document.isInRagSystem,
+    ragAddedTime: update.status === 'Completed'
+      ? update.completedAt ?? document.ragAddedTime ?? new Date().toISOString()
+      : document.ragAddedTime,
+    activeRagTaskId: update.status === 'Completed' || update.status === 'Failed' || update.status === 'Cancelled'
+      ? null
+      : document.activeRagTaskId
   };
 }
