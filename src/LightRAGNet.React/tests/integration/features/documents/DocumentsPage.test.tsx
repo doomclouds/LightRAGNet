@@ -71,7 +71,7 @@ describe('DocumentsPage', () => {
     expect(screen.getByLabelText('Choose documents')).toBeInTheDocument();
   });
 
-  it('loads the first page and renders document rows with static actions', async () => {
+  it('loads the first page and renders document rows with eligible actions', async () => {
     const loadDocuments = vi.fn().mockResolvedValue(paged([makeDocument()]));
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
@@ -96,7 +96,7 @@ describe('DocumentsPage', () => {
     expect(within(row).getByText('2.0 KB')).toBeInTheDocument();
     expect(within(row).getByText('Completed')).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'View handbook.md' })).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Add handbook.md to RAG' })).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Add handbook.md to RAG' })).not.toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeInTheDocument();
   });
 
