@@ -18,11 +18,13 @@ Task 1 of the React full UI migration passed spec review, but code-quality revie
 - Visual status tabs, URL query state, select controls, and API query parameters need one canonical normalization path, otherwise deep links and visible filters can diverge.
 - Drawer/modal surfaces using `aria-modal="true"` need keyboard focus transfer, Escape close, return-focus, and Tab/Shift+Tab containment; initial focus alone is not enough.
 - Lazy routes around browser-heavy chunks such as Sigma/WebGL graph workbenches need visible loading, route-local error/retry fallback, and injectable loaders for tests; `fallback={null}` turns slow or failed chunks into blank pages.
+- Standalone feature CSS migrated from isolated islands must scope global selectors such as `*` to the feature root before entering the shared React shell.
+- Destructive operation confirmations must bind to the data snapshot that produced the plan, not only live route controls that can change while refresh is pending.
 - Subagents working in an isolated worktree should verify path and branch before edits; file editing tools should use absolute paths when there is any risk of defaulting to the parent session cwd.
 
 ## Why It Might Matter
 
-These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, or write to the wrong checkout during subagent-driven work.
+These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, or write to the wrong checkout during subagent-driven work.
 
 ## What Is Missing
 
@@ -31,6 +33,8 @@ These are small foundation mistakes that can propagate across migrated pages. If
 - Whether later migrated pages reuse the same status/filter URL pattern or need a shared helper.
 - Whether later drawers/modals need a shared focus-management utility rather than local handlers.
 - Whether later browser-heavy routes should share a route shell helper for lazy loading, error fallback, and retry behavior.
+- Whether later migrated islands contain global CSS selectors that need feature-root scoping.
+- Whether later destructive operations need a shared snapshot/confirmation pattern.
 - A completed requirement archive for the full React UI migration that can absorb these as implementation lessons.
 
 ## Likely Next Route
