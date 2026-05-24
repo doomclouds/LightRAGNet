@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
+using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Services.QueryCache;
+using LightRAGNet.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,12 +29,17 @@ public sealed class CacheManagementControllerTests
         using var document = JsonDocument.Parse(rawJson);
         var root = document.RootElement;
         root.TryGetProperty("summary", out _).Should().BeTrue();
+        root.TryGetProperty("entrySamples", out _).Should().BeTrue();
+        root.TryGetProperty("clearPlan", out _).Should().BeTrue();
         root.GetProperty("families")
             .EnumerateArray()
             .Should()
-            .Contain(family => family.GetProperty("name").GetString() == "query");
+            .Contain(family => family.GetProperty("cacheType").GetString() == "query");
         rawJson.Contains("api_key", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("authorization", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
+        rawJson.Contains("provider payload", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
+        rawJson.Contains("secret prompt", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
+        rawJson.Contains("secret return", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("return_value", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
     }
 
@@ -44,6 +51,16 @@ public sealed class CacheManagementControllerTests
             {
                 using var scope = app.ApplicationServices.CreateScope();
                 var metricsStore = scope.ServiceProvider.GetRequiredService<ICacheMetricsStore>();
+                var llmCacheStore = scope.ServiceProvider.GetRequiredKeyedService<IKVStore>(KVContracts.LLMCache);
+                llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+                {
+                    ["Mix:query:abcdef0123456789"] = new LightRagCacheEntry(
+                        ReturnValue: "secret return provider payload",
+                        CacheType: LightRagCacheKeyBuilder.QueryCacheType,
+                        OriginalPrompt: "secret prompt api_key authorization",
+                        QueryParam: new Dictionary<string, object?> { ["workspace_query_revision"] = 0 },
+                        CreateTime: 1234).ToDictionary()
+                }).GetAwaiter().GetResult();
                 metricsStore.AppendAsync(CacheMetricEvent.CreateRead(
                     DateTimeOffset.UtcNow,
                     workspace: "_",

@@ -1,37 +1,36 @@
 namespace LightRAGNet.Server.Services.CacheManagement;
 
 public sealed record CacheOverviewResponse(
+    string Workspace,
+    string Window,
+    DateTimeOffset GeneratedAt,
     CacheSummaryDto Summary,
     IReadOnlyList<CacheFamilyDto> Families,
     IReadOnlyList<CacheTrendPointDto> Trend,
     IReadOnlyList<CacheInsightDto> Insights,
-    IReadOnlyList<CacheClearPlanDto> ClearPlans,
-    IReadOnlyList<CacheEntrySampleDto> Samples);
+    IReadOnlyList<CacheClearPlanDto> ClearPlan,
+    IReadOnlyList<CacheEntrySampleDto> EntrySamples);
 
 public sealed record CacheSummaryDto(
-    string Workspace,
-    string Window,
-    DateTimeOffset From,
-    DateTimeOffset To,
-    bool Measured,
     double? OverallHitRate,
-    int TotalReads,
-    int Hits,
-    int Misses,
     int ProviderCallsAvoided,
     long? EstimatedLatencySavedMs,
-    int InventoryEntryCount);
+    int StaleOrRiskyEntries,
+    bool Measured);
 
 public sealed record CacheFamilyDto(
-    string Name,
-    int EntryCount,
-    int Reads,
+    string CacheType,
+    string DisplayName,
+    double? HitRate,
     int Hits,
     int Misses,
-    bool Measured,
-    double? HitRate,
+    int Attempts,
+    int EntryCount,
+    string ValueLevel,
+    string RiskLevel,
     int ProviderCallsAvoided,
-    long? EstimatedLatencySavedMs);
+    long? EstimatedLatencySavedMs,
+    string Message);
 
 public sealed record CacheTrendPointDto(
     DateTimeOffset Timestamp,
@@ -47,35 +46,34 @@ public sealed record CacheInsightDto(
 
 public sealed record CacheClearPlanDto(
     string Id,
-    string Name,
+    string Title,
+    IReadOnlyList<string> CacheTypes,
+    int EntryCount,
     string Risk,
     string Impact,
-    string Confirmation,
-    int EstimatedEntryCount,
-    bool Available);
+    bool RequiresConfirmation);
 
 public sealed record CacheEntrySampleDto(
-    string KeyPrefix,
+    string CacheKeyPrefix,
     string CacheType,
-    string State,
-    string? ChunkId,
-    long CreateTime);
+    DateTimeOffset? LastHit,
+    string State);
 
 public sealed record CacheClearRequest(
-    string PlanId,
     string? Workspace,
-    string? Confirmation);
+    string PlanId,
+    bool Confirm);
 
 public sealed record CacheClearResponse(
-    bool Success,
+    bool Succeeded,
+    int DeletedEntries,
+    IReadOnlyList<string> CacheTypes,
     string Message,
-    string? PlanId,
-    int ClearedCount,
-    IReadOnlyList<string> Errors);
+    long? RevisionAfter);
 
 public sealed record CacheInventoryEntry(
     string Key,
-    string KeyPrefix,
+    string CacheKeyPrefix,
     string CacheType,
     string State,
     string? ChunkId,

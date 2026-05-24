@@ -17,27 +17,32 @@ public sealed class CacheClearPlanner
             new CacheClearPlanDto(
                 "stale-query-cache",
                 "Stale query cache",
+                [LightRagCacheKeyBuilder.QueryCacheType],
+                staleQueryCount,
                 "low",
                 "Removes query answers tied to older workspace revisions.",
-                "stale-query-cache",
-                staleQueryCount,
-                staleQueryCount > 0),
+                false),
             new CacheClearPlanDto(
                 "unused-summary-cache",
                 "Unused summary cache",
+                [LightRagCacheKeyBuilder.SummaryCacheType],
+                summaryCount,
                 "medium",
                 "Removes summary entries that may be recreated by future merge work.",
-                "unused-summary-cache",
-                summaryCount,
-                summaryCount > 0),
+                true),
             new CacheClearPlanDto(
                 "all-llm-cache",
                 "All LLM cache",
+                [
+                    LightRagCacheKeyBuilder.QueryCacheType,
+                    LightRagCacheKeyBuilder.KeywordsCacheType,
+                    LightRagCacheKeyBuilder.ExtractCacheType,
+                    LightRagCacheKeyBuilder.SummaryCacheType
+                ],
+                inventory.Count,
                 "high",
                 "Removes every LLM cache entry and may increase provider calls until cache warms again.",
-                "all-llm-cache",
-                inventory.Count,
-                inventory.Count > 0)
+                true)
         ];
     }
 }

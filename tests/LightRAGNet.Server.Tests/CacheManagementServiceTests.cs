@@ -24,14 +24,16 @@ public sealed class CacheManagementServiceTests
 
         var overview = await service.GetOverviewAsync("_", "24h");
 
+        overview.Workspace.Should().Be("_");
+        overview.Window.Should().Be("24h");
         overview.Summary.Measured.Should().BeTrue();
         overview.Summary.OverallHitRate.Should().BeApproximately(2d / 3d, 0.0001d);
         overview.Summary.ProviderCallsAvoided.Should().Be(2);
         overview.Summary.EstimatedLatencySavedMs.Should().Be(240);
-        overview.Summary.InventoryEntryCount.Should().Be(1);
-        var queryFamily = overview.Families.Should().ContainSingle(family => family.Name == "query").Subject;
+        overview.Summary.StaleOrRiskyEntries.Should().Be(0);
+        var queryFamily = overview.Families.Should().ContainSingle(family => family.CacheType == "query").Subject;
         queryFamily.Hits.Should().Be(2);
-        queryFamily.Measured.Should().BeTrue();
+        queryFamily.Attempts.Should().Be(3);
         queryFamily.HitRate.Should().BeApproximately(2d / 3d, 0.0001d);
     }
 
@@ -44,10 +46,12 @@ public sealed class CacheManagementServiceTests
 
         overview.Summary.Measured.Should().BeFalse();
         overview.Summary.OverallHitRate.Should().BeNull();
+        overview.Families.Select(family => family.CacheType).Should().Equal("query", "keywords", "extract", "summary");
+        overview.Families.Should().OnlyContain(family => family.HitRate == null);
     }
 
     [Fact]
-    public async Task GetOverviewAsync_UsesInspectableStoreSnapshotForInventorySamples()
+    public async Task GetOverviewAsync_UsesInspectableStoreSnapshotForEntrySamplesAndClearPlan()
     {
         var cacheStore = new InspectableKvStore();
         cacheStore.Seed("default:summary:0123456789abcdef", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
@@ -55,11 +59,14 @@ public sealed class CacheManagementServiceTests
 
         var overview = await service.GetOverviewAsync("_", "24h");
 
-        overview.Summary.InventoryEntryCount.Should().Be(1);
-        overview.Samples.Should().ContainSingle(sample =>
+        overview.EntrySamples.Should().ContainSingle(sample =>
             sample.CacheType == "summary"
-            && sample.KeyPrefix == "default:summary:"
+            && sample.CacheKeyPrefix == "default:summary:"
             && sample.State == "current");
+        var summaryPlan = overview.ClearPlan.Should().ContainSingle(plan => plan.Id == "unused-summary-cache").Subject;
+        summaryPlan.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
+        summaryPlan.EntryCount.Should().Be(1);
+        summaryPlan.RequiresConfirmation.Should().BeTrue();
     }
 
     private static CacheManagementService CreateService(

@@ -8,6 +8,14 @@ public sealed class CacheManagementService(
     CacheClearPlanner clearPlanner,
     ILogger<CacheManagementService> logger)
 {
+    private static readonly string[] FamilyOrder =
+    [
+        LightRagCacheKeyBuilder.QueryCacheType,
+        LightRagCacheKeyBuilder.KeywordsCacheType,
+        LightRagCacheKeyBuilder.ExtractCacheType,
+        LightRagCacheKeyBuilder.SummaryCacheType
+    ];
+
     public async Task<CacheOverviewResponse> GetOverviewAsync(
         string? workspace,
         string? window,
@@ -15,10 +23,10 @@ public sealed class CacheManagementService(
     {
         var normalizedWorkspace = NormalizeWorkspace(workspace);
         var normalizedWindow = string.Equals(window, "7d", StringComparison.OrdinalIgnoreCase) ? "7d" : "24h";
-        var to = DateTimeOffset.UtcNow;
-        var from = normalizedWindow == "7d" ? to.AddDays(-7) : to.AddHours(-24);
+        var generatedAt = DateTimeOffset.UtcNow;
+        var from = normalizedWindow == "7d" ? generatedAt.AddDays(-7) : generatedAt.AddHours(-24);
 
-        var metrics = await metricsStore.ReadAsync(from, to, cancellationToken);
+        var metrics = await metricsStore.ReadAsync(from, generatedAt, cancellationToken);
         var workspaceMetrics = metrics
             .Where(metric => string.Equals(metric.Workspace, normalizedWorkspace, StringComparison.Ordinal))
             .ToList();
@@ -27,22 +35,23 @@ public sealed class CacheManagementService(
             .Where(metric => IsHitOrMiss(metric.Outcome))
             .ToList();
         var inventory = await entryInspector.InspectAsync(currentRevision: 0, cancellationToken);
-        var summary = CreateSummary(normalizedWorkspace, normalizedWindow, from, to, readMetrics, inventory.Count);
+        var summary = CreateSummary(readMetrics, inventory);
         var families = CreateFamilies(readMetrics, inventory);
         var trend = CreateTrend(readMetrics, normalizedWindow);
         var insights = CreateInsights(summary, inventory);
-        var clearPlans = clearPlanner.CreatePlans(inventory);
-        var samples = inventory
-            .Take(25)
-            .Select(entry => new CacheEntrySampleDto(
-                entry.KeyPrefix,
-                entry.CacheType,
-                entry.State,
-                entry.ChunkId,
-                entry.CreateTime))
-            .ToList();
+        var clearPlan = clearPlanner.CreatePlans(inventory);
+        var entrySamples = CreateEntrySamples(inventory, readMetrics);
 
-        return new CacheOverviewResponse(summary, families, trend, insights, clearPlans, samples);
+        return new CacheOverviewResponse(
+            normalizedWorkspace,
+            normalizedWindow,
+            generatedAt,
+            summary,
+            families,
+            trend,
+            insights,
+            clearPlan,
+            entrySamples);
     }
 
     public Task<CacheClearResponse> ClearAsync(
@@ -51,78 +60,64 @@ public sealed class CacheManagementService(
     {
         cancellationToken.ThrowIfCancellationRequested();
         logger.LogInformation(
-            "Cache clear requested for plan {PlanId}, but clear execution is not implemented in this task.",
+            "Cache clear requested for workspace {Workspace} plan {PlanId}, but clear execution is not implemented in this task.",
+            NormalizeWorkspace(request.Workspace),
             request.PlanId);
 
         return Task.FromResult(new CacheClearResponse(
-            Success: false,
+            Succeeded: false,
+            DeletedEntries: 0,
+            CacheTypes: [],
             Message: "Cache clear execution will be implemented after clear plan filtering.",
-            PlanId: request.PlanId,
-            ClearedCount: 0,
-            Errors: ["clear execution is not implemented"]));
+            RevisionAfter: null));
     }
 
     private static CacheSummaryDto CreateSummary(
-        string workspace,
-        string window,
-        DateTimeOffset from,
-        DateTimeOffset to,
         IReadOnlyList<CacheMetricEvent> readMetrics,
-        int inventoryEntryCount)
+        IReadOnlyList<CacheInventoryEntry> inventory)
     {
         var hits = CountOutcome(readMetrics, CacheReadOutcome.Hit);
         var misses = CountOutcome(readMetrics, CacheReadOutcome.Miss);
-        var totalReads = hits + misses;
+        var attempts = hits + misses;
         var averageMissFactoryDuration = AverageMissFactoryDuration(readMetrics);
 
         return new CacheSummaryDto(
-            workspace,
-            window,
-            from,
-            to,
-            totalReads > 0,
-            totalReads > 0 ? (double)hits / totalReads : null,
-            totalReads,
-            hits,
-            misses,
+            attempts > 0 ? (double)hits / attempts : null,
             hits,
             EstimateLatencySavedMs(averageMissFactoryDuration, hits),
-            inventoryEntryCount);
+            inventory.Count(entry => !string.Equals(entry.State, "current", StringComparison.Ordinal)),
+            attempts > 0);
     }
 
     private static IReadOnlyList<CacheFamilyDto> CreateFamilies(
         IReadOnlyList<CacheMetricEvent> readMetrics,
         IReadOnlyList<CacheInventoryEntry> inventory)
     {
-        var names = readMetrics
-            .Select(metric => metric.CacheType)
-            .Concat(inventory.Select(entry => entry.CacheType))
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToList();
-
-        return names
-            .Select(name =>
+        return FamilyOrder
+            .Select(cacheType =>
             {
                 var familyReads = readMetrics
-                    .Where(metric => string.Equals(metric.CacheType, name, StringComparison.Ordinal))
+                    .Where(metric => string.Equals(metric.CacheType, cacheType, StringComparison.Ordinal))
                     .ToList();
                 var hits = CountOutcome(familyReads, CacheReadOutcome.Hit);
                 var misses = CountOutcome(familyReads, CacheReadOutcome.Miss);
-                var reads = hits + misses;
+                var attempts = hits + misses;
+                var entryCount = inventory.Count(entry => string.Equals(entry.CacheType, cacheType, StringComparison.Ordinal));
                 var averageMissFactoryDuration = AverageMissFactoryDuration(familyReads);
 
                 return new CacheFamilyDto(
-                    name,
-                    inventory.Count(entry => string.Equals(entry.CacheType, name, StringComparison.Ordinal)),
-                    reads,
+                    cacheType,
+                    GetDisplayName(cacheType),
+                    attempts > 0 ? (double)hits / attempts : null,
                     hits,
                     misses,
-                    reads > 0,
-                    reads > 0 ? (double)hits / reads : null,
+                    attempts,
+                    entryCount,
+                    GetValueLevel(cacheType),
+                    GetRiskLevel(cacheType),
                     hits,
-                    EstimateLatencySavedMs(averageMissFactoryDuration, hits));
+                    EstimateLatencySavedMs(averageMissFactoryDuration, hits),
+                    CreateFamilyMessage(cacheType, attempts, entryCount));
             })
             .ToList();
     }
@@ -185,6 +180,77 @@ public sealed class CacheManagementService(
         }
 
         return insights;
+    }
+
+    private static IReadOnlyList<CacheEntrySampleDto> CreateEntrySamples(
+        IReadOnlyList<CacheInventoryEntry> inventory,
+        IReadOnlyList<CacheMetricEvent> readMetrics)
+    {
+        var lastHits = readMetrics
+            .Where(metric => string.Equals(metric.Outcome, CacheReadOutcome.Hit, StringComparison.Ordinal))
+            .Where(metric => !string.IsNullOrWhiteSpace(metric.CacheKeyPrefix))
+            .GroupBy(metric => metric.CacheKeyPrefix!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Max(metric => metric.Timestamp),
+                StringComparer.Ordinal);
+
+        return inventory
+            .Take(25)
+            .Select(entry => new CacheEntrySampleDto(
+                entry.CacheKeyPrefix,
+                entry.CacheType,
+                lastHits.TryGetValue(entry.CacheKeyPrefix, out var lastHit) ? lastHit : null,
+                entry.State))
+            .ToList();
+    }
+
+    private static string GetDisplayName(string cacheType)
+    {
+        return cacheType switch
+        {
+            LightRagCacheKeyBuilder.QueryCacheType => "Query answers",
+            LightRagCacheKeyBuilder.KeywordsCacheType => "Keyword extraction",
+            LightRagCacheKeyBuilder.ExtractCacheType => "Document extraction",
+            LightRagCacheKeyBuilder.SummaryCacheType => "Summaries",
+            _ => cacheType
+        };
+    }
+
+    private static string GetValueLevel(string cacheType)
+    {
+        return cacheType switch
+        {
+            LightRagCacheKeyBuilder.QueryCacheType => "high",
+            LightRagCacheKeyBuilder.KeywordsCacheType => "medium",
+            LightRagCacheKeyBuilder.ExtractCacheType => "high",
+            LightRagCacheKeyBuilder.SummaryCacheType => "medium",
+            _ => "unknown"
+        };
+    }
+
+    private static string GetRiskLevel(string cacheType)
+    {
+        return cacheType switch
+        {
+            LightRagCacheKeyBuilder.QueryCacheType => "medium",
+            LightRagCacheKeyBuilder.KeywordsCacheType => "low",
+            LightRagCacheKeyBuilder.ExtractCacheType => "low",
+            LightRagCacheKeyBuilder.SummaryCacheType => "medium",
+            _ => "unknown"
+        };
+    }
+
+    private static string CreateFamilyMessage(string cacheType, int attempts, int entryCount)
+    {
+        if (attempts == 0)
+        {
+            return entryCount == 0
+                ? "No measured reads or inventory entries."
+                : "Inventory entries exist, but no measured reads were recorded.";
+        }
+
+        return $"{attempts} measured read attempts for {cacheType} cache.";
     }
 
     private static bool IsHitOrMiss(string? outcome)
