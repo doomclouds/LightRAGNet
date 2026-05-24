@@ -88,16 +88,46 @@ public sealed class CacheManagementService(
                 RevisionAfter: currentRevision);
         }
 
+        var keys = request.PlanId switch
+        {
+            "stale-query-cache" => inventory
+                .Where(entry =>
+                    string.Equals(entry.CacheType, LightRagCacheKeyBuilder.QueryCacheType, StringComparison.Ordinal)
+                    && string.Equals(entry.State, "old revision", StringComparison.Ordinal))
+                .Select(entry => entry.Key)
+                .ToList(),
+            "summary-cache-review" => inventory
+                .Where(entry => string.Equals(entry.CacheType, LightRagCacheKeyBuilder.SummaryCacheType, StringComparison.Ordinal))
+                .Select(entry => entry.Key)
+                .ToList(),
+            "all-llm-cache" => inventory
+                .Select(entry => entry.Key)
+                .ToList(),
+            _ => []
+        };
+
+        if (keys.Count == 0)
+        {
+            return new CacheClearResponse(
+                Succeeded: true,
+                DeletedEntries: 0,
+                CacheTypes: plan.CacheTypes,
+                Message: $"No cache entries matched clear plan '{request.PlanId}'.",
+                RevisionAfter: currentRevision);
+        }
+
+        await entryInspector.DeleteAsync(keys, cancellationToken);
         logger.LogInformation(
-            "Cache clear requested for workspace {Workspace} plan {PlanId}, but clear execution is not implemented in this task.",
+            "Deleted {DeletedEntries} cache entries for workspace {Workspace} plan {PlanId}.",
+            keys.Count,
             normalizedWorkspace,
             request.PlanId);
 
         return new CacheClearResponse(
-            Succeeded: false,
-            DeletedEntries: 0,
+            Succeeded: true,
+            DeletedEntries: keys.Count,
             CacheTypes: plan.CacheTypes,
-            Message: "Cache clear execution will be implemented in Task 6.",
+            Message: $"Deleted {keys.Count} cache entries for clear plan '{request.PlanId}'.",
             RevisionAfter: currentRevision);
     }
 

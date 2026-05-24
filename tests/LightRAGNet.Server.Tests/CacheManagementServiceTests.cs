@@ -214,6 +214,153 @@ public sealed class CacheManagementServiceTests
         extractFamily.RiskLevel.Should().Be("DocLinked");
     }
 
+    [Fact]
+    public async Task ClearAsync_AllCacheWithoutConfirmation_ReturnsFailure()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "all-llm-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.DeletedEntries.Should().Be(0);
+        result.CacheTypes.Should().Equal(
+            LightRagCacheKeyBuilder.QueryCacheType,
+            LightRagCacheKeyBuilder.KeywordsCacheType,
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            LightRagCacheKeyBuilder.SummaryCacheType);
+        result.Message.Should().Contain("confirmation");
+        cacheStore.Contains("Mix:query:current").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_StaleQueryCache_RemovesOnlyOldRevisionEntries()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("metadata:query_revision:workspace-a", new Dictionary<string, object>
+        {
+            ["revision"] = 3
+        });
+        cacheStore.Seed(
+            "Mix:query:workspace-a-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:query:workspace-a-current",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-a", workspaceQueryRevision: 3));
+        cacheStore.Seed(
+            "Mix:query:workspace-b-old",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: "workspace-b", workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:query:unknown-workspace",
+            CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType, workspace: null, workspaceQueryRevision: 2));
+        cacheStore.Seed(
+            "Mix:summary:workspace-a",
+            CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType, workspace: "workspace-a", workspaceQueryRevision: 2));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("workspace-a", "stale-query-cache", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.DeletedEntries.Should().Be(1);
+        result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.QueryCacheType);
+        result.RevisionAfter.Should().Be(3);
+        cacheStore.Contains("Mix:query:workspace-a-old").Should().BeFalse();
+        cacheStore.Contains("Mix:query:workspace-a-current").Should().BeTrue();
+        cacheStore.Contains("Mix:query:workspace-b-old").Should().BeTrue();
+        cacheStore.Contains("Mix:query:unknown-workspace").Should().BeTrue();
+        cacheStore.Contains("Mix:summary:workspace-a").Should().BeTrue();
+        result.Message.Should().NotContain("prompt");
+        result.Message.Should().NotContain("api_key");
+    }
+
+    [Fact]
+    public async Task ClearAsync_SummaryCacheReviewWithoutConfirmation_ReturnsFailure()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("Mix:summary:one", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "summary-cache-review", Confirm: false),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.DeletedEntries.Should().Be(0);
+        result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
+        result.Message.Should().Contain("confirmation");
+        cacheStore.Contains("Mix:summary:one").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_SummaryCacheReviewWithConfirmation_RemovesSummaryEntries()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("Mix:summary:one", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
+        cacheStore.Seed("Mix:summary:two", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
+        cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "summary-cache-review", Confirm: true),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.DeletedEntries.Should().Be(2);
+        result.CacheTypes.Should().Equal(LightRagCacheKeyBuilder.SummaryCacheType);
+        cacheStore.Contains("Mix:summary:one").Should().BeFalse();
+        cacheStore.Contains("Mix:summary:two").Should().BeFalse();
+        cacheStore.Contains("Mix:query:current").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_AllCacheWithConfirmation_RemovesInventoryEntries()
+    {
+        var cacheStore = new InspectableKvStore();
+        cacheStore.Seed("metadata:query_revision:_", new Dictionary<string, object>
+        {
+            ["revision"] = 0
+        });
+        cacheStore.Seed("Mix:query:current", CreateCacheEntry(LightRagCacheKeyBuilder.QueryCacheType));
+        cacheStore.Seed("Mix:keywords:current", CreateCacheEntry(LightRagCacheKeyBuilder.KeywordsCacheType));
+        cacheStore.Seed("Mix:extract:current", CreateCacheEntry(LightRagCacheKeyBuilder.ExtractCacheType));
+        cacheStore.Seed("Mix:summary:current", CreateCacheEntry(LightRagCacheKeyBuilder.SummaryCacheType));
+        var service = CreateService(new InMemoryCacheMetricsStore([]), cacheStore);
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "all-llm-cache", Confirm: true),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.DeletedEntries.Should().Be(4);
+        result.CacheTypes.Should().Equal(
+            LightRagCacheKeyBuilder.QueryCacheType,
+            LightRagCacheKeyBuilder.KeywordsCacheType,
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            LightRagCacheKeyBuilder.SummaryCacheType);
+        cacheStore.Count.Should().Be(1);
+        cacheStore.Contains("metadata:query_revision:_").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ClearAsync_UnknownPlan_ReturnsFailure()
+    {
+        var service = CreateService(new InMemoryCacheMetricsStore([]), new InspectableKvStore());
+
+        var result = await service.ClearAsync(
+            new CacheClearRequest("_", "missing-plan", Confirm: true),
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.DeletedEntries.Should().Be(0);
+        result.CacheTypes.Should().BeEmpty();
+        result.Message.Should().Contain("Unknown");
+    }
+
     private static CacheManagementService CreateService(
         ICacheMetricsStore metricsStore,
         IKVStore cacheStore)
@@ -300,6 +447,13 @@ public sealed class CacheManagementServiceTests
             items[id] = value.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
 
+        public int Count => items.Count;
+
+        public bool Contains(string id)
+        {
+            return items.ContainsKey(id);
+        }
+
         public Task<IReadOnlyList<InspectableKVStoreEntry>> SnapshotAsync(
             CancellationToken cancellationToken = default)
         {
@@ -341,7 +495,13 @@ public sealed class CacheManagementServiceTests
 
         public Task DeleteAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var id in ids)
+            {
+                items.Remove(id);
+            }
+
+            return Task.CompletedTask;
         }
 
         public Task<bool> IsEmptyAsync(CancellationToken cancellationToken = default)
