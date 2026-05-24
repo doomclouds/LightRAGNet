@@ -4,22 +4,36 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "../wwwroot/graph-workbench",
-    emptyOutDir: true,
+    outDir: "../wwwroot",
+    emptyOutDir: false,
     manifest: false,
     sourcemap: false,
     rollupOptions: {
       preserveEntrySignatures: "strict",
       input: {
-        graphWorkbench: "src/graph-workbench/main.tsx"
+        graphWorkbench: "src/graph-workbench/main.tsx",
+        systemStatus: "src/system-status/main.tsx"
       },
       output: {
         format: "es",
-        entryFileNames: "assets/graph-workbench.js",
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.name === "systemStatus") {
+            return "system-status/assets/system-status.js";
+          }
+
+          return "graph-workbench/assets/graph-workbench.js";
+        },
         chunkFileNames: "assets/[name].js",
         assetFileNames: (assetInfo) => {
-          if (assetInfo.names?.some((name) => name.endsWith(".css"))) {
-            return "assets/graph-workbench.css";
+          const assetNames = assetInfo.names ?? [];
+          const normalizedAssetNames = assetNames.map((name) => name.toLowerCase());
+
+          if (assetNames.some((name) => name.endsWith(".css"))) {
+            if (normalizedAssetNames.some((name) => name.includes("system-status") || name.includes("systemstatus"))) {
+              return "system-status/assets/system-status.css";
+            }
+
+            return "graph-workbench/assets/graph-workbench.css";
           }
 
           return "assets/[name][extname]";
