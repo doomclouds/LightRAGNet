@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { lazy, Suspense, useCallback, useRef } from 'react';
 import { getApiBase } from '@/api/http';
 import { AppLayout } from './AppLayout';
 import { type AppRoute, resolveRoute } from './router';
@@ -10,6 +10,10 @@ import { useRagTaskHub } from '@/shared/hooks/useRagTaskHub';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { StatusPill } from '@/shared/components/StatusPill';
 import { notifySubscribers } from './subscribers';
+
+const GraphWorkbench = lazy(() =>
+  import('@/features/graph-workbench/GraphWorkbench').then((module) => ({ default: module.GraphWorkbench }))
+);
 
 export function App() {
   const route = resolveRoute();
@@ -54,6 +58,10 @@ export function App() {
         />
       ) : route.id === 'rag-chat' ? (
         <RagChatWorkbench apiBase={apiBase} />
+      ) : route.id === 'graph' ? (
+        <Suspense fallback={null}>
+          <GraphWorkbench apiBase={apiBase} />
+        </Suspense>
       ) : (
         <PlaceholderRoute route={route} />
       )}
