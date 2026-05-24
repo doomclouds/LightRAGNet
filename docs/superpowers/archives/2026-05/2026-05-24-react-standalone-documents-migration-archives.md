@@ -31,7 +31,7 @@
 - React final verification: `npm run test --prefix src/LightRAGNet.React` passed `11` files / `74` tests; `npm run typecheck --prefix src/LightRAGNet.React` passed.
 - React build verification: `npm run build --prefix src/LightRAGNet.React` passed. Vite/Rolldown emitted non-fatal `INVALID_ANNOTATION` warnings from `@microsoft/signalr/dist/esm/Utils.js`.
 - Server targeted verification: `dotnet test tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter ReactDevCorsSourceTests` passed `1/1`.
-- Full solution verification during Task 9: `dotnet test LightRAGNet.slnx` passed for Server.Tests, Tests, and Web.Tests before the final React-only status-detail fix.
+- Full solution verification: `dotnet test LightRAGNet.slnx --no-restore -v minimal` passed with `427` core tests, `203` server tests, and `38` web tests after stabilizing the cache trend time fixture uncovered during closeout.
 - Diff hygiene checks confirmed no changes under `src/LightRAGNet.Web`, `tests/LightRAGNet.Web.Tests`, or `tests/LightRAGNet.Tests/Web`, and no React test files under `src/LightRAGNet.React/src`.
 
 ## Source Documents
@@ -42,7 +42,7 @@
 
 ## Related Problems
 
-- None discovered for this requirement thread.
+- [Cache Trend Hour Boundary Test Flake](../../problems/2026-05/2026-05-24-cache-trend-hour-boundary-test-flake-problem.md)
 
 ## Notes
 
