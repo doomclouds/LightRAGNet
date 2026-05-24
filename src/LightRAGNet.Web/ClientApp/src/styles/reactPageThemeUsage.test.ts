@@ -53,4 +53,12 @@ describe("React page styles use dark-ops tokens", () => {
     expect(graphRuntimeSource).not.toContain('color: "#172026"');
     expect(graphRuntimeSource).not.toContain('labelColor: "#172026"');
   });
+
+  it("graph workbench overrides React Sigma's default white canvas background", () => {
+    const source = css("graph-workbench.css");
+
+    expect(source).toMatch(/--sigma-background-color\s*:\s*var\(--app-bg\)/);
+    expect(source).toMatch(/--sigma-controls-background-color\s*:\s*var\(--panel-bg\)/);
+    expect(source).toMatch(/\.graph-workbench__sigma\.react-sigma,[^}]*\.graph-workbench__sigma\s+canvas\s*\{[^}]*background\s*:\s*var\(--app-bg\)/s);
+  });
 });

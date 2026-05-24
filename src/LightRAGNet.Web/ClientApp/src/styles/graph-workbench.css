@@ -2,6 +2,11 @@
   box-sizing: border-box;
   min-height: calc(100vh - 64px);
   overflow: hidden;
+  --sigma-background-color: var(--app-bg);
+  --sigma-controls-background-color: var(--panel-bg);
+  --sigma-controls-background-color-hover: var(--accent-soft);
+  --sigma-controls-border-color: var(--panel-border);
+  --sigma-controls-color: var(--text-primary);
   background: var(--app-bg);
   color: var(--text-primary);
   font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
@@ -43,6 +48,12 @@
 .graph-workbench__sigma {
   background:
     radial-gradient(circle at 50% 50%, rgba(21, 27, 35, .96) 0, rgba(13, 17, 23, .98) 58%, #090d12 100%);
+}
+
+.graph-workbench__sigma.react-sigma,
+.graph-workbench__sigma .sigma-container,
+.graph-workbench__sigma canvas {
+  background: var(--app-bg);
 }
 
 .graph-workbench__top-left {
