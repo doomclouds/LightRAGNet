@@ -7,11 +7,14 @@ describe("rag chat settings", () => {
     expect(parseKeywords("alpha, beta\nALPHA，gamma\r\nBeta")).toEqual(["alpha", "beta", "gamma"]);
   });
 
-  test("buildRagQueryRequest disables references in bypass mode", () => {
+  test("buildRagQueryRequest removes retrieval options in bypass mode", () => {
     const request = buildRagQueryRequest("hello", {
       ...defaultQuerySettings,
       mode: "Bypass",
       includeReferences: true,
+      enableRerank: true,
+      topK: 99,
+      chunkTopK: 88,
       highLevelKeywordsText: "system",
       lowLevelKeywordsText: "queue",
       debugOutputMode: "PromptOnly"
@@ -22,10 +25,13 @@ describe("rag chat settings", () => {
       mode: "Bypass",
       stream: true,
       includeReferences: false,
+      topK: 0,
+      chunkTopK: 0,
+      enableRerank: false,
       onlyNeedContext: false,
       onlyNeedPrompt: true,
-      highLevelKeywords: ["system"],
-      lowLevelKeywords: ["queue"]
+      highLevelKeywords: [],
+      lowLevelKeywords: []
     });
   });
 

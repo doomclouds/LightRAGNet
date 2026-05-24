@@ -69,4 +69,5 @@ export type ChatMessage = {
   isStreaming: boolean;
   isLoadingRetrievalData: boolean;
   errorMessage?: string;
+  retrievalDataErrorMessage?: string;
 };

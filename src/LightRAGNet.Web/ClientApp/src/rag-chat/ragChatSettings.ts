@@ -53,11 +53,11 @@ export function buildRagQueryRequest(query: string, settings: QuerySettings): Ra
     stream: settings.streamResponse,
     includeReferences: !isBypassMode && settings.includeReferences,
     responseType: settings.responseType,
-    topK: settings.topK,
-    chunkTopK: settings.chunkTopK,
-    enableRerank: settings.enableRerank,
-    highLevelKeywords: parseKeywords(settings.highLevelKeywordsText),
-    lowLevelKeywords: parseKeywords(settings.lowLevelKeywordsText),
+    topK: isBypassMode ? 0 : settings.topK,
+    chunkTopK: isBypassMode ? 0 : settings.chunkTopK,
+    enableRerank: !isBypassMode && settings.enableRerank,
+    highLevelKeywords: isBypassMode ? [] : parseKeywords(settings.highLevelKeywordsText),
+    lowLevelKeywords: isBypassMode ? [] : parseKeywords(settings.lowLevelKeywordsText),
     onlyNeedContext: settings.debugOutputMode === "ContextOnly",
     onlyNeedPrompt: settings.debugOutputMode === "PromptOnly"
   };
