@@ -5,124 +5,82 @@ namespace LightRAGNet.Web.Tests;
 public sealed class RagChatSourceTests
 {
     [Fact]
-    public void RagChat_ProvidesQuerySettingsControls()
+    public void RagChat_HostsReactRagChatWorkbench()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
 
-        source.Should().Contain("rag-chat-layout");
-        source.Should().Contain("rag-chat-main");
-        source.Should().Contain("rag-chat-toolbar");
-        source.Should().Contain("rag-chat-send-action");
-        source.Should().Contain("_querySettings.SelectedMode");
-        source.Should().Contain("_querySettings.StreamResponse");
-        source.Should().Contain("_querySettings.EffectiveIncludeReferences");
-        source.Should().Contain("_querySettings.BuildRequest(userMessage)");
-        source.Should().Contain("MudSelect T=\"ChatQueryDebugOutputMode\"");
-        source.Should().NotContain("_onlyNeedContext");
-        source.Should().NotContain("_onlyNeedPrompt");
-        source.Should().Contain("new RagQueryStreamHandlers");
-        source.Should().NotContain("ApiClient.QueryRagAsync(\r\n                    userMessage");
-        source.Should().NotContain("ApiClient.QueryRagAsync(\n                    userMessage");
+        source.Should().Contain("@page \"/\"");
+        source.Should().Contain("@using Microsoft.JSInterop");
+        source.Should().Contain("@implements IAsyncDisposable");
+        source.Should().Contain("@inject IConfiguration Configuration");
+        source.Should().Contain("@inject IJSRuntime JSRuntime");
+        source.Should().Contain("rag-chat-root");
+        source.Should().Contain("data-api-base=\"@ApiBase\"");
+        source.Should().Contain("RootElementId = \"rag-chat-root\"");
+        source.Should().Contain("ApiBase => Configuration[\"ApiBaseUrl\"] ?? \"http://localhost:5261\"");
+        source.Should().Contain("InvokeVoidAsync(\"mountRagChat\", RootElementId, ApiBase)");
+        source.Should().Contain("InvokeVoidAsync(\"unmountRagChat\", RootElementId)");
+        source.Should().Contain("./rag-chat/assets/rag-chat.js");
+        source.Should().Contain("rag-chat/assets/rag-chat.css");
+        source.Should().Contain("JSDisconnectedException");
+        source.Should().Contain("ObjectDisposedException");
+        source.Should().NotContain("<script type=\"module\"");
+        source.Should().NotContain("<MudContainer");
+        source.Should().NotContain("@inject ApiClient ApiClient");
     }
 
     [Fact]
-    public void RagChat_UsesScopedHiddenScrollAreas()
-    {
-        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor.css");
-        var appCss = ReadRepositoryFile("src", "LightRAGNet.Web", "wwwroot", "app.css");
-
-        source.Should().Contain(".rag-chat-shell");
-        source.Should().Contain("height: calc(100dvh - 130px);");
-        source.Should().Contain(".rag-chat-scroll");
-        source.Should().Contain(".rag-chat-toolbar");
-        source.Should().Contain("scrollbar-color: transparent transparent;");
-        source.Should().Contain("::-webkit-scrollbar-thumb");
-        source.Should().Contain("overflow: hidden;");
-        source.Should().Contain("overflow-y: auto;");
-        appCss.Should().Contain("html, body");
-        appCss.Should().Contain("scrollbar-color: transparent transparent;");
-        appCss.Should().Contain("html::-webkit-scrollbar-thumb");
-    }
-
-    [Fact]
-    public void RagChat_QueryToolbarControlsHaveTooltips()
+    public void RagChat_GuardsJsImportAgainstDisposeRace()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
 
-        source.Should().Contain("Mode decides which retrieval pipeline is used.");
-        source.Should().Contain("Streaming shows the answer as it is generated.");
-        source.Should().Contain("References attaches source document links to the answer.");
-        source.Should().Contain("TopK controls how many graph items are considered.");
-        source.Should().Contain("ChunkTopK controls how many text chunks are retrieved.");
-        source.Should().Contain("Rerank asks the reranker to reorder retrieved chunks.");
-        source.Should().Contain("High keywords guide graph-level retrieval.");
-        source.Should().Contain("Low keywords guide entity and detail retrieval.");
-        source.Should().Contain("Output switches between the final answer and debug payloads.");
+        source.Should().Contain("private bool _disposed;");
+        source.Should().Contain("_disposed = true;");
+        source.Should().Contain("var importedModule = await JSRuntime.InvokeAsync<IJSObjectReference>");
+        source.Should().Contain("if (_disposed)");
+        source.Should().Contain("await DisposeImportedModuleAsync(importedModule);");
+        source.Should().Contain("await module.DisposeAsync();");
+        source.Should().Contain("ragChatModule = importedModule;");
+        source.Should().Contain("InvokeVoidAsync(\"mountRagChat\", RootElementId, ApiBase)");
+        source.Should().Contain("InvokeVoidAsync(\"unmountRagChat\", RootElementId)");
+        source.Should().NotContain("private ValueTask mountRagChat");
+        source.Should().NotContain("private ValueTask unmountRagChat");
     }
 
     [Fact]
-    public void RagChat_RendersAssistantMetadataAndErrors()
+    public void RagChat_ViteConfigBuildsReactEntry()
     {
-        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "ClientApp", "vite.config.ts");
 
-        source.Should().Contain("ShouldRenderReferences(chatMessage)");
-        source.Should().Contain("ShouldRenderDiagnostics(chatMessage)");
-        source.Should().Contain("chatMessage.References.Count");
-        source.Should().Contain("chatMessage.Diagnostics");
-        source.Should().Contain("chatMessage.ErrorMessage");
-        source.Should().Contain("chatMessage.IsComplete");
-        source.Should().Contain("No content returned.");
-        source.Should().Contain("assistantMessage.IsComplete = true;");
-        source.Should().Contain("ChatQuerySettingsModel.ApplyMetadata(assistantMessage, metadataEvent)");
+        source.Should().Contain("existsSync(\"src/rag-chat/main.tsx\")");
+        source.Should().Contain("input.ragChat = \"src/rag-chat/main.tsx\";");
+        source.Should().Contain("chunkInfo.name === \"ragChat\"");
+        source.Should().Contain("rag-chat/assets/rag-chat.js");
+        source.Should().Contain("name.includes(\"rag-chat\") || name.includes(\"ragchat\")");
+        source.Should().Contain("rag-chat/assets/rag-chat.css");
     }
 
     [Fact]
-    public void RagChat_WiresMessageLevelRetrievalDataAction()
+    public void RagChat_BuildArtifactsAreCommitted()
     {
-        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
-
-        source.Should().Contain("@inject IDialogService DialogService");
-        source.Should().Contain("查看检索数据");
-        source.Should().Contain("CanShowRetrievalDataButton(chatMessage)");
-        source.Should().Contain("LoadRetrievalDataAsync(chatMessage)");
-        source.Should().Contain("OpenRetrievalDataDialog(chatMessage)");
-        source.Should().Contain("assistantMessage.RetrievalDataRequest = ChatQuerySettingsModel.CloneRequest(request);");
-        source.Should().Contain("message.Mode != QueryMode.Bypass");
-        source.Should().Contain("await ApiClient.GetRagQueryDataAsync(message.RetrievalDataRequest");
-    }
-
-    [Fact]
-    public void RagQueryDataDialog_RendersGroupedRetrievalDataSections()
-    {
-        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagQueryDataDialog.razor");
-
-        source.Should().Contain("@using System.Text.Json");
-        source.Should().Contain("[CascadingParameter] IMudDialogInstance MudDialog");
-        source.Should().Contain("[Parameter] public RagQueryDataResponse? RetrievalData { get; set; }");
-        source.Should().Contain("Entities");
-        source.Should().Contain("Relationships");
-        source.Should().Contain("Chunks");
-        source.Should().Contain("References");
-        source.Should().Contain("Metadata");
-        source.Should().Contain("Raw JSON");
-        source.Should().Contain("SerializeSection");
-        source.Should().Contain("LightRAGJsonOptions.HumanReadableIndented");
-        source.Should().Contain("<pre");
-        source.Should().Contain("retrieval-data-json");
-        source.Should().Contain("white-space: pre-wrap;");
-        source.Should().Contain("overflow-x: auto;");
-        source.Should().Contain("max-width: 100%;");
-        source.Should().Contain("overflow-wrap: anywhere;");
-        source.Should().Contain("ErrorMessage");
-        source.Should().Contain("No retrieval data returned for this response.");
-        source.Should().Contain("Query");
-        source.Should().Contain("MudDialog.Close()");
+        RepositoryFileExists("src", "LightRAGNet.Web", "wwwroot", "rag-chat", "assets", "rag-chat.js")
+            .Should()
+            .BeTrue();
+        RepositoryFileExists("src", "LightRAGNet.Web", "wwwroot", "rag-chat", "assets", "rag-chat.css")
+            .Should()
+            .BeTrue();
     }
 
     private static string ReadRepositoryFile(params string[] relativeParts)
     {
         var repositoryRoot = FindRepositoryRoot();
-        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]));
+        return File.ReadAllText(Path.Combine([repositoryRoot, .. relativeParts]), System.Text.Encoding.UTF8);
+    }
+
+    private static bool RepositoryFileExists(params string[] relativeParts)
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        return File.Exists(Path.Combine([repositoryRoot, .. relativeParts]));
     }
 
     private static string FindRepositoryRoot()

@@ -29,4 +29,16 @@ public sealed class LightRAGJsonOptionsTests
         json.Should().Contain("线性修正");
         json.Should().NotContain("\\u7EBF");
     }
+
+    [Fact]
+    public void HumanReadableCamelCaseWithStringEnums_UsesCamelCaseStringEnumsAndReadableText()
+    {
+        var json = JsonSerializer.Serialize(
+            new { QueryMode = Core.Models.QueryMode.Mix, Keywords = new[] { "采集流程" } },
+            LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
+
+        json.Should().Contain("\"queryMode\":\"Mix\"");
+        json.Should().Contain("采集流程");
+        json.Should().NotContain("\\u91C7");
+    }
 }

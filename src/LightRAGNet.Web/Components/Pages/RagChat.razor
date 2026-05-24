@@ -1,635 +1,107 @@
 @page "/"
-@using LightRAGNet.Core.Models
-@using LightRAGNet.Services.Utilities
-@using LightRAGNet.Share.Models
-@using LightRAGNet.Web.Services
-@using LightRAGNet.Web.Models
-@inject ApiClient ApiClient
-@inject ChatHistoryService ChatHistoryService
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
-@inject IJSRuntime JSRuntime
+@using Microsoft.JSInterop
 @implements IAsyncDisposable
+@inject IConfiguration Configuration
+@inject IJSRuntime JSRuntime
 
 <PageTitle>RAG Chat</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.False" Class="rag-chat-shell">
-    <div class="rag-chat-header">
-        <div class="rag-chat-header-title">
-            <MudText Typo="Typo.h6" Class="rag-chat-title">RAG Chat</MudText>
-        </div>
-        <MudTooltip Text="Clear the visible conversation history. It does not delete documents or RAG storage.">
-            <span class="rag-chat-clear-action">
-                <MudButton Variant="Variant.Text"
-                           Color="Color.Error"
-                           StartIcon="@Icons.Material.Filled.DeleteSweep"
-                           Size="Size.Small"
-                           OnClick="@ClearChatHistory"
-                           Disabled="@_isWaitingResponse">
-                    Clear History
-                </MudButton>
-            </span>
-        </MudTooltip>
-    </div>
-    <div class="rag-chat-layout">
-        <section class="rag-chat-main">
-            <div @ref="_chatContainer" class="rag-chat-scroll">
-                <MudPaper Elevation="0" Class="rag-chat-messages">
-                    @if (_chatHistory.Count == 0)
-                    {
-                        <MudText Typo="Typo.h6" Align="Align.Center" Class="pa-2">Start chatting with RAG</MudText>
-                    }
-                    else
-                    {
-                        <MudStack Spacing="2" Class="pa-3">
-                            @foreach (var chatMessage in _chatHistory)
-                            {
-                                <div class="d-flex @(chatMessage.Role == "User" ? "justify-end" : "justify-start")">
-                                    <MudPaper Elevation="0"
-                                              Class="@GetMessageBubbleClass(chatMessage)"
-                                              Style="max-width: 78%; overflow-wrap: anywhere;">
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@GetMessageSender(chatMessage)</MudText>
-                                        @if (chatMessage.Role == "Assistant")
-                                        {
-                                            <MudMarkdown Value="@chatMessage.Text" />
-                                            @if (string.IsNullOrEmpty(chatMessage.Text) && !chatMessage.IsComplete)
-                                            {
-                                                <MudProgressCircular Size="Size.Small" Color="Color.Default" Indeterminate="true"/>
-                                            }
-                                            @if (string.IsNullOrEmpty(chatMessage.Text) && chatMessage.IsComplete && string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                            {
-                                                <MudText Typo="Typo.body2" Color="Color.Secondary">No content returned.</MudText>
-                                            }
-                                            @if (chatMessage.Mode is not null || !string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                            {
-                                                <div class="d-flex flex-wrap gap-1 mt-1">
-                                                    @if (chatMessage.Mode is { } mode)
-                                                    {
-                                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@mode</MudChip>
-                                                        <MudChip T="string" Size="Size.Small" Color="@(chatMessage.IsStreaming ? Color.Info : Color.Success)" Variant="Variant.Outlined">
-                                                            @(chatMessage.IsStreaming ? "Streaming" : "Cacheable")
-                                                        </MudChip>
-                                                    }
-                                                    @if (!string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                                    {
-                                                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Error</MudChip>
-                                                    }
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(chatMessage.ErrorMessage))
-                                            {
-                                                <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1">@chatMessage.ErrorMessage</MudText>
-                                            }
-                                            @if (ShouldRenderReferences(chatMessage))
-                                            {
-                                                <MudExpansionPanels Elevation="0" Class="mt-2">
-                                                    <MudExpansionPanel Text="@($"References ({chatMessage.References.Count})")">
-                                                        <MudStack Spacing="1">
-                                                            @foreach (var reference in chatMessage.References)
-                                                            {
-                                                                <MudText Typo="Typo.caption">
-                                                                    <strong>@reference.FilePath</strong>
-                                                                    @if (!string.IsNullOrWhiteSpace(reference.ReferenceId))
-                                                                    {
-                                                                        <span> · @reference.ReferenceId</span>
-                                                                    }
-                                                                </MudText>
-                                                            }
-                                                        </MudStack>
-                                                    </MudExpansionPanel>
-                                                </MudExpansionPanels>
-                                            }
-                                            @if (ShouldRenderDiagnostics(chatMessage))
-                                            {
-                                                <MudExpansionPanels Elevation="0" Class="mt-2">
-                                                    <MudExpansionPanel Text="Diagnostics">
-                                                        @if (chatMessage.HighLevelKeywords.Count > 0)
-                                                        {
-                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">High</MudText>
-                                                            <div class="d-flex flex-wrap gap-1 mb-1">
-                                                                @foreach (var keyword in chatMessage.HighLevelKeywords)
-                                                                {
-                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
-                                                                }
-                                                            </div>
-                                                        }
-                                                        @if (chatMessage.LowLevelKeywords.Count > 0)
-                                                        {
-                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Low</MudText>
-                                                            <div class="d-flex flex-wrap gap-1 mb-1">
-                                                                @foreach (var keyword in chatMessage.LowLevelKeywords)
-                                                                {
-                                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@keyword</MudChip>
-                                                                }
-                                                            </div>
-                                                        }
-                                                        @if (chatMessage.Diagnostics.Count > 0)
-                                                        {
-                                                            <MudSimpleTable Dense="true" Hover="true">
-                                                                <tbody>
-                                                                    @foreach (var diagnostic in chatMessage.Diagnostics)
-                                                                    {
-                                                                        <tr>
-                                                                            <td><strong>@diagnostic.Key</strong></td>
-                                                                            <td>@diagnostic.Value</td>
-                                                                        </tr>
-                                                                    }
-                                                                </tbody>
-                                                            </MudSimpleTable>
-                                                        }
-                                                    </MudExpansionPanel>
-                                                </MudExpansionPanels>
-                                            }
-                                            @if (CanShowRetrievalDataButton(chatMessage))
-                                            {
-                                                <div class="d-flex justify-end mt-2">
-                                                    <MudTooltip Text="查看这次回复使用的实体、关系、文本片段和引用。">
-                                                        <span>
-                                                            <MudButton Variant="Variant.Text"
-                                                                       Size="Size.Small"
-                                                                       StartIcon="@Icons.Material.Filled.ManageSearch"
-                                                                       Disabled="@chatMessage.IsLoadingRetrievalData"
-                                                                       OnClick="@(() => LoadRetrievalDataAsync(chatMessage))">
-                                                                查看检索数据
-                                                            </MudButton>
-                                                        </span>
-                                                    </MudTooltip>
-                                                </div>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <MudText>@chatMessage.Text</MudText>
-                                        }
-                                    </MudPaper>
-                                </div>
-                            }
-                        </MudStack>
-                    }
-                </MudPaper>
-            </div>
+<link rel="stylesheet" href="rag-chat/assets/rag-chat.css" />
 
-            <MudPaper Elevation="0" Class="rag-chat-composer">
-                <MudTextField @bind-Value="_inputMessage"
-                              Variant="Variant.Outlined"
-                              Lines="3"
-                              Disabled="_isWaitingResponse"
-                              Immediate="true"
-                              OnKeyDown="@HandleKeyPress"
-                              Placeholder="Enter your question..."
-                              Class="rag-chat-input"/>
-                <MudTooltip Text="Send the current message with the toolbar settings. Disabled while a response is running or when the input is empty.">
-                    <span class="rag-chat-send-action">
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   EndIcon="@Icons.Material.Filled.Send"
-                                   Size="Size.Large"
-                                   OnClick="@SendMessageAsync"
-                                   Disabled="@CanNotSendMessage">
-                            Send
-                        </MudButton>
-                    </span>
-                </MudTooltip>
-            </MudPaper>
-        </section>
-
-        <aside class="rag-chat-toolbar">
-            <MudPaper Elevation="0" Class="rag-chat-toolbar-paper">
-                <MudStack Spacing="2">
-                    <div>
-                        <MudText Typo="Typo.subtitle1">Query toolbar</MudText>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">Settings for the next message</MudText>
-                    </div>
-
-                    <MudDivider />
-
-                    <MudTooltip Text="Mode decides which retrieval pipeline is used. Bypass skips RAG, Naive uses chunks only, Mix is the recommended balanced mode.">
-                        <MudSelect T="QueryMode"
-                                   @bind-Value="_querySettings.SelectedMode"
-                                   Label="Mode"
-                                   Dense="true"
-                                   Variant="Variant.Outlined"
-                                   Disabled="@_isWaitingResponse">
-                            @foreach (var mode in _queryModes)
-                            {
-                                <MudSelectItem T="QueryMode" Value="@mode">@mode</MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudTooltip>
-
-                    <MudTooltip Text="Response changes the requested answer style sent to the backend.">
-                        <MudSelect T="string" @bind-Value="_querySettings.ResponseType" Label="Response" Dense="true" Variant="Variant.Outlined" Disabled="@_isWaitingResponse">
-                            @foreach (var responseType in _responseTypes)
-                            {
-                                <MudSelectItem T="string" Value="@responseType">@responseType</MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudTooltip>
-
-                    <div class="rag-chat-toolbar-switches">
-                        <MudTooltip Text="Streaming shows the answer as it is generated. Cacheable waits for the complete answer and can use response cache.">
-                            <MudSwitch T="bool"
-                                       @bind-Value="_querySettings.StreamResponse"
-                                       Label="@(_querySettings.StreamResponse ? "Streaming" : "Cacheable")"
-                                       Color="Color.Primary"
-                                       Disabled="@_isWaitingResponse" />
-                        </MudTooltip>
-                        <MudTooltip Text="References attaches source document links to the answer. Disabled in Bypass mode because no retrieval happens.">
-                            <MudSwitch T="bool"
-                                       @bind-Value="_querySettings.EffectiveIncludeReferences"
-                                       Label="References"
-                                       Color="Color.Primary"
-                                       Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                        </MudTooltip>
-                        <MudTooltip Text="Rerank asks the reranker to reorder retrieved chunks. Disabled in Bypass mode and while a response is running.">
-                            <MudCheckBox T="bool"
-                                         @bind-Value="_querySettings.EnableRerank"
-                                         Label="Rerank"
-                                         Dense="true"
-                                         Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                        </MudTooltip>
-                    </div>
-
-                    <MudDivider />
-
-                    <MudGrid Spacing="2">
-                        <MudItem xs="6">
-                            <MudTooltip Text="TopK controls how many graph items are considered. Larger values may improve recall but cost more tokens.">
-                                <MudNumericField T="int" @bind-Value="_querySettings.TopK" Label="TopK" Min="1" Max="200" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudTooltip>
-                        </MudItem>
-                        <MudItem xs="6">
-                            <MudTooltip Text="ChunkTopK controls how many text chunks are retrieved. Larger values add more context and token cost.">
-                                <MudNumericField T="int" @bind-Value="_querySettings.ChunkTopK" Label="ChunkTopK" Min="1" Max="200" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                            </MudTooltip>
-                        </MudItem>
-                    </MudGrid>
-
-                    <MudTooltip Text="High keywords guide graph-level retrieval. Leave empty to let the backend extract them from your question.">
-                        <MudTextField @bind-Value="_querySettings.HighLevelKeywordsText" Label="High keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                    </MudTooltip>
-
-                    <MudTooltip Text="Low keywords guide entity and detail retrieval. Leave empty to let the backend extract them from your question.">
-                        <MudTextField @bind-Value="_querySettings.LowLevelKeywordsText" Label="Low keywords" Variant="Variant.Outlined" Disabled="@(_isWaitingResponse || !_querySettings.AreRagOptionsEnabled)" />
-                    </MudTooltip>
-
-                    <MudDivider />
-
-                    <MudTooltip Text="Output switches between the final answer and debug payloads. Context only returns retrieved context; Prompt only returns the final prompt.">
-                        <MudSelect T="ChatQueryDebugOutputMode"
-                                   @bind-Value="_querySettings.DebugOutputMode"
-                                   Label="Output"
-                                   Dense="true"
-                                   Variant="Variant.Outlined"
-                                   Disabled="@_isWaitingResponse">
-                            @foreach (var outputMode in _debugOutputModes)
-                            {
-                                <MudSelectItem T="ChatQueryDebugOutputMode" Value="@outputMode">@GetDebugOutputModeText(outputMode)</MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudTooltip>
-                </MudStack>
-            </MudPaper>
-        </aside>
-    </div>
-</MudContainer>
+<div id="rag-chat-root" data-api-base="@ApiBase"></div>
 
 @code {
-    private List<ChatMessageModel> _chatHistory = [];
-    private string _inputMessage = string.Empty;
-    private bool _isWaitingResponse;
-    private ElementReference _chatContainer;
-    private readonly AsyncOperationSlot _queryOperation = new();
-    private IJSObjectReference? _jsModule;
-    private bool _shouldScrollAfterRender;
-    private readonly ChatQuerySettingsModel _querySettings = new();
-
-    private static readonly QueryMode[] _queryModes =
-    [
-        QueryMode.Mix,
-        QueryMode.Naive,
-        QueryMode.Bypass,
-        QueryMode.Local,
-        QueryMode.Global,
-        QueryMode.Hybrid
-    ];
-
-    private static readonly string[] _responseTypes =
-    [
-        "Multiple Paragraphs",
-        "Single Paragraph",
-        "Bullet Points",
-        "Concise"
-    ];
-
-    private static readonly ChatQueryDebugOutputMode[] _debugOutputModes =
-    [
-        ChatQueryDebugOutputMode.Answer,
-        ChatQueryDebugOutputMode.ContextOnly,
-        ChatQueryDebugOutputMode.PromptOnly
-    ];
-
-    private bool CanNotSendMessage => string.IsNullOrWhiteSpace(_inputMessage) || _isWaitingResponse;
-
-    private static string GetMessageSender(ChatMessageModel message)
-    {
-        return message.Role == "User" ? "User" : "RAG Assistant";
-    }
-
-    private static string GetMessageBubbleClass(ChatMessageModel message)
-    {
-        return message.Role == "User"
-            ? "pa-3 rounded-lg mud-theme-primary"
-            : "pa-3 rounded-lg mud-theme-surface";
-    }
-
-    private static string GetDebugOutputModeText(ChatQueryDebugOutputMode outputMode)
-    {
-        return outputMode switch
-        {
-            ChatQueryDebugOutputMode.ContextOnly => "Context only",
-            ChatQueryDebugOutputMode.PromptOnly => "Prompt only",
-            _ => "Answer"
-        };
-    }
-
-    protected override void OnInitialized()
-    {
-        // Load chat history from service
-        _chatHistory = ChatHistoryService.GetChatHistory();
-    }
+    private const string RootElementId = "rag-chat-root";
+    private IJSObjectReference? ragChatModule;
+    private bool _disposed;
+    private string ApiBase => Configuration["ApiBaseUrl"] ?? "http://localhost:5261";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender || _disposed)
         {
-            try
-            {
-                _jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/RagChat.razor.js");
-            }
-            catch
-            {
-                // Ignore JavaScript module load errors
-            }
-            await ScrollToBottomAsync();
+            return;
         }
-        
-        // Scroll to bottom after render if requested (e.g., after user message is added)
-        if (_shouldScrollAfterRender)
-        {
-            _shouldScrollAfterRender = false;
-            await ScrollToBottomAsync();
-        }
-    }
 
-    private async Task ScrollToBottomAsync()
-    {
+        var importedModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./rag-chat/assets/rag-chat.js");
+
+        if (_disposed)
+        {
+            await DisposeImportedModuleAsync(importedModule);
+            return;
+        }
+
         try
         {
-            if (_jsModule != null)
+            if (_disposed)
             {
-                await _jsModule.InvokeVoidAsync("scrollToBottom", _chatContainer);
+                await DisposeImportedModuleAsync(importedModule);
+                return;
             }
+
+            await importedModule.InvokeVoidAsync("mountRagChat", RootElementId, ApiBase);
         }
         catch
         {
-            // Ignore JavaScript errors
+            await DisposeImportedModuleAsync(importedModule);
+            throw;
         }
-    }
 
-    private async Task HandleKeyPress(KeyboardEventArgs e)
-    {
-        if (e is { Key: "Enter", ShiftKey: false } && !CanNotSendMessage)
+        if (_disposed)
         {
-            await SendMessageAsync();
-        }
-    }
-
-    private async Task SendMessageAsync()
-    {
-        if (CanNotSendMessage)
-            return;
-
-        var userMessage = _inputMessage.Trim();
-        if (string.IsNullOrWhiteSpace(userMessage))
-            return;
-
-        AsyncOperationSlot.Lease queryLease;
-        try
-        {
-            queryLease = await _queryOperation.StartNewAsync();
-        }
-        catch (ObjectDisposedException)
-        {
+            await UnmountAndDisposeModuleAsync(importedModule);
             return;
         }
 
-        // Clear input and lock UI immediately
-        _inputMessage = string.Empty;
-        _isWaitingResponse = true;
-        var request = _querySettings.BuildRequest(userMessage);
-        
-        // Add user message to history
-        var userChatMessage = new ChatMessageModel { Role = "User", Text = userMessage };
-        _chatHistory.Add(userChatMessage);
-        ChatHistoryService.AddMessage(userChatMessage);
-        
-        // Create and add empty assistant message immediately to show loading animation
-        var assistantMessage = new ChatMessageModel
-        {
-            Role = "Assistant",
-            Text = string.Empty,
-            Mode = request.Mode,
-            IsStreaming = request.Stream,
-            IsCacheable = !request.Stream,
-            HighLevelKeywords = [.. request.HighLevelKeywords],
-            LowLevelKeywords = [.. request.LowLevelKeywords]
-        };
-        assistantMessage.RetrievalDataRequest = ChatQuerySettingsModel.CloneRequest(request);
-        _chatHistory.Add(assistantMessage);
-        ChatHistoryService.AddMessage(assistantMessage);
-        
-        // Update UI to show user message and loading animation
-        _shouldScrollAfterRender = true;
-        StateHasChanged();
-
-        using (queryLease)
-        {
-            try
-            {
-                await ApiClient.QueryRagAsync(
-                    request,
-                    new RagQueryStreamHandlers
-                    {
-                        OnChunkReceived = async chunk =>
-                        {
-                            if (string.IsNullOrEmpty(chunk) || queryLease.Token.IsCancellationRequested)
-                                return;
-
-                            await InvokeAsync(async () =>
-                            {
-                                assistantMessage.Text += chunk;
-                                await ScrollToBottomAsync();
-                                StateHasChanged();
-                            });
-                        },
-                        OnMetadataReceived = async metadataEvent =>
-                        {
-                            await InvokeAsync(() =>
-                            {
-                                ChatQuerySettingsModel.ApplyMetadata(assistantMessage, metadataEvent);
-                                StateHasChanged();
-                            });
-                        }
-                    },
-                    queryLease.Token);
-
-                assistantMessage.IsComplete = true;
-                if (string.IsNullOrWhiteSpace(assistantMessage.Text))
-                {
-                    assistantMessage.Text = string.Empty;
-                }
-
-                StateHasChanged();
-            }
-            catch (RagQueryException ex)
-            {
-                assistantMessage.IsComplete = true;
-                assistantMessage.ErrorMessage = ex.Message;
-                if (string.IsNullOrWhiteSpace(assistantMessage.Text))
-                {
-                    assistantMessage.Text = $"Error: {ex.Message}";
-                }
-
-                Snackbar.Add($"Query failed: {ex.Message}", Severity.Error);
-                StateHasChanged();
-            }
-            catch (OperationCanceledException) when (queryLease.Token.IsCancellationRequested)
-            {
-                assistantMessage.IsComplete = true;
-                if (string.IsNullOrWhiteSpace(assistantMessage.Text))
-                {
-                    assistantMessage.ErrorMessage = "Cancelled";
-                    assistantMessage.Text = "Cancelled";
-                    StateHasChanged();
-                }
-            }
-            catch (Exception ex)
-            {
-                assistantMessage.IsComplete = true;
-                assistantMessage.ErrorMessage = ex.Message;
-                if (string.IsNullOrWhiteSpace(assistantMessage.Text))
-                {
-                    assistantMessage.Text = $"Error: {ex.Message}";
-                }
-
-                Snackbar.Add($"Query failed: {ex.Message}", Severity.Error);
-                StateHasChanged();
-            }
-            finally
-            {
-                if (await _queryOperation.IsCurrentAsync(queryLease))
-                {
-                    _isWaitingResponse = false;
-                }
-            }
-        }
-    }
-
-    private static bool ShouldRenderReferences(ChatMessageModel message)
-    {
-        return message.Role == "Assistant" && message.References.Count > 0;
-    }
-
-    private static bool ShouldRenderDiagnostics(ChatMessageModel message)
-    {
-        return message.Role == "Assistant"
-            && (message.Diagnostics.Count > 0
-                || message.HighLevelKeywords.Count > 0
-                || message.LowLevelKeywords.Count > 0);
-    }
-
-    private static bool CanShowRetrievalDataButton(ChatMessageModel message)
-    {
-        return message is
-        {
-            Role: "Assistant",
-            IsComplete: true,
-            RetrievalDataRequest: not null,
-            Mode: not null
-        } && message.Mode != QueryMode.Bypass;
-    }
-
-    private async Task LoadRetrievalDataAsync(ChatMessageModel chatMessage)
-    {
-        var message = chatMessage;
-        if (message.RetrievalDataRequest is null || message.IsLoadingRetrievalData)
-        {
-            return;
-        }
-
-        message.IsLoadingRetrievalData = true;
-        message.RetrievalDataError = null;
-        StateHasChanged();
-
-        try
-        {
-            message.RetrievalData = await ApiClient.GetRagQueryDataAsync(message.RetrievalDataRequest,
-                CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            message.RetrievalDataError = ex.Message;
-            Snackbar.Add($"Retrieval data failed: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            message.IsLoadingRetrievalData = false;
-            await OpenRetrievalDataDialog(chatMessage);
-            StateHasChanged();
-        }
-    }
-
-    private async Task OpenRetrievalDataDialog(ChatMessageModel message)
-    {
-        var parameters = new DialogParameters
-        {
-            ["RetrievalData"] = message.RetrievalData,
-            ["Query"] = message.RetrievalDataRequest?.Query,
-            ["ErrorMessage"] = message.RetrievalDataError
-        };
-
-        var options = new DialogOptions
-        {
-            FullWidth = true,
-            MaxWidth = MaxWidth.Large,
-            CloseButton = true
-        };
-
-        await DialogService.ShowAsync<RagQueryDataDialog>("Retrieval Data", parameters, options);
-    }
-
-    private void ClearChatHistory()
-    {
-        ChatHistoryService.ClearHistory();
-        _chatHistory.Clear();
-        StateHasChanged();
+        ragChatModule = importedModule;
     }
 
     public async ValueTask DisposeAsync()
     {
-        await _queryOperation.DisposeAsync();
-        
-        if (_jsModule != null)
+        _disposed = true;
+
+        var module = ragChatModule;
+        if (module is null)
         {
-            try
-            {
-                await _jsModule.DisposeAsync();
-            }
-            catch
-            {
-                // Ignore disposal errors
-            }
+            return;
+        }
+
+        ragChatModule = null;
+        await UnmountAndDisposeModuleAsync(module);
+    }
+
+    private async ValueTask UnmountAndDisposeModuleAsync(IJSObjectReference module)
+    {
+        try
+        {
+            await module.InvokeVoidAsync("unmountRagChat", RootElementId);
+            await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit can be gone while Blazor is tearing down the page.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The JS runtime may already be disposed during host shutdown.
+        }
+    }
+
+    private static async ValueTask DisposeImportedModuleAsync(IJSObjectReference module)
+    {
+        try
+        {
+            await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit can be gone while Blazor is tearing down the page.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The JS runtime may already be disposed during host shutdown.
         }
     }
 }

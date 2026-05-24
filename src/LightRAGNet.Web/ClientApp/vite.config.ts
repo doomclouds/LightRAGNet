@@ -14,6 +14,10 @@ if (existsSync("src/cache-management/main.tsx")) {
   input.cacheManagement = "src/cache-management/main.tsx";
 }
 
+if (existsSync("src/rag-chat/main.tsx")) {
+  input.ragChat = "src/rag-chat/main.tsx";
+}
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -35,6 +39,10 @@ export default defineConfig({
             return "cache-management/assets/cache-management.js";
           }
 
+          if (chunkInfo.name === "ragChat") {
+            return "rag-chat/assets/rag-chat.js";
+          }
+
           return "graph-workbench/assets/graph-workbench.js";
         },
         chunkFileNames: "assets/[name].js",
@@ -49,6 +57,10 @@ export default defineConfig({
 
             if (normalizedAssetNames.some((name) => name.includes("cache-management") || name.includes("cachemanagement"))) {
               return "cache-management/assets/cache-management.css";
+            }
+
+            if (normalizedAssetNames.some((name) => name.includes("rag-chat") || name.includes("ragchat"))) {
+              return "rag-chat/assets/rag-chat.css";
             }
 
             return "graph-workbench/assets/graph-workbench.css";

@@ -11,7 +11,7 @@ import { EdgeArrowProgram } from "sigma/rendering";
 import { useGraphSettingsStore } from "../../stores/graphSettingsStore";
 import { useGraphStore } from "../../stores/graphStore";
 import type { GraphViewDto } from "../../types/graph";
-import { createGraphologyGraph, type SigmaGraphAttributes } from "./graphologyAdapter";
+import { createGraphologyGraph, GraphLabelPalette, type SigmaGraphAttributes } from "./graphologyAdapter";
 
 type GraphCanvasProps = {
   graph: GraphViewDto | null;
@@ -37,8 +37,8 @@ const EdgeProgramClasses = {
   curvedArrow: EdgeCurvedArrowProgram,
   curvedNoArrow: CurvedNoArrowProgram
 };
-const LabelColor = { color: "#172026", attribute: "labelColor" };
-const EdgeLabelColor = { color: "#172026", attribute: "labelColor" };
+const LabelColor = { color: GraphLabelPalette.label, attribute: "labelColor" };
+const EdgeLabelColor = { color: GraphLabelPalette.label, attribute: "labelColor" };
 
 function GraphEvents() {
   const registerEvents = useRegisterEvents();
@@ -161,7 +161,7 @@ function GraphReducers() {
             nextData.forceLabel = node === activeNode;
           } else {
             nextData.color = "#cbd5d1";
-            nextData.labelColor = "#87958f";
+            nextData.labelColor = GraphLabelPalette.dimmedLabel;
           }
         }
 

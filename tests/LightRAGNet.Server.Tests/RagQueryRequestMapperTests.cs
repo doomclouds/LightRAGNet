@@ -128,10 +128,61 @@ public sealed class RagQueryRequestMapperTests
         metadata.References.Should().ContainSingle();
         metadata.References[0].ReferenceId.Should().Be("doc-1");
         metadata.References[0].FilePath.Should().Be("guide.md");
+        metadata.References[0].FileName.Should().Be("guide.md");
+        metadata.References[0].OpenKind.Should().Be("ExternalOrUnresolved");
         metadata.HighLevelKeywords.Should().Equal("architecture");
         metadata.LowLevelKeywords.Should().Equal("cache");
         metadata.Diagnostics.Should().ContainKey("elapsed_ms").WhoseValue.Should().Be("42");
         metadata.Diagnostics.Should().ContainKey("cache_status").WhoseValue.Should().Be("live");
+    }
+
+    [Fact]
+    public void ToMetadataEvent_UsesResolvedReferencesWhenProvided()
+    {
+        var request = new RagQueryRequest
+        {
+            IncludeReferences = true
+        };
+        var result = new QueryResult
+        {
+            RawData = new Dictionary<string, object>
+            {
+                ["data"] = new Dictionary<string, object>
+                {
+                    ["references"] = new List<Dictionary<string, object>>
+                    {
+                        new()
+                        {
+                            ["reference_id"] = "raw",
+                            ["file_path"] = "raw.md"
+                        }
+                    }
+                }
+            }
+        };
+        RagQueryReferenceDto[] references =
+        [
+            new()
+            {
+                ReferenceId = "resolved",
+                FilePath = "/uploads/resolved.md",
+                FileName = "resolved.md",
+                PreviewUrl = "http://localhost/document-preview/5",
+                OpenKind = "DocumentPreview"
+            }
+        ];
+
+        var metadata = RagQueryRequestMapper.ToMetadataEvent(request, result, references);
+
+        metadata.References.Should().BeSameAs(references);
+    }
+
+    [Fact]
+    public void RagQueryReferenceDto_ExposesPreviewFields()
+    {
+        typeof(RagQueryReferenceDto).GetProperty("FileName").Should().NotBeNull();
+        typeof(RagQueryReferenceDto).GetProperty("PreviewUrl").Should().NotBeNull();
+        typeof(RagQueryReferenceDto).GetProperty("OpenKind").Should().NotBeNull();
     }
 
     [Fact]

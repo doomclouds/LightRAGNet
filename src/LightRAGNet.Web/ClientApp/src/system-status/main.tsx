@@ -2,6 +2,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { SystemStatusWorkbench } from "./SystemStatusWorkbench";
+// Keep the query so Vite inlines shared theme CSS into this Razor fixed CSS asset.
+import "../styles/theme.css?system-status";
 import "../styles/system-status.css";
 
 const mountedRoots = new Map<string, Root>();

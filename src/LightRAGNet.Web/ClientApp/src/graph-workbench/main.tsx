@@ -2,6 +2,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { GraphWorkbench } from "./GraphWorkbench";
+// Keep the query so Vite inlines shared theme CSS into this Razor fixed CSS asset.
+import "../styles/theme.css?graph-workbench";
 import "../styles/graph-workbench.css";
 
 const mountedRoots = new Map<string, Root>();

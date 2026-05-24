@@ -1049,13 +1049,10 @@ public class LightRAG(
 
                 1. Step-by-Step Instruction:
                   - Carefully determine the user's query intent in the context of the conversation history to fully understand the user's information need.
-                  - Scrutinize both `Knowledge Graph Data` (Entity and Relationship) and `Document Chunks` in the **Context**. The Knowledge Graph Data uses concise text format: entities as "Name (Type): Description" and relationships as "Source -> Target: Keywords - Description". Document Chunks show file names in brackets [FileName] followed by content.
+                  - Scrutinize both `Knowledge Graph Data` (Entity and Relationship) and `Document Chunks` in the **Context**. The Knowledge Graph Data uses concise text format: entities as "Name (Type): Description" and relationships as "Source -> Target: Keywords - Description". Document Chunks include reference identifiers for system use.
                   - Identify and extract all pieces of information that are directly relevant to answering the user query.
                   - Weave the extracted facts into a coherent and logical response. Your own knowledge must ONLY be used to formulate fluent sentences and connect ideas, NOT to introduce any external information.
-                  - CRITICAL: DO NOT include any citation markers, reference numbers, or links like [1], [2], [filename](url), or any other citation format anywhere in the main body of your response. Write the response naturally without any citation markers in the text.
-                  - CRITICAL: References can ONLY be placed at the very end of your response under the `### References` heading. Do NOT add references, citations, or links anywhere else in the response.
-                  - Track which document chunks (identified by file names in brackets) directly support the facts presented in the response. Generate a references section ONLY at the end of the response under `### References` heading, listing only the file names of documents that directly support the facts. Match the file names from Document Chunks with those in the Reference Document List.
-                  - Do not generate anything after the reference section.
+                  - Do not invent citations, file paths, links, or source names. Source references are rendered separately by the system UI from structured metadata.
 
                 2. Content & Grounding:
                   - Strictly adhere to the provided context from the **Context**; DO NOT invent, assume, or infer any information not explicitly stated.
@@ -1063,22 +1060,10 @@ public class LightRAG(
 
                 3. Formatting & Language:
                   - The response MUST be in the same language as the user query.
-                  - CRITICAL: ALL parts of the response, including section headings, MUST be in the same language as the user query. The References section heading MUST use the most accurate translation of "References" in the user's query language, NOT the English word "References" unless the query is in English.
                   - The response MUST utilize Markdown formatting for enhanced clarity and structure (e.g., headings, bold text, bullet points).
                   - The response should be presented in {responseType}.
 
-                4. References Section Format (STRICTLY ENFORCED):
-                  - CRITICAL: References can ONLY appear at the very end of your response under the `### References` heading. Do NOT add any references, citations, or links anywhere else in the response body.
-                  - The References section MUST be under heading: `### References` and MUST be the last section of your response.
-                  - Reference list entries should adhere to the format: `* [FileName](URL)` where FileName is the file name shown in Document Chunks (in brackets) and URL is the file path from the Reference Document List. This format creates clickable Markdown links.
-                  - Match the file names from Document Chunks (shown as [FileName] in the chunks) with the corresponding file paths in the Reference Document List.
-                  - The file name in the citation must match exactly the file name shown in Document Chunks and must retain its original language.
-                  - Output each citation on an individual line
-                  - Provide maximum of 5 most relevant citations.
-                  - Do not generate footnotes section or any comment, summary, or explanation after the references.
-                  - WARNING: If you add any citations, references, or links anywhere other than under the `### References` heading at the end, your response will be considered incorrect.
-
-                5. Additional Instructions: {userPrompt}
+                4. Additional Instructions: {userPrompt}
 
                 ---Context---
 

@@ -10,6 +10,7 @@ using LightRAGNet.Server.Services;
 using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Server.Services.DocumentConversion;
+using LightRAGNet.Server.Services.DocumentPreview;
 using LightRAGNet.Server.Services.SystemHealth;
 using LightRAGNet.Server.Services.SystemHealth.Checks;
 using LightRAGNet.Core.Interfaces;
@@ -82,6 +83,7 @@ builder.Services.AddHostedService<DocumentConversionWorker>();
 
 builder.Services.AddScoped<MarkdownDocumentDeletionService>();
 builder.Services.AddScoped<DocumentIntakeService>();
+builder.Services.AddScoped<DocumentReferencePreviewResolver>();
 builder.Services.AddScoped<IRagExternalStorageCleaner, RagExternalStorageCleaner>();
 
 // Register SignalR (for real-time task status updates)

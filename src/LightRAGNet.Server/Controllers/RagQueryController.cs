@@ -5,6 +5,7 @@ using System.Text.Json;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.DocumentPreview;
 using LightRAGNet.Share.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,6 +15,7 @@ namespace LightRAGNet.Server.Controllers;
 [Route("api/[controller]")]
 public class RagQueryController(
     LightRAG lightRAG,
+    DocumentReferencePreviewResolver referencePreviewResolver,
     ILogger<RagQueryController> logger) : ControllerBase
 {
     /// <summary>
@@ -43,7 +45,7 @@ public class RagQueryController(
                 queryParam,
                 cancellationToken);
 
-            var events = WrapQueryResultAsEventsAsync(request, queryResult, cancellationToken);
+            var events = WrapQueryResultAsEventsAsync(request, queryResult, HttpContext.Request, cancellationToken);
             return new RagQuerySseResult(events, logger);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -133,9 +135,10 @@ public class RagQueryController(
         return (data, metadata);
     }
 
-    private static async IAsyncEnumerable<RagQueryEvent> WrapQueryResultAsEventsAsync(
+    private async IAsyncEnumerable<RagQueryEvent> WrapQueryResultAsEventsAsync(
         RagQueryRequest request,
         QueryResult queryResult,
+        HttpRequest httpRequest,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         if (queryResult is { IsStreaming: true, ResponseIterator: not null })
@@ -153,7 +156,11 @@ public class RagQueryController(
             yield return new TextChunkEvent { Chunk = queryResult.Content };
         }
 
-        yield return RagQueryRequestMapper.ToMetadataEvent(request, queryResult);
+        IReadOnlyList<RagQueryReferenceDto> references = request.IncludeReferences
+            ? await referencePreviewResolver.ResolveAsync(queryResult.ReferenceList, httpRequest, cancellationToken).ConfigureAwait(false)
+            : [];
+
+        yield return RagQueryRequestMapper.ToMetadataEvent(request, queryResult, references);
         yield return new DoneEvent();
     }
 }
@@ -259,7 +266,7 @@ public sealed class RagQuerySseResult : IResult, IDisposable
         {
             _jsonWriter.Reset(writer);
         }
-        JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadable);
+        JsonSerializer.Serialize(_jsonWriter, item.Data, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
     }
 
     public void Dispose()
