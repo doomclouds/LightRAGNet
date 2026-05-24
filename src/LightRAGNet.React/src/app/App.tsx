@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef } from 'react';
+import { Component, lazy, Suspense, useCallback, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { getApiBase } from '@/api/http';
 import { AppLayout } from './AppLayout';
 import { type AppRoute, resolveRoute } from './router';
@@ -11,9 +11,12 @@ import { PageHeader } from '@/shared/components/PageHeader';
 import { StatusPill } from '@/shared/components/StatusPill';
 import { notifySubscribers } from './subscribers';
 
-const GraphWorkbench = lazy(() =>
-  import('@/features/graph-workbench/GraphWorkbench').then((module) => ({ default: module.GraphWorkbench }))
-);
+type GraphWorkbenchComponent = ComponentType<{ apiBase: string }>;
+type GraphWorkbenchModule = { default: GraphWorkbenchComponent };
+type GraphWorkbenchLoader = () => Promise<GraphWorkbenchModule>;
+
+const loadGraphWorkbench: GraphWorkbenchLoader = () =>
+  import('@/features/graph-workbench/GraphWorkbench').then((module) => ({ default: module.GraphWorkbench }));
 
 export function App() {
   const route = resolveRoute();
@@ -59,14 +62,78 @@ export function App() {
       ) : route.id === 'rag-chat' ? (
         <RagChatWorkbench apiBase={apiBase} />
       ) : route.id === 'graph' ? (
-        <Suspense fallback={null}>
-          <GraphWorkbench apiBase={apiBase} />
-        </Suspense>
+        <GraphRoute apiBase={apiBase} />
       ) : (
         <PlaceholderRoute route={route} />
       )}
     </AppLayout>
   );
+}
+
+type GraphRouteProps = {
+  apiBase: string;
+  loadWorkbench?: GraphWorkbenchLoader;
+};
+
+export function GraphRoute({ apiBase, loadWorkbench = loadGraphWorkbench }: GraphRouteProps) {
+  const [routeVersion, setRouteVersion] = useState(0);
+  const GraphWorkbench = useMemo(() => lazy(loadWorkbench), [loadWorkbench, routeVersion]);
+
+  return (
+    <GraphRouteErrorBoundary key={routeVersion} onRetry={() => setRouteVersion((version) => version + 1)}>
+      <Suspense fallback={<GraphRouteLoadingPanel />}>
+        <GraphWorkbench apiBase={apiBase} />
+      </Suspense>
+    </GraphRouteErrorBoundary>
+  );
+}
+
+function GraphRouteLoadingPanel() {
+  return (
+    <section className="lrn-panel app-placeholder" aria-label="Knowledge Graph loading">
+      <PageHeader
+        title="Loading Knowledge Graph"
+        description="Preparing the graph workbench."
+        meta={<StatusPill tone="accent">Loading</StatusPill>}
+      />
+    </section>
+  );
+}
+
+type GraphRouteErrorBoundaryProps = {
+  children: ReactNode;
+  onRetry: () => void;
+};
+
+type GraphRouteErrorBoundaryState = {
+  error: Error | null;
+};
+
+class GraphRouteErrorBoundary extends Component<GraphRouteErrorBoundaryProps, GraphRouteErrorBoundaryState> {
+  state: GraphRouteErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): GraphRouteErrorBoundaryState {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <section className="lrn-panel app-placeholder" aria-label="Knowledge Graph failed">
+          <PageHeader
+            title="Knowledge Graph failed to load"
+            description="The graph workbench could not be loaded. Retry the route or refresh the application."
+            meta={<StatusPill tone="warning">Unavailable</StatusPill>}
+          />
+          <button className="lrn-button lrn-button--secondary" type="button" onClick={this.props.onRetry}>
+            Retry graph route
+          </button>
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 type DocumentsRouteProps = {
