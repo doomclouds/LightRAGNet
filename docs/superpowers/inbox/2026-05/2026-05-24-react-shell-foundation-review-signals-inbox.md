@@ -20,11 +20,13 @@ Task 1 of the React full UI migration passed spec review, but code-quality revie
 - Lazy routes around browser-heavy chunks such as Sigma/WebGL graph workbenches need visible loading, route-local error/retry fallback, and injectable loaders for tests; `fallback={null}` turns slow or failed chunks into blank pages.
 - Standalone feature CSS migrated from isolated islands must scope global selectors such as `*` to the feature root before entering the shared React shell.
 - Destructive operation confirmations must bind to the data snapshot that produced the plan, not only live route controls that can change while refresh is pending.
+- Safe document preview links should be recognized from backend-provided `/document-preview/{id}` URLs, not from `openKind` alone, because converted/original artifact references can still use the same preview route.
+- Preview API clients should branch on `content-type` before reading the body so plain-text preview responses and non-JSON error bodies are not consumed or masked by JSON parsing fallback.
 - Subagents working in an isolated worktree should verify path and branch before edits; file editing tools should use absolute paths when there is any risk of defaulting to the parent session cwd.
 
 ## Why It Might Matter
 
-These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, or write to the wrong checkout during subagent-driven work.
+These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, route safe preview links through the wrong frontend base path, lose preview error messages by double-reading response bodies, or write to the wrong checkout during subagent-driven work.
 
 ## What Is Missing
 
@@ -35,6 +37,8 @@ These are small foundation mistakes that can propagate across migrated pages. If
 - Whether later browser-heavy routes should share a route shell helper for lazy loading, error fallback, and retry behavior.
 - Whether later migrated islands contain global CSS selectors that need feature-root scoping.
 - Whether later destructive operations need a shared snapshot/confirmation pattern.
+- Whether path-base aware preview URL normalization needs a shared helper instead of feature-local parsing.
+- Whether mixed JSON/text API clients need a shared response reader for content negotiation and error preservation.
 - A completed requirement archive for the full React UI migration that can absorb these as implementation lessons.
 
 ## Likely Next Route
