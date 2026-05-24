@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -15,9 +16,73 @@ public sealed class LightRagLlmCacheService(
     [FromKeyedServices(KVContracts.LLMCache)] IKVStore llmCacheStore,
     IOptions<LightRAGOptions> options,
     LightRagCacheKeyBuilder keyBuilder,
+    ICacheMetricsRecorder metricsRecorder,
     ILogger<LightRagLlmCacheService> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = LightRAGJsonOptions.HumanReadable;
+
+    public LightRagLlmCacheService(
+        [FromKeyedServices(KVContracts.LLMCache)] IKVStore llmCacheStore,
+        IOptions<LightRAGOptions> options,
+        LightRagCacheKeyBuilder keyBuilder,
+        ILogger<LightRagLlmCacheService> logger)
+        : this(llmCacheStore, options, keyBuilder, new NoopCacheMetricsRecorder(), logger)
+    {
+    }
+
+    public Task<CacheValueResult<KeywordsResult>> GetOrCreateKeywordsAsync(
+        string workspace,
+        QueryMode mode,
+        string query,
+        Func<CancellationToken, Task<KeywordsResult>> factory,
+        CancellationToken cancellationToken = default)
+    {
+        var key = keyBuilder.BuildKeywordKey(workspace, mode, query);
+        return GetOrCreateAsync(
+            workspace,
+            LightRagCacheKeyBuilder.KeywordsCacheType,
+            mode.ToString(),
+            null,
+            IsKeywordCacheEnabled(),
+            key,
+            async ct =>
+            {
+                var data = await llmCacheStore.GetByIdAsync(key, ct);
+                if (!LightRagCacheEntry.TryFromDictionary(data, out var entry)
+                    || !TryDeserializeKeywordPayload(entry.ReturnValue, out var payload))
+                {
+                    return (false, new KeywordsResult());
+                }
+
+                return (true, new KeywordsResult
+                {
+                    HighLevelKeywords = payload.HighLevelKeywords ?? [],
+                    LowLevelKeywords = payload.LowLevelKeywords ?? []
+                });
+            },
+            factory,
+            HasAnyKeyword,
+            (keywords, ct) =>
+            {
+                var payload = JsonSerializer.Serialize(
+                    new KeywordCachePayload
+                    {
+                        HighLevelKeywords = keywords.HighLevelKeywords,
+                        LowLevelKeywords = keywords.LowLevelKeywords
+                    },
+                    SerializerOptions);
+                return SaveEntryAsync(
+                    key,
+                    new LightRagCacheEntry(
+                        payload,
+                        LightRagCacheKeyBuilder.KeywordsCacheType,
+                        query,
+                        null,
+                        DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+                    ct);
+            },
+            cancellationToken);
+    }
 
     public async Task<KeywordsResult?> TryGetKeywordsAsync(
         string workspace,
@@ -86,16 +151,50 @@ public sealed class LightRagLlmCacheService(
                 null,
                 DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-            await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-            {
-                [key] = entry.ToDictionary()
-            }, cancellationToken);
-            await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
+            await SaveEntryAsync(key, entry, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to save keyword cache entry {CacheKey}.", key);
         }
+    }
+
+    public async Task<CacheValueResult<string>> GetOrCreateQueryResponseAsync(
+        string workspace,
+        long workspaceQueryRevision,
+        string query,
+        QueryParam queryParam,
+        KeywordsResult keywords,
+        Func<CancellationToken, Task<string>> factory,
+        CancellationToken cancellationToken = default)
+    {
+        var key = BuildQueryKey(workspace, workspaceQueryRevision, query, queryParam, keywords);
+        return await GetOrCreateAsync(
+            workspace,
+            LightRagCacheKeyBuilder.QueryCacheType,
+            queryParam.Mode.ToString(),
+            workspaceQueryRevision,
+            IsQueryCacheEnabled(),
+            key,
+            async ct =>
+            {
+                var data = await llmCacheStore.GetByIdAsync(key, ct);
+                return LightRagCacheEntry.TryFromDictionary(data, out var entry)
+                    ? (true, entry.ReturnValue)
+                    : (false, string.Empty);
+            },
+            factory,
+            response => !string.IsNullOrWhiteSpace(response),
+            (response, ct) => SaveEntryAsync(
+                key,
+                new LightRagCacheEntry(
+                    response,
+                    LightRagCacheKeyBuilder.QueryCacheType,
+                    query,
+                    BuildQueryParamSnapshot(queryParam, keywords, workspaceQueryRevision),
+                    DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+                ct),
+            cancellationToken);
     }
 
     public async Task<string?> TryGetQueryResponseAsync(
@@ -150,16 +249,27 @@ public sealed class LightRagLlmCacheService(
                 BuildQueryParamSnapshot(queryParam, keywords, workspaceQueryRevision),
                 DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-            await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-            {
-                [key] = entry.ToDictionary()
-            }, cancellationToken);
-            await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
+            await SaveEntryAsync(key, entry, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to save query cache entry {CacheKey}.", key);
         }
+    }
+
+    public Task<CacheValueResult<string>> GetOrCreateExtractAsync(
+        string canonicalPrompt,
+        string chunkId,
+        Func<CancellationToken, Task<string>> factory,
+        CancellationToken cancellationToken = default)
+    {
+        return GetOrCreateIndexingAsync(
+            keyBuilder.BuildExtractKey(canonicalPrompt),
+            canonicalPrompt,
+            LightRagCacheKeyBuilder.ExtractCacheType,
+            chunkId,
+            factory,
+            cancellationToken);
     }
 
     public Task<string?> TryGetExtractAsync(
@@ -184,6 +294,20 @@ public sealed class LightRagLlmCacheService(
             response,
             LightRagCacheKeyBuilder.ExtractCacheType,
             chunkId,
+            cancellationToken);
+    }
+
+    public Task<CacheValueResult<string>> GetOrCreateSummaryAsync(
+        string canonicalPrompt,
+        Func<CancellationToken, Task<string>> factory,
+        CancellationToken cancellationToken = default)
+    {
+        return GetOrCreateIndexingAsync(
+            keyBuilder.BuildSummaryKey(canonicalPrompt),
+            canonicalPrompt,
+            LightRagCacheKeyBuilder.SummaryCacheType,
+            null,
+            factory,
             cancellationToken);
     }
 
@@ -290,6 +414,172 @@ public sealed class LightRagLlmCacheService(
         return options.Value.EnableLlmCache && options.Value.EnableLlmCacheForEntityExtract;
     }
 
+    private async Task<CacheValueResult<T>> GetOrCreateAsync<T>(
+        string workspace,
+        string cacheType,
+        string? mode,
+        long? revision,
+        bool cacheEnabled,
+        string cacheKey,
+        Func<CancellationToken, Task<(bool Hit, T Value)>> tryRead,
+        Func<CancellationToken, Task<T>> factory,
+        Func<T, bool> shouldSave,
+        Func<T, CancellationToken, Task<bool>> save,
+        CancellationToken cancellationToken)
+    {
+        if (!cacheEnabled)
+        {
+            var disabledFactoryDuration = Stopwatch.StartNew();
+            var disabledValue = await factory(cancellationToken);
+            disabledFactoryDuration.Stop();
+            await RecordReadMetricAsync(
+                workspace,
+                cacheType,
+                CacheReadOutcome.Disabled,
+                mode,
+                TimeSpan.Zero,
+                disabledFactoryDuration.Elapsed,
+                null,
+                revision,
+                cancellationToken);
+            return CacheValueResult<T>.FromMiss(
+                disabledValue,
+                cacheEnabled: false,
+                saved: false,
+                cacheKey: null,
+                cacheType,
+                TimeSpan.Zero,
+                disabledFactoryDuration.Elapsed);
+        }
+
+        var lookupDuration = Stopwatch.StartNew();
+        try
+        {
+            var read = await tryRead(cancellationToken);
+            lookupDuration.Stop();
+            if (read.Hit)
+            {
+                await RecordReadMetricAsync(
+                    workspace,
+                    cacheType,
+                    CacheReadOutcome.Hit,
+                    mode,
+                    lookupDuration.Elapsed,
+                    null,
+                    cacheKey,
+                    revision,
+                    cancellationToken);
+                return CacheValueResult<T>.FromHit(read.Value, cacheType, cacheKey, lookupDuration.Elapsed);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            lookupDuration.Stop();
+            logger.LogWarning(ex, "Failed to read {CacheType} cache entry {CacheKey}.", cacheType, cacheKey);
+            var errorFactoryDuration = Stopwatch.StartNew();
+            var errorValue = await factory(cancellationToken);
+            errorFactoryDuration.Stop();
+            await RecordReadMetricAsync(
+                workspace,
+                cacheType,
+                CacheReadOutcome.Error,
+                mode,
+                lookupDuration.Elapsed,
+                errorFactoryDuration.Elapsed,
+                cacheKey,
+                revision,
+                cancellationToken);
+            return CacheValueResult<T>.FromMiss(
+                errorValue,
+                cacheEnabled: true,
+                saved: false,
+                cacheKey: null,
+                cacheType,
+                lookupDuration.Elapsed,
+                errorFactoryDuration.Elapsed);
+        }
+
+        var factoryDuration = Stopwatch.StartNew();
+        var value = await factory(cancellationToken);
+        factoryDuration.Stop();
+        await RecordReadMetricAsync(
+            workspace,
+            cacheType,
+            CacheReadOutcome.Miss,
+            mode,
+            lookupDuration.Elapsed,
+            factoryDuration.Elapsed,
+            cacheKey,
+            revision,
+            cancellationToken);
+
+        var saved = false;
+        if (shouldSave(value))
+        {
+            var saveDuration = Stopwatch.StartNew();
+            saved = await save(value, cancellationToken);
+            saveDuration.Stop();
+            if (saved)
+            {
+                await RecordSaveMetricAsync(
+                    workspace,
+                    cacheType,
+                    mode,
+                    saveDuration.Elapsed,
+                    cacheKey,
+                    revision,
+                    cancellationToken);
+            }
+        }
+
+        return CacheValueResult<T>.FromMiss(
+            value,
+            cacheEnabled: true,
+            saved,
+            saved ? cacheKey : null,
+            cacheType,
+            lookupDuration.Elapsed,
+            factoryDuration.Elapsed);
+    }
+
+    private Task<CacheValueResult<string>> GetOrCreateIndexingAsync(
+        string key,
+        string canonicalPrompt,
+        string cacheType,
+        string? chunkId,
+        Func<CancellationToken, Task<string>> factory,
+        CancellationToken cancellationToken)
+    {
+        return GetOrCreateAsync(
+            options.Value.Workspace,
+            cacheType,
+            LightRagCacheKeyBuilder.DefaultCacheMode,
+            null,
+            IsIndexingCacheEnabled(),
+            key,
+            async ct =>
+            {
+                var data = await llmCacheStore.GetByIdAsync(key, ct);
+                return LightRagCacheEntry.TryFromDictionary(data, out var entry)
+                    && string.Equals(entry.CacheType, cacheType, StringComparison.Ordinal)
+                        ? (true, entry.ReturnValue)
+                        : (false, string.Empty);
+            },
+            factory,
+            response => !string.IsNullOrWhiteSpace(response),
+            (response, ct) => SaveEntryAsync(
+                key,
+                new LightRagCacheEntry(
+                    response,
+                    cacheType,
+                    canonicalPrompt,
+                    null,
+                    DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    chunkId),
+                ct),
+            cancellationToken);
+    }
+
     private async Task<string?> TryGetIndexingResponseAsync(
         string key,
         string expectedCacheType,
@@ -338,17 +628,89 @@ public sealed class LightRagLlmCacheService(
                 DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 chunkId);
 
-            await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
-            {
-                [key] = entry.ToDictionary()
-            }, cancellationToken);
-            await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
-            return key;
+            return await SaveEntryAsync(key, entry, cancellationToken) ? key : null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to save indexing cache entry {CacheKey}.", key);
             return null;
+        }
+    }
+
+    private async Task<bool> SaveEntryAsync(
+        string key,
+        LightRagCacheEntry entry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await llmCacheStore.UpsertAsync(new Dictionary<string, Dictionary<string, object>>
+            {
+                [key] = entry.ToDictionary()
+            }, cancellationToken);
+            await llmCacheStore.IndexDoneCallbackAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to save {CacheType} cache entry {CacheKey}.", entry.CacheType, key);
+            return false;
+        }
+    }
+
+    private async Task RecordReadMetricAsync(
+        string workspace,
+        string cacheType,
+        string outcome,
+        string? mode,
+        TimeSpan duration,
+        TimeSpan? factoryDuration,
+        string? cacheKey,
+        long? revision,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await metricsRecorder.RecordReadAsync(
+                workspace,
+                cacheType,
+                outcome,
+                mode,
+                duration,
+                factoryDuration,
+                cacheKey,
+                revision,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to record {CacheType} cache read metric.", cacheType);
+        }
+    }
+
+    private async Task RecordSaveMetricAsync(
+        string workspace,
+        string cacheType,
+        string? mode,
+        TimeSpan duration,
+        string? cacheKey,
+        long? revision,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await metricsRecorder.RecordSaveAsync(
+                workspace,
+                cacheType,
+                mode,
+                duration,
+                cacheKey,
+                revision,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to record {CacheType} cache save metric.", cacheType);
         }
     }
 
@@ -427,6 +789,45 @@ public sealed class LightRagLlmCacheService(
 
         payload = deserialized;
         return true;
+    }
+
+    private sealed class NoopCacheMetricsRecorder : ICacheMetricsRecorder
+    {
+        public Task RecordReadAsync(
+            string workspace,
+            string cacheType,
+            string outcome,
+            string? mode,
+            TimeSpan duration,
+            TimeSpan? factoryDuration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordSaveAsync(
+            string workspace,
+            string cacheType,
+            string? mode,
+            TimeSpan duration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordClearAsync(
+            string workspace,
+            string cacheType,
+            TimeSpan duration,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class KeywordCachePayload

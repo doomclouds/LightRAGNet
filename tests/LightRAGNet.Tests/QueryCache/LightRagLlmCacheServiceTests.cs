@@ -169,6 +169,54 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
+    public async Task GetOrCreateQueryResponseAsync_WhenCacheHit_DoesNotCallFactory()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var queryParam = new QueryParam
+        {
+            Mode = QueryMode.Mix,
+            ResponseType = "Single Paragraph",
+            TopK = 7
+        };
+        var keywords = new KeywordsResult
+        {
+            HighLevelKeywords = ["rag"],
+            LowLevelKeywords = ["cache"]
+        };
+        var key = keyBuilder.BuildRagQueryKey("workspace-a", 3, "what is cache?", queryParam, keywords);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                "cached answer",
+                LightRagCacheKeyBuilder.QueryCacheType,
+                "what is cache?",
+                null,
+                123)
+            .ToDictionary());
+        var service = CreateService(store, keyBuilder: keyBuilder);
+        var factoryCalls = 0;
+
+        var result = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            3,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult("factory answer");
+            });
+
+        result.Value.Should().Be("cached answer");
+        result.Hit.Should().BeTrue();
+        result.Saved.Should().BeFalse();
+        result.CacheKey.Should().Be(key);
+        factoryCalls.Should().Be(0);
+    }
+
+    [Fact]
     public async Task TryGetExtractAsync_WhenCacheHit_ReturnsRawResponse()
     {
         var store = new InMemoryKvStore();
@@ -209,6 +257,33 @@ public sealed class LightRagLlmCacheServiceTests
         entry["chunk_id"].Should().Be("chunk-a");
         entry["original_prompt"].Should().Be(canonicalPrompt);
         entry["return"].Should().Be("raw extract response");
+    }
+
+    [Fact]
+    public async Task GetOrCreateExtractAsync_WhenCacheMiss_CallsFactoryAndSavesKey()
+    {
+        var store = new InMemoryKvStore();
+        var keyBuilder = new LightRagCacheKeyBuilder();
+        var service = CreateService(store, keyBuilder: keyBuilder);
+        const string canonicalPrompt = "canonical extract prompt";
+        var expectedKey = keyBuilder.BuildExtractKey(canonicalPrompt);
+        var factoryCalls = 0;
+
+        var result = await service.GetOrCreateExtractAsync(
+            canonicalPrompt,
+            "chunk-a",
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult("raw extract response");
+            });
+
+        result.Value.Should().Be("raw extract response");
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        result.CacheKey.Should().Be(expectedKey);
+        factoryCalls.Should().Be(1);
+        store.Items.Should().ContainKey(expectedKey);
     }
 
     [Fact]
@@ -277,6 +352,36 @@ public sealed class LightRagLlmCacheServiceTests
         entry["chunk_id"].Should().BeNull();
         entry["original_prompt"].Should().Be(canonicalPrompt);
         entry["return"].Should().Be("summary result");
+    }
+
+    [Fact]
+    public async Task GetOrCreateSummaryAsync_WhenIndexingCacheDisabled_CallsFactoryWithoutSaving()
+    {
+        var store = new InMemoryKvStore();
+        var service = CreateService(
+            store,
+            new LightRAGOptions
+            {
+                EnableLlmCache = true,
+                EnableLlmCacheForEntityExtract = false
+            });
+        var factoryCalls = 0;
+
+        var result = await service.GetOrCreateSummaryAsync(
+            "canonical summary prompt",
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult("summary result");
+            });
+
+        result.Value.Should().Be("summary result");
+        result.CacheEnabled.Should().BeFalse();
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeFalse();
+        result.CacheKey.Should().BeNull();
+        factoryCalls.Should().Be(1);
+        store.Items.Should().BeEmpty();
     }
 
     [Fact]
@@ -398,12 +503,53 @@ public sealed class LightRagLlmCacheServiceTests
     private static LightRagLlmCacheService CreateService(
         InMemoryKvStore store,
         LightRAGOptions? options = null,
-        LightRagCacheKeyBuilder? keyBuilder = null)
+        LightRagCacheKeyBuilder? keyBuilder = null,
+        ICacheMetricsRecorder? recorder = null)
     {
         return new LightRagLlmCacheService(
             store,
             Options.Create(options ?? new LightRAGOptions()),
             keyBuilder ?? new LightRagCacheKeyBuilder(),
+            recorder ?? new NoopCacheMetricsRecorder(),
             NullLogger<LightRagLlmCacheService>.Instance);
+    }
+
+    private sealed class NoopCacheMetricsRecorder : ICacheMetricsRecorder
+    {
+        public Task RecordReadAsync(
+            string workspace,
+            string cacheType,
+            string outcome,
+            string? mode,
+            TimeSpan duration,
+            TimeSpan? factoryDuration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordSaveAsync(
+            string workspace,
+            string cacheType,
+            string? mode,
+            TimeSpan duration,
+            string? cacheKey,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RecordClearAsync(
+            string workspace,
+            string cacheType,
+            TimeSpan duration,
+            long? revision,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 }
