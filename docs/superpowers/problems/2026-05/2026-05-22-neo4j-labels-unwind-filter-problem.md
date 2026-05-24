@@ -31,6 +31,7 @@ Neo4j 对 `UNWIND` 后的过滤需要通过 `WITH label` 明确传递变量，�
   - `WITH label, count(*) as degree`
 - 调用 `RunAsync` 时传入 `{ limit, workspaceLabel = _workspaceLabel }`。
 - 添加 source regression test，断言 `UNWIND labels(n) as label` 后存在 `WITH label` 再过滤。
+- Source regression test 应按行顺序或正则语义断言，避免用带缩进的 raw string 直接匹配源码片段；否则 C# raw string 缩进和格式化变化会造成假失败。
 - 运行时验证 `/api/graph/labels` 返回 labels，而不是 500。
 
 ## Why This Fix
@@ -42,6 +43,7 @@ Neo4j 对 `UNWIND` 后的过滤需要通过 `WITH label` 明确传递变量，�
 - `/api/graph/labels` 500，但 `/api/graph/query` 仍能返回图谱。
 - 服务端日志含 `Neo4j.Driver.ClientException` 和 `Invalid input 'WHERE'`。
 - 查询文本里出现 `UNWIND labels(n) as label` 后紧接 `WHERE label <> ...`。
+- 如果只有 `Neo4jGraphStoreSourceTests.GetPopularLabelsAsync_FiltersUnwoundLabelsAfterWithClause` 失败，而生产查询已包含 `WITH label` 和 `$workspaceLabel`，优先检查测试是否对缩进/空白过度敏感。
 - 修复后 label 接口返回类似 `Entity, concept, data...` 的列表。
 
 ## Applicability / Non-Applicability

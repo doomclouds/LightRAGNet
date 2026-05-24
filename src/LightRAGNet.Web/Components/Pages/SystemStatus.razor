@@ -1,0 +1,52 @@
+@page "/system-status"
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IConfiguration Configuration
+@inject IJSRuntime JSRuntime
+
+<PageTitle>System Status</PageTitle>
+
+<link rel="stylesheet" href="system-status/assets/system-status.css" />
+
+<div id="system-status-root" data-api-base="@ApiBase"></div>
+
+@code {
+    private const string RootElementId = "system-status-root";
+    private IJSObjectReference? systemStatusModule;
+    private string ApiBase => Configuration["ApiBaseUrl"] ?? "http://localhost:5261";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        systemStatusModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./system-status/assets/system-status.js");
+        await systemStatusModule.InvokeVoidAsync("mountSystemStatus", RootElementId, ApiBase);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (systemStatusModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await systemStatusModule.InvokeVoidAsync("unmountSystemStatus", RootElementId);
+            await systemStatusModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit can be gone while Blazor is tearing down the page.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The JS runtime may already be disposed during host shutdown.
+        }
+    }
+}

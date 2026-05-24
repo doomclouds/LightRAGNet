@@ -9,6 +9,8 @@ using LightRAGNet.Core.Utils;
 using LightRAGNet.Server.Services;
 using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Server.Services.DocumentConversion;
+using LightRAGNet.Server.Services.SystemHealth;
+using LightRAGNet.Server.Services.SystemHealth.Checks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,7 +55,10 @@ if (connectionString.StartsWith("Data Source="))
     }
 }
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContext<AppDbContext>(
+    options => options.UseSqlite(connectionString),
+    optionsLifetime: ServiceLifetime.Singleton);
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlite(connectionString));
 
 builder.Services.Configure<DocumentArtifactStoreOptions>(options =>
@@ -85,6 +90,19 @@ builder.Services.AddSignalR()
 
 // Register LightRAG services (including task queue services)
 builder.Services.AddLightRAG(builder.Configuration);
+
+builder.Services.Configure<SystemHealthOptions>(builder.Configuration.GetSection("SystemHealth"));
+builder.Services.AddScoped<SystemHealthService>();
+builder.Services.AddScoped<ISystemHealthCheck, ServerApiHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, SqliteHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, WorkingDirHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, QdrantHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, Neo4jHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, LlmConfigHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, EmbeddingConfigHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, RerankConfigHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, RagTaskQueueHealthCheck>();
+builder.Services.AddScoped<ISystemHealthCheck, DocumentConversionQueueHealthCheck>();
 
 // Register MediatR (for event handlers in Server project)
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));

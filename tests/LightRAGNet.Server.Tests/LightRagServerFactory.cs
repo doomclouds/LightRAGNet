@@ -3,6 +3,7 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Server.Data;
 using LightRAGNet.Server.Services;
+using LightRAGNet.Server.Services.SystemHealth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -66,15 +67,21 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();
-            services.AddDbContext<AppDbContext>(options => options.UseSqlite(connection));
+            services.RemoveAll<IDbContextFactory<AppDbContext>>();
+            services.AddDbContext<AppDbContext>(
+                options => options.UseSqlite(connection),
+                optionsLifetime: ServiceLifetime.Singleton);
+            services.AddDbContextFactory<AppDbContext>(options => options.UseSqlite(connection));
 
             services.RemoveAll<IHostedService>();
             services.RemoveAll<QdrantClient>();
             services.RemoveAll<IDriver>();
             services.RemoveAll<IVectorStore>();
             services.RemoveAll<IGraphStore>();
+            services.RemoveAll<ISystemHealthCheck>();
             services.AddSingleton<IVectorStore, ThrowingVectorStore>();
             services.AddSingleton<IGraphStore, ThrowingGraphStore>();
+            services.AddScoped<ISystemHealthCheck, TestSystemHealthCheck>();
 
             services.RemoveAll<IRagExternalStorageCleaner>();
             services.AddSingleton<IRagExternalStorageCleaner, NoOpRagExternalStorageCleaner>();
@@ -117,6 +124,30 @@ internal sealed class LightRagServerFactory : WebApplicationFactory<Program>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+    }
+
+    private sealed class TestSystemHealthCheck : ISystemHealthCheck
+    {
+        public string Id => "test-system-health";
+
+        public string Name => "Test system health";
+
+        public string Category => "Test";
+
+        public Task<SystemHealthCheckResult> CheckAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(SystemHealthCheckResult.Healthy(
+                Id,
+                Name,
+                Category,
+                "Test system health check is isolated from external stores.",
+                new Dictionary<string, object?>
+                {
+                    ["externalStores"] = false
+                }));
         }
     }
 
