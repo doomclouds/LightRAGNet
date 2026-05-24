@@ -8,6 +8,7 @@ import { UploadDocumentPage } from '@/features/documents/UploadDocumentPage';
 import { useRagTaskHub } from '@/shared/hooks/useRagTaskHub';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { StatusPill } from '@/shared/components/StatusPill';
+import { notifySubscribers } from './subscribers';
 
 export function App() {
   const route = resolveRoute();
@@ -33,10 +34,10 @@ export function App() {
 
   const { connectionState } = useRagTaskHub(apiBase, {
     onTaskStatusUpdated(update) {
-      taskUpdateSubscribersRef.current.forEach((handler) => handler(update));
+      notifySubscribers(taskUpdateSubscribersRef.current, update);
     },
     onDataCleared() {
-      dataClearedSubscribersRef.current.forEach((handler) => handler());
+      notifySubscribers(dataClearedSubscribersRef.current);
     }
   });
 

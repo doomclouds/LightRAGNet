@@ -139,4 +139,14 @@ describe('AppLayout', () => {
     expect(screen.getByRole('heading', { name: 'Upload Document' })).toBeInTheDocument();
     expect(screen.getByLabelText('Choose documents')).toBeInTheDocument();
   });
+
+  it('marks upload active without marking documents active on the upload route', () => {
+    window.history.pushState({}, '', '/documents/upload');
+
+    render(<App />);
+
+    const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
+    expect(navigation.getByRole('link', { name: 'Upload' })).toHaveAttribute('aria-current', 'page');
+    expect(navigation.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current');
+  });
 });

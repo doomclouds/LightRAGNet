@@ -362,8 +362,8 @@ select {
   justify-content: center;
   min-height: 40px;
   padding: 0 16px;
-  color: #ffffff;
-  background: var(--color-primary);
+  color: var(--accent-on-fill);
+  background: var(--accent-fill);
   border-radius: 8px;
   font-weight: 700;
   cursor: pointer;
@@ -371,7 +371,7 @@ select {
 
 .document-upload__picker:hover,
 .document-upload__picker:focus-within {
-  background: var(--color-primary-strong);
+  background: var(--accent-fill-hover);
 }
 
 .document-upload__picker input {
@@ -459,8 +459,8 @@ select {
   justify-self: start;
   min-height: 42px;
   padding: 0 18px;
-  color: #ffffff;
-  background: var(--color-primary);
+  color: var(--accent-on-fill);
+  background: var(--accent-fill);
   border: 0;
   border-radius: 8px;
   font: inherit;
@@ -470,7 +470,7 @@ select {
 
 .document-upload__submit:hover,
 .document-upload__submit:focus-visible {
-  background: var(--color-primary-strong);
+  background: var(--accent-fill-hover);
   outline: none;
 }
 
@@ -525,13 +525,13 @@ select {
 
 .document-list__upload-link {
   flex: 0 0 auto;
-  color: #ffffff;
-  background: var(--color-primary);
+  color: var(--accent-on-fill);
+  background: var(--accent-fill);
 }
 
 .document-list__upload-link:hover,
 .document-list__upload-link:focus-visible {
-  background: var(--color-primary-strong);
+  background: var(--accent-fill-hover);
   outline: none;
 }
 

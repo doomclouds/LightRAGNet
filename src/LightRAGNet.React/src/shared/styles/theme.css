@@ -13,6 +13,9 @@
   --accent: #4cc9f0;
   --accent-soft: rgba(76, 201, 240, .13);
   --accent-border: rgba(76, 201, 240, .42);
+  --accent-fill: #4cc9f0;
+  --accent-fill-hover: #7bddf7;
+  --accent-on-fill: #06131a;
   --danger: #ff6b6b;
   --danger-soft: rgba(255, 107, 107, .13);
   --warning: #f6c85f;

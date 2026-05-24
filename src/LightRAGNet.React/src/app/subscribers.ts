@@ -1,0 +1,12 @@
+export function notifySubscribers<TArgs extends unknown[]>(
+  subscribers: Iterable<(...args: TArgs) => void>,
+  ...args: TArgs
+): void {
+  for (const subscriber of subscribers) {
+    try {
+      subscriber(...args);
+    } catch {
+      // Subscriber failures should not break SignalR fan-out to later listeners.
+    }
+  }
+}
