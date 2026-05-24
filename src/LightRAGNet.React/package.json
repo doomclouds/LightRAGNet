@@ -1,0 +1,34 @@
+{
+  "name": "lightragnet-react",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone React frontend for LightRAGNet.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit --pretty false && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "type": "module",
+  "dependencies": {
+    "@microsoft/signalr": "^10.0.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vitest": "^4.1.7"
+  }
+}
