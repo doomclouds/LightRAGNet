@@ -3,6 +3,7 @@
 ## 2026-05
 
 - [2026-05-24-cache-management-workbench-archives.md](./2026-05/2026-05-24-cache-management-workbench-archives.md): 增加基于真实 hit/miss 指标和安全库存的 Cache Management 工作台，提供缓存效率、风险、趋势和确认式清理能力。
+- [2026-05-24-react-full-ui-migration-archives.md](./2026-05/2026-05-24-react-full-ui-migration-archives.md): 将 Blazor-hosted React islands 迁入独立 React shell，形成深色完整前端路由、文档工作台、安全预览、图谱和运营页面体验。
 - [2026-05-24-react-standalone-documents-migration-archives.md](./2026-05/2026-05-24-react-standalone-documents-migration-archives.md): 新建独立 Vite/React 前端并迁移文档上传、文档列表、预览、操作和 SignalR 生命周期刷新，同时保持 Blazor 项目共存。
 - [2026-05-24-react-ui-standardization-rag-chat-workbench-archives.md](./2026-05/2026-05-24-react-ui-standardization-rag-chat-workbench-archives.md): 统一 React 页面到 `dark-ops` 设计标准，并将 RAG Chat 迁移为带安全引用预览和消息级诊断的 React workbench。
 - [2026-05-24-server-operational-readiness-archives.md](./2026-05/2026-05-24-server-operational-readiness-archives.md): 增加证据驱动的 `GET /api/system/health` 和 React `System Status` 入口，用结构化 evidence、remediation、fix-first 与 feature impact 支撑开发排障。
