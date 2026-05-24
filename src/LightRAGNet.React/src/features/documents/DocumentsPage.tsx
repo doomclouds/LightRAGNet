@@ -8,6 +8,9 @@ import {
   getMarkdownDocuments,
   retryDocument
 } from '@/api/documentsApi';
+import { PageHeader } from '@/shared/components/PageHeader';
+import { PageTabs, type PageTabItem } from '@/shared/components/PageTabs';
+import { StatusPill } from '@/shared/components/StatusPill';
 import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import {
@@ -51,6 +54,14 @@ type DocumentsPageProps = {
 
 const pageSize = 10;
 const statusOptions = ['Queued', 'Processing', 'Completed', 'Failed', 'Cancelled'];
+const statusTabs: PageTabItem[] = [
+  { id: 'all', label: 'All Documents', href: '/documents' },
+  ...statusOptions.map((option) => ({
+    id: option.toLowerCase(),
+    label: option,
+    href: `/documents?status=${encodeURIComponent(option)}`
+  }))
+];
 
 export function DocumentsPage({
   apiBase = getApiBase(),
@@ -249,6 +260,24 @@ export function DocumentsPage({
     setPage(1);
   }
 
+  function handleStatusTabClick(event: React.MouseEvent<HTMLDivElement>) {
+    const target = event.target;
+
+    if (!(target instanceof HTMLAnchorElement)) {
+      return;
+    }
+
+    const url = new URL(target.href);
+
+    if (url.pathname !== '/documents') {
+      return;
+    }
+
+    event.preventDefault();
+    setStatus(url.searchParams.get('status') ?? '');
+    setPage(1);
+  }
+
   function updateDocument(updatedDocument: MarkdownDocumentDto) {
     setDocuments((current) =>
       current.map((document) => (document.id === updatedDocument.id ? updatedDocument : document))
@@ -439,16 +468,44 @@ export function DocumentsPage({
     setPreviewDocument((current) => (current?.id === id ? applyPipelinePatch(current, result, action) : current));
   }
 
+  const activeCount = documents.filter((document) => isBusy(document)).length;
+  const failedCount = documents.filter((document) => document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed').length;
+  const completedCount = documents.filter((document) => document.ragStatus === 'Completed').length;
+
   return (
-    <section className="document-list" aria-labelledby="document-list-title">
-      <div className="document-list__header">
-        <div>
-          <h1 id="document-list-title">Documents</h1>
-          <p>Review uploaded documents and their current RAG ingestion state.</p>
-        </div>
-        <a className="document-list__upload-link" href="/documents/upload">
-          Upload
-        </a>
+    <section className="document-list" aria-label="Documents">
+      <article className="document-list__page-header">
+        <PageHeader
+          title="Documents"
+          description="Review uploaded documents and their current RAG ingestion state."
+          meta={
+            <>
+              <StatusPill tone="accent">{totalCount} total</StatusPill>
+              <StatusPill tone={activeCount > 0 ? 'warning' : 'neutral'}>{activeCount} active</StatusPill>
+              <StatusPill tone={failedCount > 0 ? 'danger' : 'success'}>{failedCount} attention</StatusPill>
+            </>
+          }
+          actions={
+            <a className="lrn-button document-list__upload-link" href="/documents/upload" aria-label="Upload">
+              Upload
+            </a>
+          }
+        />
+      </article>
+
+      <div onClickCapture={handleStatusTabClick}>
+        <PageTabs
+          tabs={statusTabs}
+          currentId={status.length > 0 ? status.toLowerCase() : 'all'}
+          label="Document status views"
+        />
+      </div>
+
+      <div className="document-list__summary" aria-label="Document lifecycle summary">
+        <SummaryCard label="Total Documents" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
+        <SummaryCard label="Completed" value={completedCount} detail="Ready in RAG" />
+        <SummaryCard label="In Flight" value={activeCount} detail="Queued or processing" />
+        <SummaryCard label="Needs Review" value={failedCount} detail="Failed lifecycle state" />
       </div>
 
       <div className="document-list__toolbar">
@@ -479,7 +536,7 @@ export function DocumentsPage({
 
       {!isLoading && documents.length > 0 ? (
         <div className="document-list__table-wrap">
-          <table className="document-list__table">
+          <table className="lrn-data-table document-list__table" aria-label="Document lifecycle">
             <thead>
               <tr>
                 <th scope="col">File Name</th>
@@ -524,6 +581,16 @@ export function DocumentsPage({
         </button>
       </footer>
     </section>
+  );
+}
+
+function SummaryCard({ label, value, detail }: { label: string; value: number; detail: string }) {
+  return (
+    <article className="document-list__summary-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
   );
 }
 
@@ -600,7 +667,7 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
 
   return (
     <div className="document-list__status">
-      <span className="document-list__status-chip">{statusText}</span>
+      <StatusPill tone={getStatusTone(document.ragStatus)}>{statusText}</StatusPill>
       {document.ragStatus === 'Processing' ? (
         <div className="document-list__progress" role="progressbar" aria-label={`Progress ${progress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
           <span style={{ width: `${progress}%` }} />
@@ -618,6 +685,22 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
       ) : null}
     </div>
   );
+}
+
+function getStatusTone(status: MarkdownDocumentDto['ragStatus']): React.ComponentProps<typeof StatusPill>['tone'] {
+  if (status === 'Completed') {
+    return 'success';
+  }
+
+  if (status === 'Failed' || status === 'DeletionFailed') {
+    return 'danger';
+  }
+
+  if (status === 'Queued' || status === 'Processing' || status === 'Pending' || status === 'Deleting') {
+    return 'warning';
+  }
+
+  return 'neutral';
 }
 
 function getStatusText(document: MarkdownDocumentDto): string {

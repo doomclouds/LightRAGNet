@@ -109,6 +109,52 @@ describe('DocumentsPage', () => {
     expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeInTheDocument();
   });
 
+  it('renders the dark document workbench visual contract', async () => {
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([makeDocument({ fileName: 'system-architecture.md' })])
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    expect(await screen.findByRole('heading', { name: 'Documents' })).toBeInTheDocument();
+
+    const statusViews = screen.getByRole('navigation', { name: 'Document status views' });
+    expect(within(statusViews).getByRole('link', { name: 'All Documents' })).toBeInTheDocument();
+    expect(within(statusViews).getByRole('link', { name: 'Processing' })).toBeInTheDocument();
+
+    const table = await screen.findByRole('table', { name: 'Document lifecycle' });
+    const row = within(table).getByRole('row', { name: /system-architecture\.md/i });
+    expect(within(row).getByText('Completed')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'View system-architecture.md' })).toBeInTheDocument();
+  });
+
+  it('opens document previews in a same-page drawer without leaving the list route', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/documents');
+    const loadDocuments = vi.fn().mockResolvedValue(
+      paged([makeDocument({ fileName: 'system-architecture.md' })])
+    );
+    const loadDocument = vi.fn().mockResolvedValue(
+      makeDocument({
+        fileName: 'system-architecture.md',
+        content: '# Architecture'
+      })
+    );
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} loadDocument={loadDocument} />);
+
+    await user.click(await screen.findByRole('button', { name: 'View system-architecture.md' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
+    expect(within(dialog).getByRole('button', { name: 'Close preview' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Open full preview' })).toHaveAttribute(
+      'href',
+      '/document-preview/1'
+    );
+    expect(document.querySelector('.lrn-scrim')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/documents');
+  });
+
   it('reloads page one with the selected status filter', async () => {
     const user = userEvent.setup();
     const loadDocuments = vi.fn().mockResolvedValue(paged([makeDocument()]));
