@@ -35,15 +35,15 @@ public sealed class SystemHealthService
 
     private static readonly IReadOnlyDictionary<string, FeatureDefinition> FeatureDefinitions = new Dictionary<string, FeatureDefinition>
     {
-        ["sqlite"] = new("Web Management", "/markdown-documents"),
-        ["working-dir"] = new("RAG Storage and Artifacts", "/markdown-documents"),
-        ["qdrant"] = new("Vector Retrieval", "/"),
-        ["neo4j"] = new("KG Query Modes", "/graph-view"),
-        ["llm-config"] = new("LLM Generation", "/"),
-        ["embedding-config"] = new("Document Indexing", "/markdown-documents"),
-        ["rerank-config"] = new("Rerank Quality", "/"),
-        ["rag-task-queue"] = new("Document Indexing Queue", "/markdown-documents"),
-        ["document-conversion-queue"] = new("PDF/DOCX Conversion", "/markdown-documents")
+        ["sqlite"] = new("Web Management", "Web Management", "/markdown-documents"),
+        ["working-dir"] = new("RAG Storage and Artifacts", "RAG Storage and Artifacts", "/markdown-documents"),
+        ["qdrant"] = new("Vector Retrieval", "Vector Retrieval", "/"),
+        ["neo4j"] = new("KG Query Modes", "Open Graph", "/graph-view"),
+        ["llm-config"] = new("LLM Generation", "LLM Generation", "/"),
+        ["embedding-config"] = new("Document Indexing", "Document Indexing", "/markdown-documents"),
+        ["rerank-config"] = new("Rerank Quality", "Rerank Quality", "/"),
+        ["rag-task-queue"] = new("Document Indexing Queue", "Document Indexing Queue", "/markdown-documents"),
+        ["document-conversion-queue"] = new("PDF/DOCX Conversion", "PDF/DOCX Conversion", "/markdown-documents")
     };
 
     private readonly IReadOnlyList<ISystemHealthCheck> checks;
@@ -89,16 +89,34 @@ public sealed class SystemHealthService
         CancellationToken cancellationToken)
     {
         var startedAt = Stopwatch.GetTimestamp();
+        using var checkTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        checkTimeout.CancelAfter(timeout);
 
         try
         {
-            using var checkTimeout = new CancellationTokenSource();
             var result = await check.CheckAsync(checkTimeout.Token).WaitAsync(timeout, cancellationToken);
             return result
                 .WithEvidence(RedactEvidence(result.Evidence))
                 .WithDuration(ToDurationMs(startedAt));
         }
         catch (TimeoutException exception)
+        {
+            await checkTimeout.CancelAsync();
+            logger.LogWarning(exception, "System health check {CheckId} timed out.", check.Id);
+
+            return BuildFailureResult(
+                check,
+                "Timeout",
+                "System health check timed out.",
+                "Health check timed out. Verify the dependency is reachable and responsive.",
+                new Dictionary<string, object?>
+                {
+                    ["errorType"] = nameof(TimeoutException),
+                    ["timeoutMs"] = (long)timeout.TotalMilliseconds
+                },
+                startedAt);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(exception, "System health check {CheckId} timed out.", check.Id);
 
@@ -218,7 +236,7 @@ public sealed class SystemHealthService
                     status,
                     string.Join("; ", impacted.Select(result => result.Message)),
                     impacted.Select(result => result.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                    [new SystemHealthLink(definition.Feature, definition.Href)]);
+                    [new SystemHealthLink(definition.LinkLabel, definition.Href)]);
             })
             .OrderBy(impact => impact.Status == SystemHealthStatus.Unhealthy ? 0 : 1)
             .ThenBy(impact => impact.Feature, StringComparer.OrdinalIgnoreCase)
@@ -284,5 +302,5 @@ public sealed class SystemHealthService
         return (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
     }
 
-    private sealed record FeatureDefinition(string Feature, string Href);
+    private sealed record FeatureDefinition(string Feature, string LinkLabel, string Href);
 }

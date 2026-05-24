@@ -116,11 +116,56 @@ public sealed class SystemHealthServiceTests
                 impact.AffectedBy.SequenceEqual(new[] { "neo4j" }));
     }
 
+    [Fact]
+    public async Task GetHealthAsync_WhenCheckTimesOut_CancelsCheckTokenAndIncludesTimeoutMs()
+    {
+        var cancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = CreateService(TimeSpan.FromMilliseconds(50), FakeCheck.ObservesCancellation("qdrant", cancellationObserved));
+
+        var response = await service.GetHealthAsync();
+
+        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var check = response.Checks.Single();
+        check.Status.Should().Be(SystemHealthStatus.Unhealthy);
+        check.Evidence.Should().ContainKey("errorType").WhoseValue.Should().Be(nameof(TimeoutException));
+        check.Evidence.Should().ContainKey("timeoutMs").WhoseValue.Should().Be(50L);
+    }
+
+    [Fact]
+    public async Task GetHealthAsync_WhenPerCheckTimeoutIsNotPositive_FallsBackToDefaultAndAllowsQuickCheckToPass()
+    {
+        var service = CreateService(TimeSpan.Zero, FakeCheck.Healthy("server-api"));
+
+        var response = await service.GetHealthAsync();
+
+        response.Status.Should().Be(SystemHealthStatus.Healthy);
+        response.Checks.Single().Status.Should().Be(SystemHealthStatus.Healthy);
+    }
+
+    [Fact]
+    public async Task GetHealthAsync_ForNeo4jFeatureImpact_UsesOpenGraphLink()
+    {
+        var service = CreateService(FakeCheck.Degraded(
+            "neo4j",
+            affects: ["Local", "Global", "Hybrid", "Mix", "GraphWorkbench"]));
+
+        var response = await service.GetHealthAsync();
+
+        var impact = response.FeatureImpacts.Single(impact => impact.Feature == "KG Query Modes");
+        impact.Links.Should().ContainSingle()
+            .Which.Should().Be(new SystemHealthLink("Open Graph", "/graph-view"));
+    }
+
     private static SystemHealthService CreateService(params ISystemHealthCheck[] checks)
+    {
+        return CreateService(TimeSpan.FromSeconds(1), checks);
+    }
+
+    private static SystemHealthService CreateService(TimeSpan perCheckTimeout, params ISystemHealthCheck[] checks)
     {
         return new SystemHealthService(
             checks,
-            Options.Create(new SystemHealthOptions { PerCheckTimeout = TimeSpan.FromSeconds(1) }),
+            Options.Create(new SystemHealthOptions { PerCheckTimeout = perCheckTimeout }),
             NullLogger<SystemHealthService>.Instance);
     }
 
@@ -177,6 +222,24 @@ public sealed class SystemHealthServiceTests
         public static FakeCheck Throwing(string id, Exception exception)
         {
             return new FakeCheck(id, _ => throw exception);
+        }
+
+        public static FakeCheck ObservesCancellation(string id, TaskCompletionSource<bool> cancellationObserved)
+        {
+            return new FakeCheck(id, async cancellationToken =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationObserved.TrySetResult(true);
+                    throw;
+                }
+
+                return SystemHealthCheckResult.Healthy(id, id, "test", "unexpected");
+            });
         }
 
         private static FakeCheck Returning(string id, SystemHealthCheckResult result)
