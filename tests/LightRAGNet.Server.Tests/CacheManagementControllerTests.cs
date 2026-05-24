@@ -1,7 +1,9 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
+using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Storage;
 using Microsoft.AspNetCore.Builder;
@@ -35,12 +37,49 @@ public sealed class CacheManagementControllerTests
             .EnumerateArray()
             .Should()
             .Contain(family => family.GetProperty("cacheType").GetString() == "query");
+        var trendPoint = root.GetProperty("trend").EnumerateArray().Should().ContainSingle().Subject;
+        trendPoint.TryGetProperty("savedCalls", out _).Should().BeTrue();
+        trendPoint.TryGetProperty("reads", out _).Should().BeFalse();
+        trendPoint.TryGetProperty("hits", out _).Should().BeFalse();
+        trendPoint.TryGetProperty("misses", out _).Should().BeFalse();
         rawJson.Contains("api_key", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("authorization", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("provider payload", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("secret prompt", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("secret return", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
         rawJson.Contains("return_value", StringComparison.OrdinalIgnoreCase).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetOverview_WhenUnmeasured_ReturnsInsightLevelWithoutSeverity()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var rawJson = await client.GetStringAsync("/api/cache-management/overview?workspace=_&window=24h");
+
+        using var document = JsonDocument.Parse(rawJson);
+        var insight = document.RootElement.GetProperty("insights").EnumerateArray().Should().ContainSingle().Subject;
+        insight.TryGetProperty("level", out _).Should().BeTrue();
+        insight.TryGetProperty("severity", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Clear_ReturnsOkStubResponseWithoutExecutingClear()
+    {
+        using var factory = new LightRagServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/cache-management/clear", new CacheClearRequest(
+            Workspace: "_",
+            PlanId: "all-llm-cache",
+            Confirm: false));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CacheClearResponse>();
+        body.Should().NotBeNull();
+        body!.Succeeded.Should().BeFalse();
+        body.DeletedEntries.Should().Be(0);
     }
 
     private sealed class CacheMetricsSeederStartupFilter : IStartupFilter

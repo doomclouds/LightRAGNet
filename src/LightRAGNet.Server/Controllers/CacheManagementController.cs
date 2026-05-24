@@ -22,6 +22,6 @@ public sealed class CacheManagementController(CacheManagementService service) : 
         CancellationToken cancellationToken)
     {
         var response = await service.ClearAsync(request, cancellationToken);
-        return response.Succeeded ? Ok(response) : BadRequest(response);
+        return Ok(response);
     }
 }

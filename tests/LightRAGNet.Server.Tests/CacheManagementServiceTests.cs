@@ -35,6 +35,9 @@ public sealed class CacheManagementServiceTests
         queryFamily.Hits.Should().Be(2);
         queryFamily.Attempts.Should().Be(3);
         queryFamily.HitRate.Should().BeApproximately(2d / 3d, 0.0001d);
+        var trendPoint = overview.Trend.Should().ContainSingle().Subject;
+        trendPoint.HitRate.Should().BeApproximately(2d / 3d, 0.0001d);
+        trendPoint.SavedCalls.Should().Be(2);
     }
 
     [Fact]
@@ -48,6 +51,7 @@ public sealed class CacheManagementServiceTests
         overview.Summary.OverallHitRate.Should().BeNull();
         overview.Families.Select(family => family.CacheType).Should().Equal("query", "keywords", "extract", "summary");
         overview.Families.Should().OnlyContain(family => family.HitRate == null);
+        overview.Insights.Should().ContainSingle().Which.Level.Should().Be("info");
     }
 
     [Fact]

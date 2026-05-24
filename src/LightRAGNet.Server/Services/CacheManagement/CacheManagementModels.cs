@@ -34,15 +34,13 @@ public sealed record CacheFamilyDto(
 
 public sealed record CacheTrendPointDto(
     DateTimeOffset Timestamp,
-    int Reads,
-    int Hits,
-    int Misses,
-    double? HitRate);
+    double? HitRate,
+    int SavedCalls);
 
 public sealed record CacheInsightDto(
-    string Severity,
     string Title,
-    string Message);
+    string Message,
+    string Level);
 
 public sealed record CacheClearPlanDto(
     string Id,

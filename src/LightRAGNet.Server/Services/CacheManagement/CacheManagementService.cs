@@ -147,10 +147,8 @@ public sealed class CacheManagementService(
 
                 return new CacheTrendPointDto(
                     group.Key,
-                    reads,
-                    hits,
-                    misses,
-                    reads > 0 ? (double)hits / reads : null);
+                    reads > 0 ? (double)hits / reads : null,
+                    hits);
             })
             .ToList();
     }
@@ -163,9 +161,9 @@ public sealed class CacheManagementService(
         if (!summary.Measured)
         {
             insights.Add(new CacheInsightDto(
-                "info",
                 "No measured reads",
-                "Cache hit rate will appear after read metrics are recorded."));
+                "Cache hit rate will appear after read metrics are recorded.",
+                "info"));
         }
 
         var staleQueryCount = inventory.Count(entry =>
@@ -174,9 +172,9 @@ public sealed class CacheManagementService(
         if (staleQueryCount > 0)
         {
             insights.Add(new CacheInsightDto(
-                "warning",
                 "Stale query cache",
-                $"{staleQueryCount} query cache entries use older workspace revisions."));
+                $"{staleQueryCount} query cache entries use older workspace revisions.",
+                "warning"));
         }
 
         return insights;
