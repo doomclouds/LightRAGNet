@@ -171,19 +171,18 @@ internal partial class DescriptionMerger(
             descriptionName,
             descriptions,
             _options.SummaryLengthRecommended);
-        var cached = await llmCacheService.TryGetSummaryAsync(prompt, cancellationToken);
-        if (cached is not null)
-        {
-            return cached;
-        }
-
-        var summary = await llmService.GenerateAsync(
+        var result = await llmCacheService.GetOrCreateSummaryAsync(
             prompt,
-            temperature: 0.3f,
-            cancellationToken: cancellationToken);
-        summary = CleanThinkTags(summary);
-        await llmCacheService.SaveSummaryAsync(prompt, summary, cancellationToken);
-        return summary;
+            async token =>
+            {
+                var summary = await llmService.GenerateAsync(
+                    prompt,
+                    temperature: 0.3f,
+                    cancellationToken: token);
+                return CleanThinkTags(summary);
+            },
+            cancellationToken);
+        return result.Value;
     }
 
     private static string CleanThinkTags(string response)

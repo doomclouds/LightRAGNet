@@ -27,7 +27,9 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             .Returns<Task<KeywordsResult>>(_ => throw new InvalidOperationException("Keyword extraction should be skipped on cache hit."));
         var fixture = CreateLightRag(llmService: llmService);
         var query = "what does cached retrieval use?";
-        await fixture.CacheService.SaveKeywordsAsync(
+        SeedKeywordCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             QueryMode.Mix,
             query,
@@ -62,10 +64,14 @@ public sealed class LightRAGKeywordCacheIntegrationTests
 
         result.Metadata["high_level_keywords"].Should().BeEquivalentTo(new[] { "extracted-high" });
         result.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { "extracted-low" });
-        var cachedKeywords = await fixture.CacheService.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, query);
-        cachedKeywords.Should().NotBeNull();
-        cachedKeywords!.HighLevelKeywords.Should().Equal("extracted-high");
-        cachedKeywords.LowLevelKeywords.Should().Equal("extracted-low");
+        var cachedKeywords = await fixture.CacheService.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            query,
+            _ => throw new InvalidOperationException("Factory should not run on keyword cache hit."));
+        cachedKeywords.Hit.Should().BeTrue();
+        cachedKeywords.Value.HighLevelKeywords.Should().Equal("extracted-high");
+        cachedKeywords.Value.LowLevelKeywords.Should().Equal("extracted-low");
         await llmService.Received(1).ExtractKeywordsAsync(query, Arg.Any<float>(), Arg.Any<CancellationToken>());
     }
 
@@ -97,15 +103,19 @@ public sealed class LightRAGKeywordCacheIntegrationTests
 
         result.Metadata["high_level_keywords"].Should().BeEquivalentTo(new[] { "live-high" });
         result.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { "live-low" });
-        var cachedKeywords = await fixture.CacheService.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, query);
-        cachedKeywords.Should().NotBeNull();
-        cachedKeywords!.HighLevelKeywords.Should().Equal("live-high");
-        cachedKeywords.LowLevelKeywords.Should().Equal("live-low");
+        var cachedKeywords = await fixture.CacheService.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            query,
+            _ => throw new InvalidOperationException("Factory should not run on keyword cache hit."));
+        cachedKeywords.Hit.Should().BeTrue();
+        cachedKeywords.Value.HighLevelKeywords.Should().Equal("live-high");
+        cachedKeywords.Value.LowLevelKeywords.Should().Equal("live-low");
         await llmService.Received(1).ExtractKeywordsAsync(query, Arg.Any<float>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task QueryAsync_WhenLiveKeywordsNormalizeForKg_SavesNormalizedKeywords()
+    public async Task QueryAsync_WhenLiveKeywordsNormalizeForKg_DoesNotSaveEmptyFactoryKeywords()
     {
         var llmService = Substitute.For<ILLMService>();
         llmService
@@ -117,10 +127,7 @@ public sealed class LightRAGKeywordCacheIntegrationTests
         var result = await fixture.Rag.QueryAsync(query, ContextOnlyMix());
 
         result.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { query });
-        var cachedKeywords = await fixture.CacheService.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, query);
-        cachedKeywords.Should().NotBeNull();
-        cachedKeywords!.HighLevelKeywords.Should().BeEmpty();
-        cachedKeywords.LowLevelKeywords.Should().Equal(query);
+        fixture.LlmCacheStore.UpsertCalls.Should().BeEmpty();
     }
 
     [Fact]
@@ -132,7 +139,9 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             .Returns<Task<KeywordsResult>>(_ => throw new InvalidOperationException("Explicit keywords should skip extraction."));
         var fixture = CreateLightRag(llmService: llmService);
         var query = "what should explicit keywords use?";
-        await fixture.CacheService.SaveKeywordsAsync(
+        SeedKeywordCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             QueryMode.Mix,
             query,
@@ -215,7 +224,6 @@ public sealed class LightRAGKeywordCacheIntegrationTests
 
         result.Metadata["high_level_keywords"].Should().BeEquivalentTo(new[] { "disabled-high" });
         result.Metadata["low_level_keywords"].Should().BeEquivalentTo(new[] { "disabled-low" });
-        (await fixture.CacheService.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, query)).Should().BeNull();
         fixture.LlmCacheStore.UpsertCalls.Should().BeEmpty();
         await llmService.Received(1).ExtractKeywordsAsync(query, Arg.Any<float>(), Arg.Any<CancellationToken>());
     }
@@ -357,6 +365,30 @@ public sealed class LightRAGKeywordCacheIntegrationTests
             NullLogger<LightRAG>.Instance);
 
         return new LightRagFixture(rag, cacheService, llmCacheStore);
+    }
+
+    private static void SeedKeywordCache(
+        InMemoryKvStore store,
+        LightRagCacheKeyBuilder keyBuilder,
+        string workspace,
+        QueryMode mode,
+        string query,
+        KeywordsResult keywords)
+    {
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            high_level_keywords = keywords.HighLevelKeywords,
+            low_level_keywords = keywords.LowLevelKeywords
+        });
+        store.Seed(
+            keyBuilder.BuildKeywordKey(workspace, mode, query),
+            new LightRagCacheEntry(
+                payload,
+                LightRagCacheKeyBuilder.KeywordsCacheType,
+                query,
+                null,
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .ToDictionary());
     }
 
     private sealed record LightRagFixture(

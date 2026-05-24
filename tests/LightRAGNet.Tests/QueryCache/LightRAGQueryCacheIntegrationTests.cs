@@ -44,7 +44,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
             .Returns<Task<string>>(_ => throw new InvalidOperationException("Final GenerateAsync should be skipped."));
         var fixture = CreateLightRag(llmService: llmService);
         var revision = await fixture.CacheService.GetWorkspaceQueryRevisionAsync("workspace-a");
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             revision,
             query,
@@ -77,7 +79,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
             .Returns<Task<string>>(_ => throw new InvalidOperationException("Final GenerateAsync should be skipped."));
         var fixture = CreateLightRag(llmService: llmService);
         var revision = await fixture.CacheService.GetWorkspaceQueryRevisionAsync("workspace-a");
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             revision,
             query,
@@ -108,7 +112,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns<Task<string>>(_ => throw new InvalidOperationException("Final GenerateAsync should be skipped."));
         var fixture = CreateLightRag(llmService: llmService);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -144,13 +150,14 @@ public sealed class LightRAGQueryCacheIntegrationTests
         var result = await fixture.Rag.QueryAsync(query, queryParam);
 
         result.Content.Should().Be("live naive answer");
-        var cached = await fixture.CacheService.TryGetQueryResponseAsync(
+        var revision = await fixture.CacheService.GetWorkspaceQueryRevisionAsync("workspace-a");
+        var key = new LightRagCacheKeyBuilder().BuildRagQueryKey(
             "workspace-a",
-            await fixture.CacheService.GetWorkspaceQueryRevisionAsync("workspace-a"),
+            revision,
             query,
             queryParam,
             new KeywordsResult());
-        cached.Should().Be("live naive answer");
+        fixture.LlmCacheStore.Items[key]["return"].Should().Be("live naive answer");
         await llmService.Received(1).GenerateAsync(
             query,
             Arg.Any<string?>(),
@@ -176,7 +183,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns("fresh answer");
         var fixture = CreateLightRag(llmService: llmService);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -213,7 +222,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns(AsyncValues("live chunk"));
         var fixture = CreateLightRag(llmService: llmService);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -247,7 +258,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
         };
         var llmService = Substitute.For<ILLMService>();
         var fixture = CreateLightRag(llmService: llmService);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -284,7 +297,9 @@ public sealed class LightRAGQueryCacheIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns("live answer with history");
         var fixture = CreateLightRag(llmService: llmService);
-        await fixture.CacheService.SaveQueryResponseAsync(
+        SeedQueryCache(
+            fixture.LlmCacheStore,
+            new LightRagCacheKeyBuilder(),
             "workspace-a",
             0,
             query,
@@ -429,6 +444,30 @@ public sealed class LightRAGQueryCacheIntegrationTests
             NullLogger<LightRAG>.Instance);
 
         return new LightRagFixture(rag, cacheService, llmCacheStore);
+    }
+
+    private static void SeedQueryCache(
+        InMemoryKvStore store,
+        LightRagCacheKeyBuilder keyBuilder,
+        string workspace,
+        long revision,
+        string query,
+        QueryParam queryParam,
+        KeywordsResult keywords,
+        string response)
+    {
+        var key = queryParam.Mode == QueryMode.Bypass
+            ? keyBuilder.BuildBypassQueryKey(query, queryParam)
+            : keyBuilder.BuildRagQueryKey(workspace, revision, query, queryParam, keywords);
+        store.Seed(
+            key,
+            new LightRagCacheEntry(
+                response,
+                LightRagCacheKeyBuilder.QueryCacheType,
+                query,
+                new Dictionary<string, object?> { ["workspace_query_revision"] = revision },
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .ToDictionary());
     }
 
     private static async IAsyncEnumerable<string> AsyncValues(params string[] values)

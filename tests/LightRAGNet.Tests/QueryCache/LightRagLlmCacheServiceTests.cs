@@ -51,7 +51,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task TryGetKeywordsAsync_WhenCacheHit_ReturnsKeywords()
+    public async Task GetOrCreateKeywordsAsync_WhenCacheHit_ReturnsKeywordsAndSkipsFactory()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -67,15 +67,30 @@ public sealed class LightRagLlmCacheServiceTests
             .ToDictionary());
         var service = CreateService(store, keyBuilder: keyBuilder);
 
-        var result = await service.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, "what is cache?");
+        var factoryCalls = 0;
 
-        result.Should().NotBeNull();
-        result!.HighLevelKeywords.Should().Equal("rag", "cache");
-        result.LowLevelKeywords.Should().Equal("chunk");
+        var result = await service.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            "what is cache?",
+            _ =>
+            {
+                factoryCalls++;
+                return Task.FromResult(new KeywordsResult
+                {
+                    HighLevelKeywords = ["fallback"],
+                    LowLevelKeywords = []
+                });
+            });
+
+        result.Hit.Should().BeTrue();
+        result.Value.HighLevelKeywords.Should().Equal("rag", "cache");
+        result.Value.LowLevelKeywords.Should().Equal("chunk");
+        factoryCalls.Should().Be(0);
     }
 
     [Fact]
-    public async Task TryGetKeywordsAsync_WhenCacheMalformed_ReturnsNull()
+    public async Task GetOrCreateKeywordsAsync_WhenCacheMalformed_CallsFactoryAndSavesFallback()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -91,26 +106,37 @@ public sealed class LightRagLlmCacheServiceTests
             .ToDictionary());
         var service = CreateService(store, keyBuilder: keyBuilder);
 
-        var result = await service.TryGetKeywordsAsync("workspace-a", QueryMode.Mix, "what is cache?");
+        var result = await service.GetOrCreateKeywordsAsync(
+            "workspace-a",
+            QueryMode.Mix,
+            "what is cache?",
+            _ => Task.FromResult(new KeywordsResult
+            {
+                HighLevelKeywords = ["fallback-high"],
+                LowLevelKeywords = ["fallback-low"]
+            }));
 
-        result.Should().BeNull();
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        result.Value.HighLevelKeywords.Should().Equal("fallback-high");
+        result.Value.LowLevelKeywords.Should().Equal("fallback-low");
     }
 
     [Fact]
-    public async Task SaveKeywordsAsync_PersistsChinesePayloadWithoutUnicodeEscapes()
+    public async Task GetOrCreateKeywordsAsync_WhenCacheMiss_PersistsChinesePayloadWithoutUnicodeEscapes()
     {
         var store = new InMemoryKvStore();
         var service = CreateService(store);
 
-        await service.SaveKeywordsAsync(
+        await service.GetOrCreateKeywordsAsync(
             "workspace-a",
             QueryMode.Mix,
             "请用100字简述采集流程",
-            new KeywordsResult
+            _ => Task.FromResult(new KeywordsResult
             {
                 HighLevelKeywords = ["采集流程", "简述"],
                 LowLevelKeywords = ["100字"]
-            });
+            }));
 
         store.Items.Should().ContainSingle();
         var entry = store.Items.Values.Single();
@@ -121,7 +147,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task SaveAndGetQueryResponseAsync_RoundTripsResponse()
+    public async Task GetOrCreateQueryResponseAsync_WhenCacheMiss_RoundTripsResponseAndSnapshot()
     {
         var store = new InMemoryKvStore();
         var service = CreateService(store);
@@ -143,10 +169,24 @@ public sealed class LightRagLlmCacheServiceTests
             LowLevelKeywords = ["cache"]
         };
 
-        await service.SaveQueryResponseAsync("workspace-a", 2, "what is cache?", queryParam, keywords, "cached answer");
-        var result = await service.TryGetQueryResponseAsync("workspace-a", 2, "what is cache?", queryParam, keywords);
+        var miss = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            2,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ => Task.FromResult("cached answer"));
+        var hit = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            2,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ => throw new InvalidOperationException("Factory should not run on cache hit."));
 
-        result.Should().Be("cached answer");
+        miss.Saved.Should().BeTrue();
+        hit.Hit.Should().BeTrue();
+        hit.Value.Should().Be("cached answer");
         store.Items.Should().ContainSingle();
         var entry = store.Items.Values.Single();
         entry["cache_type"].Should().Be(LightRagCacheKeyBuilder.QueryCacheType);
@@ -225,7 +265,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task TryGetExtractAsync_WhenCacheHit_ReturnsRawResponse()
+    public async Task GetOrCreateExtractAsync_WhenCacheHit_ReturnsRawResponse()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -243,20 +283,28 @@ public sealed class LightRagLlmCacheServiceTests
             .ToDictionary());
         var service = CreateService(store, keyBuilder: keyBuilder);
 
-        var result = await service.TryGetExtractAsync(canonicalPrompt);
+        var result = await service.GetOrCreateExtractAsync(
+            canonicalPrompt,
+            "chunk-a",
+            _ => throw new InvalidOperationException("Factory should not run on cache hit."));
 
-        result.Should().Be("raw extract response");
+        result.Hit.Should().BeTrue();
+        result.Value.Should().Be("raw extract response");
     }
 
     [Fact]
-    public async Task SaveExtractAsync_PersistsPythonStyleEntry()
+    public async Task GetOrCreateExtractAsync_WhenCacheMiss_PersistsPythonStyleEntry()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
         var service = CreateService(store, keyBuilder: keyBuilder);
         const string canonicalPrompt = "canonical extract prompt";
 
-        var key = await service.SaveExtractAsync(canonicalPrompt, "raw extract response", "chunk-a");
+        var result = await service.GetOrCreateExtractAsync(
+            canonicalPrompt,
+            "chunk-a",
+            _ => Task.FromResult("raw extract response"));
+        var key = result.CacheKey;
 
         key.Should().Be(keyBuilder.BuildExtractKey(canonicalPrompt));
         store.Items.Should().ContainKey(key!);
@@ -326,7 +374,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task TryGetExtractAsync_WhenIndexingCacheDisabled_DoesNotReadStore()
+    public async Task GetOrCreateExtractAsync_WhenIndexingCacheDisabled_DoesNotReadStore()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -350,14 +398,18 @@ public sealed class LightRagLlmCacheServiceTests
             },
             keyBuilder);
 
-        var result = await service.TryGetExtractAsync(canonicalPrompt);
+        var result = await service.GetOrCreateExtractAsync(
+            canonicalPrompt,
+            "chunk-a",
+            _ => Task.FromResult("factory extract response"));
 
-        result.Should().BeNull();
+        result.Value.Should().Be("factory extract response");
+        result.CacheEnabled.Should().BeFalse();
         store.GetByIdCalls.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task SaveExtractAsync_WhenGlobalCacheDisabled_DoesNotWriteStore()
+    public async Task GetOrCreateExtractAsync_WhenGlobalCacheDisabled_DoesNotWriteStore()
     {
         var store = new InMemoryKvStore();
         var service = CreateService(
@@ -368,21 +420,28 @@ public sealed class LightRagLlmCacheServiceTests
                 EnableLlmCacheForEntityExtract = true
             });
 
-        var key = await service.SaveExtractAsync("canonical extract prompt", "raw extract response", "chunk-a");
+        var result = await service.GetOrCreateExtractAsync(
+            "canonical extract prompt",
+            "chunk-a",
+            _ => Task.FromResult("raw extract response"));
 
-        key.Should().BeNull();
+        result.Value.Should().Be("raw extract response");
+        result.CacheKey.Should().BeNull();
         store.Items.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task SaveSummaryAsync_PersistsChunkIdAsNull()
+    public async Task GetOrCreateSummaryAsync_WhenCacheMiss_PersistsChunkIdAsNull()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
         var service = CreateService(store, keyBuilder: keyBuilder);
         const string canonicalPrompt = "canonical summary prompt";
 
-        var key = await service.SaveSummaryAsync(canonicalPrompt, "summary result");
+        var result = await service.GetOrCreateSummaryAsync(
+            canonicalPrompt,
+            _ => Task.FromResult("summary result"));
+        var key = result.CacheKey;
 
         key.Should().Be(keyBuilder.BuildSummaryKey(canonicalPrompt));
         store.Items.Should().ContainKey(key!);
@@ -618,7 +677,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task TryGetSummaryAsync_WhenCacheTypeMismatch_ReturnsNull()
+    public async Task GetOrCreateSummaryAsync_WhenCacheTypeMismatch_CallsFactoryAndSavesFallback()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -635,9 +694,13 @@ public sealed class LightRagLlmCacheServiceTests
             .ToDictionary());
         var service = CreateService(store, keyBuilder: keyBuilder);
 
-        var result = await service.TryGetSummaryAsync(canonicalPrompt);
+        var result = await service.GetOrCreateSummaryAsync(
+            canonicalPrompt,
+            _ => Task.FromResult("summary result"));
 
-        result.Should().BeNull();
+        result.Hit.Should().BeFalse();
+        result.Saved.Should().BeTrue();
+        result.Value.Should().Be("summary result");
     }
 
     [Fact]
@@ -707,7 +770,7 @@ public sealed class LightRagLlmCacheServiceTests
     }
 
     [Fact]
-    public async Task TryGetQueryResponseAsync_WhenCacheDisabled_ReturnsNull()
+    public async Task GetOrCreateQueryResponseAsync_WhenCacheDisabled_ReturnsFactoryValueWithoutReading()
     {
         var store = new InMemoryKvStore();
         var keyBuilder = new LightRagCacheKeyBuilder();
@@ -728,9 +791,18 @@ public sealed class LightRagLlmCacheServiceTests
             new LightRAGOptions { EnableLlmCache = false },
             keyBuilder);
 
-        var result = await service.TryGetQueryResponseAsync("workspace-a", 1, "what is cache?", queryParam, keywords);
+        var result = await service.GetOrCreateQueryResponseAsync(
+            "workspace-a",
+            1,
+            "what is cache?",
+            queryParam,
+            keywords,
+            _ => Task.FromResult("factory answer"));
 
-        result.Should().BeNull();
+        result.Value.Should().Be("factory answer");
+        result.CacheEnabled.Should().BeFalse();
+        result.CacheKey.Should().BeNull();
+        store.GetByIdCalls.Should().BeEmpty();
     }
 
     private static LightRagLlmCacheService CreateService(

@@ -90,81 +90,6 @@ public sealed class LightRagLlmCacheService(
             cancellationToken);
     }
 
-    public async Task<KeywordsResult?> TryGetKeywordsAsync(
-        string workspace,
-        QueryMode mode,
-        string query,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsKeywordCacheEnabled())
-        {
-            return null;
-        }
-
-        var key = keyBuilder.BuildKeywordKey(workspace, mode, query);
-        try
-        {
-            var data = await llmCacheStore.GetByIdAsync(key, cancellationToken);
-            if (!LightRagCacheEntry.TryFromDictionary(data, out var entry))
-            {
-                return null;
-            }
-
-            if (!TryDeserializeKeywordPayload(entry.ReturnValue, out var payload))
-            {
-                return null;
-            }
-
-            return new KeywordsResult
-            {
-                HighLevelKeywords = payload.HighLevelKeywords ?? [],
-                LowLevelKeywords = payload.LowLevelKeywords ?? []
-            };
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to read keyword cache entry {CacheKey}.", key);
-            return null;
-        }
-    }
-
-    public async Task SaveKeywordsAsync(
-        string workspace,
-        QueryMode mode,
-        string query,
-        KeywordsResult keywords,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsKeywordCacheEnabled() || !HasAnyKeyword(keywords))
-        {
-            return;
-        }
-
-        var key = keyBuilder.BuildKeywordKey(workspace, mode, query);
-        try
-        {
-            var payload = JsonSerializer.Serialize(
-                new KeywordCachePayload
-                {
-                    HighLevelKeywords = keywords.HighLevelKeywords,
-                    LowLevelKeywords = keywords.LowLevelKeywords
-                },
-                SerializerOptions);
-            var entry = new LightRagCacheEntry(
-                payload,
-                LightRagCacheKeyBuilder.KeywordsCacheType,
-                query,
-                null,
-                DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-
-            await SaveEntryAsync(key, entry, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to save keyword cache entry {CacheKey}.", key);
-        }
-    }
-
     public async Task<CacheValueResult<string>> GetOrCreateQueryResponseAsync(
         string workspace,
         long workspaceQueryRevision,
@@ -209,66 +134,6 @@ public sealed class LightRagLlmCacheService(
             cancellationToken);
     }
 
-    public async Task<string?> TryGetQueryResponseAsync(
-        string workspace,
-        long workspaceQueryRevision,
-        string query,
-        QueryParam queryParam,
-        KeywordsResult keywords,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsQueryCacheEnabled())
-        {
-            return null;
-        }
-
-        var key = BuildQueryKey(workspace, workspaceQueryRevision, query, queryParam, keywords);
-        try
-        {
-            var data = await llmCacheStore.GetByIdAsync(key, cancellationToken);
-            return LightRagCacheEntry.TryFromDictionary(data, out var entry)
-                ? entry.ReturnValue
-                : null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to read query cache entry {CacheKey}.", key);
-            return null;
-        }
-    }
-
-    public async Task SaveQueryResponseAsync(
-        string workspace,
-        long workspaceQueryRevision,
-        string query,
-        QueryParam queryParam,
-        KeywordsResult keywords,
-        string response,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsQueryCacheEnabled() || string.IsNullOrWhiteSpace(response))
-        {
-            return;
-        }
-
-        var key = BuildQueryKey(workspace, workspaceQueryRevision, query, queryParam, keywords);
-        try
-        {
-            var entry = new LightRagCacheEntry(
-                response,
-                LightRagCacheKeyBuilder.QueryCacheType,
-                query,
-                BuildQueryParamSnapshot(queryParam, keywords, workspaceQueryRevision),
-                DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-
-            await SaveEntryAsync(key, entry, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to save query cache entry {CacheKey}.", key);
-        }
-    }
-
     public Task<CacheValueResult<string>> GetOrCreateExtractAsync(
         string canonicalPrompt,
         string chunkId,
@@ -284,31 +149,6 @@ public sealed class LightRagLlmCacheService(
             cancellationToken);
     }
 
-    public Task<string?> TryGetExtractAsync(
-        string canonicalPrompt,
-        CancellationToken cancellationToken = default)
-    {
-        return TryGetIndexingResponseAsync(
-            keyBuilder.BuildExtractKey(canonicalPrompt),
-            LightRagCacheKeyBuilder.ExtractCacheType,
-            cancellationToken);
-    }
-
-    public Task<string?> SaveExtractAsync(
-        string canonicalPrompt,
-        string response,
-        string chunkId,
-        CancellationToken cancellationToken = default)
-    {
-        return SaveIndexingResponseAsync(
-            keyBuilder.BuildExtractKey(canonicalPrompt),
-            canonicalPrompt,
-            response,
-            LightRagCacheKeyBuilder.ExtractCacheType,
-            chunkId,
-            cancellationToken);
-    }
-
     public Task<CacheValueResult<string>> GetOrCreateSummaryAsync(
         string canonicalPrompt,
         Func<CancellationToken, Task<string>> factory,
@@ -320,30 +160,6 @@ public sealed class LightRagLlmCacheService(
             LightRagCacheKeyBuilder.SummaryCacheType,
             null,
             factory,
-            cancellationToken);
-    }
-
-    public Task<string?> TryGetSummaryAsync(
-        string canonicalPrompt,
-        CancellationToken cancellationToken = default)
-    {
-        return TryGetIndexingResponseAsync(
-            keyBuilder.BuildSummaryKey(canonicalPrompt),
-            LightRagCacheKeyBuilder.SummaryCacheType,
-            cancellationToken);
-    }
-
-    public Task<string?> SaveSummaryAsync(
-        string canonicalPrompt,
-        string response,
-        CancellationToken cancellationToken = default)
-    {
-        return SaveIndexingResponseAsync(
-            keyBuilder.BuildSummaryKey(canonicalPrompt),
-            canonicalPrompt,
-            response,
-            LightRagCacheKeyBuilder.SummaryCacheType,
-            null,
             cancellationToken);
     }
 
@@ -627,63 +443,6 @@ public sealed class LightRagLlmCacheService(
                     chunkId),
                 ct),
             cancellationToken);
-    }
-
-    private async Task<string?> TryGetIndexingResponseAsync(
-        string key,
-        string expectedCacheType,
-        CancellationToken cancellationToken)
-    {
-        if (!IsIndexingCacheEnabled())
-        {
-            return null;
-        }
-
-        try
-        {
-            var data = await llmCacheStore.GetByIdAsync(key, cancellationToken);
-            return LightRagCacheEntry.TryFromDictionary(data, out var entry)
-                && string.Equals(entry.CacheType, expectedCacheType, StringComparison.Ordinal)
-                    ? entry.ReturnValue
-                    : null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to read indexing cache entry {CacheKey}.", key);
-            return null;
-        }
-    }
-
-    private async Task<string?> SaveIndexingResponseAsync(
-        string key,
-        string canonicalPrompt,
-        string response,
-        string cacheType,
-        string? chunkId,
-        CancellationToken cancellationToken)
-    {
-        if (!IsIndexingCacheEnabled() || string.IsNullOrWhiteSpace(response))
-        {
-            return null;
-        }
-
-        try
-        {
-            var entry = new LightRagCacheEntry(
-                response,
-                cacheType,
-                canonicalPrompt,
-                null,
-                DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                chunkId);
-
-            return await SaveEntryAsync(key, entry, cancellationToken) ? key : null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Failed to save indexing cache entry {CacheKey}.", key);
-            return null;
-        }
     }
 
     private async Task<bool> SaveEntryAsync(
