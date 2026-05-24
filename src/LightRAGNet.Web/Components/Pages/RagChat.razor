@@ -88,7 +88,19 @@
                                                             @foreach (var reference in chatMessage.References)
                                                             {
                                                                 <MudText Typo="Typo.caption">
-                                                                    <strong>@reference.FilePath</strong>
+                                                                    @if (!string.IsNullOrWhiteSpace(reference.PreviewUrl))
+                                                                    {
+                                                                        <a class="rag-chat-reference-link"
+                                                                           href="@reference.PreviewUrl"
+                                                                           target="_blank"
+                                                                           rel="noopener noreferrer">
+                                                                            @ReferenceDisplayName(reference)
+                                                                        </a>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <strong>@ReferenceDisplayName(reference)</strong>
+                                                                    }
                                                                     @if (!string.IsNullOrWhiteSpace(reference.ReferenceId))
                                                                     {
                                                                         <span> · @reference.ReferenceId</span>
@@ -539,6 +551,23 @@
     private static bool ShouldRenderReferences(ChatMessageModel message)
     {
         return message.Role == "Assistant" && message.References.Count > 0;
+    }
+
+    private static string ReferenceDisplayName(RagQueryReferenceDto reference)
+    {
+        if (!string.IsNullOrWhiteSpace(reference.FileName))
+        {
+            return reference.FileName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(reference.FilePath))
+        {
+            return reference.FilePath;
+        }
+
+        return string.IsNullOrWhiteSpace(reference.ReferenceId)
+            ? "Reference"
+            : reference.ReferenceId;
     }
 
     private static bool ShouldRenderDiagnostics(ChatMessageModel message)

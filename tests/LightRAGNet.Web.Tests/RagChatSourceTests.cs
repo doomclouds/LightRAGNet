@@ -77,6 +77,19 @@ public sealed class RagChatSourceTests
     }
 
     [Fact]
+    public void RagChat_RendersPreviewReferencesAsNewTabLinks()
+    {
+        var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");
+
+        source.Should().Contain("reference.PreviewUrl");
+        source.Should().Contain("href=\"@reference.PreviewUrl\"");
+        source.Should().Contain("target=\"_blank\"");
+        source.Should().Contain("rel=\"noopener noreferrer\"");
+        source.Should().Contain("ReferenceDisplayName(reference)");
+        source.Should().Contain("@if (!string.IsNullOrWhiteSpace(reference.PreviewUrl))");
+    }
+
+    [Fact]
     public void RagChat_WiresMessageLevelRetrievalDataAction()
     {
         var source = ReadRepositoryFile("src", "LightRAGNet.Web", "Components", "Pages", "RagChat.razor");

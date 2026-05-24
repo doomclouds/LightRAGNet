@@ -103,6 +103,19 @@
     min-width: 112px;
 }
 
+::deep .rag-chat-reference-link {
+    font-weight: 650;
+    color: var(--mud-palette-primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    overflow-wrap: anywhere;
+}
+
+::deep .rag-chat-reference-link:hover,
+::deep .rag-chat-reference-link:focus-visible {
+    color: var(--mud-palette-primary-lighten);
+}
+
 .rag-chat-toolbar {
     min-width: 0;
     min-height: 0;
