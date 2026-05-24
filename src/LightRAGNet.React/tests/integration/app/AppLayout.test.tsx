@@ -101,12 +101,28 @@ describe('AppLayout', () => {
 
     const statusbar = screen.getByRole('contentinfo', { name: 'Application status' });
     expect(statusbar).toHaveTextContent('SignalR Connecting');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
 
     await act(async () => {
       client.capturedHandlers?.onConnectionStateChanged?.('Connected');
     });
 
     expect(statusbar).toHaveTextContent('SignalR Connected');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--success');
+
+    await act(async () => {
+      client.capturedHandlers?.onConnectionStateChanged?.('Reconnecting');
+    });
+
+    expect(statusbar).toHaveTextContent('SignalR Reconnecting');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
+
+    await act(async () => {
+      client.capturedHandlers?.onConnectionStateChanged?.('ServerNotStarted');
+    });
+
+    expect(statusbar).toHaveTextContent('SignalR ServerNotStarted');
+    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--warning');
   });
 
   it('wires the production document route to task hub updates', async () => {

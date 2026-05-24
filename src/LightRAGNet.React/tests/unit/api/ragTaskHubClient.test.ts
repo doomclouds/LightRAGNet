@@ -163,6 +163,67 @@ describe('ragTaskHubClient', () => {
     expect(onConnectionStateChanged).toHaveBeenCalledWith('Connected');
   });
 
+  it('does not report connected when close wins a pending reconnected join', async () => {
+    let resolveReconnectJoin: (() => void) | undefined;
+    const pendingReconnectJoin = new Promise<void>((resolve) => {
+      resolveReconnectJoin = resolve;
+    });
+    const connection = createConnection({
+      invoke: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(pendingReconnectJoin)
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    await client.start({ onConnectionStateChanged });
+    onConnectionStateChanged.mockClear();
+
+    const onReconnected = vi.mocked(connection.onreconnected).mock.calls[0]?.[0];
+    const onClose = vi.mocked(connection.onclose).mock.calls[0]?.[0];
+    onReconnected?.();
+    onClose?.();
+
+    resolveReconnectJoin?.();
+    await pendingReconnectJoin;
+    await Promise.resolve();
+
+    expect(onConnectionStateChanged).toHaveBeenLastCalledWith('Disconnected');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
+  });
+
+  it('does not report connected when stop wins a pending reconnected join', async () => {
+    let resolveReconnectJoin: (() => void) | undefined;
+    const pendingReconnectJoin = new Promise<void>((resolve) => {
+      resolveReconnectJoin = resolve;
+    });
+    const connection = createConnection({
+      invoke: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(pendingReconnectJoin)
+        .mockResolvedValue(undefined)
+    });
+    const client = createRagTaskHubClient('http://localhost:5261', () => connection);
+    const onConnectionStateChanged = vi.fn();
+
+    await client.start({ onConnectionStateChanged });
+    onConnectionStateChanged.mockClear();
+
+    const onReconnected = vi.mocked(connection.onreconnected).mock.calls[0]?.[0];
+    onReconnected?.();
+    await client.stop();
+
+    resolveReconnectJoin?.();
+    await pendingReconnectJoin;
+    await Promise.resolve();
+
+    expect(connection.invoke).toHaveBeenCalledWith('LeaveAllTasksGroup');
+    expect(onConnectionStateChanged).toHaveBeenLastCalledWith('Disconnected');
+    expect(onConnectionStateChanged).not.toHaveBeenCalledWith('Connected');
+  });
+
   it('does not register task event handlers more than once when configured repeatedly', async () => {
     const connection = createConnection();
     const client = createRagTaskHubClient('http://localhost:5261', () => connection);

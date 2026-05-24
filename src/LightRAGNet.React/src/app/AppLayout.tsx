@@ -12,8 +12,21 @@ type AppLayoutProps = {
   children: ReactNode;
 };
 
+function getShellStatusTone(connectionStatus: RagTaskHubConnectionState): 'success' | 'accent' | 'warning' {
+  if (connectionStatus === 'Connected') {
+    return 'success';
+  }
+
+  if (connectionStatus === 'Connecting' || connectionStatus === 'Reconnecting') {
+    return 'accent';
+  }
+
+  return 'warning';
+}
+
 export function AppLayout({ currentPath, connectionStatus, children }: AppLayoutProps) {
   const activeRoute = resolveRoute(currentPath);
+  const shellStatusTone = getShellStatusTone(connectionStatus);
 
   return (
     <div className="app-shell">
@@ -52,9 +65,7 @@ export function AppLayout({ currentPath, connectionStatus, children }: AppLayout
           <CircleDot size={14} aria-hidden="true" />
           SignalR {connectionStatus}
         </span>
-        <StatusPill tone={connectionStatus === 'Connected' ? 'success' : 'warning'}>
-          {activeRoute.title}
-        </StatusPill>
+        <StatusPill tone={shellStatusTone}>{activeRoute.title}</StatusPill>
       </div>
     </div>
   );

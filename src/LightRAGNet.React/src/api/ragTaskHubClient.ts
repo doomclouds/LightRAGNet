@@ -66,17 +66,29 @@ export function createRagTaskHubClient(
       emitConnectionState('Reconnecting');
     });
     connection.onreconnected(() => {
+      const generation = lifecycleGeneration;
       void joinAllTasksGroup()
         .then(() => {
+          if (generation !== lifecycleGeneration) {
+            isStartedAndJoined = false;
+            return;
+          }
+
           isStartedAndJoined = true;
           emitConnectionState('Connected');
         })
         .catch(() => {
+          if (generation !== lifecycleGeneration) {
+            isStartedAndJoined = false;
+            return;
+          }
+
           isStartedAndJoined = false;
           emitConnectionState('Disconnected');
         });
     });
     connection.onclose(() => {
+      lifecycleGeneration += 1;
       isStartedAndJoined = false;
       emitConnectionState('Disconnected');
     });
