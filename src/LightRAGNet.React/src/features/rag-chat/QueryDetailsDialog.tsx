@@ -139,8 +139,11 @@ export function QueryDetailsDialog({ apiBase, message, onClose, onUpdateMessage 
   const [activeTabId, setActiveTabId] = useState("entities");
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     return () => {
       isMountedRef.current = false;
+      autoLoadStartedRef.current = false;
       abortRef.current?.abort();
       abortRef.current = null;
     };

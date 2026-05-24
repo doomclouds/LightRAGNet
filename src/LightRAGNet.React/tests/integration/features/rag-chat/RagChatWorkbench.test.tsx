@@ -1,4 +1,4 @@
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -196,6 +196,35 @@ describe("RagChatWorkbench", () => {
     expect(getRagQueryData).toHaveBeenCalledTimes(1);
   });
 
+  test("loads retrieval data after StrictMode remounts query details effects", async () => {
+    let resolveRetrievalData: (value: unknown) => void = () => undefined;
+    getRagQueryData.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRetrievalData = resolve;
+      })
+    );
+    await renderWorkbench({ initialAssistantReferenceUrl: "http://localhost/document-preview/1" }, { strictMode: true });
+
+    await clickButton("View query details");
+
+    await act(async () => {
+      resolveRetrievalData({
+        status: "ok",
+        message: "loaded",
+        data: {
+          entities: [{ entity: "strict-entity" }],
+          relationships: [],
+          chunks: [],
+          references: []
+        },
+        metadata: { elapsedMs: 8 }
+      });
+    });
+
+    expect(document.body.textContent).toContain("strict-entity");
+    expect(document.body.textContent).toContain("Retrieval data loaded");
+  });
+
   test("aborts retrieval data loading when details dialog closes", async () => {
     let capturedSignal: AbortSignal | undefined;
     getRagQueryData.mockImplementation(
@@ -268,11 +297,41 @@ describe("RagChatWorkbench", () => {
 
     expect(capturedSignal?.aborted).toBe(true);
   });
+
+  test("applies stream updates and ends running state after StrictMode remounts effects", async () => {
+    queryRagStream.mockImplementation(
+      async (_apiBase: string, _request: unknown, options: { onChunk?: (chunk: string) => void }) => {
+        options.onChunk?.("Strict answer");
+      }
+    );
+    await renderWorkbench({}, { strictMode: true });
+
+    await act(async () => {
+      const input = getControl("Message") as HTMLTextAreaElement;
+      setNativeValue(input, "Explain strict mode");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "Explain strict mode" }));
+    });
+    await clickButton("Send");
+
+    expect(host.textContent).toContain("Strict answer");
+
+    await act(async () => {
+      const input = getControl("Message") as HTMLTextAreaElement;
+      setNativeValue(input, "Next question");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "Next question" }));
+    });
+
+    expect(getSendButton()).not.toBeDisabled();
+  });
 });
 
-async function renderWorkbench(props: Partial<React.ComponentProps<typeof RagChatWorkbench>> = {}) {
+async function renderWorkbench(
+  props: Partial<React.ComponentProps<typeof RagChatWorkbench>> = {},
+  options: { strictMode?: boolean } = {}
+) {
   await act(async () => {
-    root.render(<RagChatWorkbench apiBase="http://localhost" {...props} />);
+    const workbench = <RagChatWorkbench apiBase="http://localhost" {...props} />;
+    root.render(options.strictMode ? <StrictMode>{workbench}</StrictMode> : workbench);
   });
 }
 
@@ -321,4 +380,14 @@ async function clickButton(label: string): Promise<void> {
   await act(async () => {
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+}
+
+function getSendButton(): HTMLButtonElement {
+  const button = [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("Send"));
+
+  if (!button) {
+    throw new Error("Missing Send button");
+  }
+
+  return button;
 }

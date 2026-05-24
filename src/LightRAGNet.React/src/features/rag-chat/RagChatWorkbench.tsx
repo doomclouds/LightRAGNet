@@ -38,6 +38,8 @@ export function RagChatWorkbench({ apiBase, initialAssistantReferenceUrl }: Prop
   );
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     return () => {
       isMountedRef.current = false;
       abortRef.current?.abort();
