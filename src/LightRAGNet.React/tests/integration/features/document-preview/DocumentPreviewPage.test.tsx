@@ -17,9 +17,21 @@ describe('DocumentPreviewPage', () => {
   it('renders a safe empty state when no document id is selected', () => {
     render(<DocumentPreviewPage apiBase="http://localhost:5261" />);
 
+    expect(screen.getByRole('region', { name: 'Document Preview' })).toHaveClass('document-preview-page');
     expect(screen.getByRole('heading', { name: 'Document Preview' })).toBeInTheDocument();
+    expect(screen.getAllByText('No document selected')).toHaveLength(2);
     expect(screen.getByText('Open a document from Documents or a RAG Chat reference.')).toBeInTheDocument();
     expect(screen.queryByText('Loading preview')).not.toBeInTheDocument();
+  });
+
+  it('renders the loading state in the preview workspace panel', () => {
+    const preview = deferred<{ contentType: string; content: string; fileName: string }>();
+    const loadPreview = vi.fn().mockReturnValue(preview.promise);
+
+    render(<DocumentPreviewPage apiBase="http://localhost:5261" documentId={42} loadPreview={loadPreview} />);
+
+    expect(screen.getByText('Reading workspace')).toBeInTheDocument();
+    expect(screen.getByText('Loading preview')).toHaveClass('document-preview-page__state');
   });
 
   it('renders markdown content from the safe preview API', async () => {
@@ -31,11 +43,28 @@ describe('DocumentPreviewPage', () => {
 
     render(<DocumentPreviewPage apiBase="http://localhost:5261" documentId={42} loadPreview={loadPreview} />);
 
+    const content = await screen.findByRole('article', { name: 'Document preview content' });
+
+    expect(content).toHaveClass('document-preview-page__content');
+    expect(screen.getByText('Reading workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Preview' })).toBeInTheDocument();
     expect(screen.getByText('preview.md')).toBeInTheDocument();
+    expect(screen.getByText('text/markdown')).toBeInTheDocument();
     expect(screen.getByText(/Rendered/)).toBeInTheDocument();
     expect(screen.getByText('markdown')).toBeInTheDocument();
     expect(loadPreview).toHaveBeenCalledWith('http://localhost:5261', 42);
+  });
+
+  it('renders a readable placeholder when preview content is empty', async () => {
+    const loadPreview = vi.fn().mockResolvedValue({
+      contentType: 'text/markdown',
+      content: '   ',
+      fileName: 'empty.md'
+    });
+
+    render(<DocumentPreviewPage apiBase="http://localhost:5261" documentId={42} loadPreview={loadPreview} />);
+
+    expect(await screen.findByText('No preview content available.')).toBeInTheDocument();
   });
 
   it('renders visible errors from the safe preview API', async () => {

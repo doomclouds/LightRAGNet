@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
+import { EmptyState } from '@/shared/components/EmptyState';
+import { ErrorState } from '@/shared/components/ErrorState';
 import { PageHeader } from '@/shared/components/PageHeader';
+import { Panel } from '@/shared/components/Panel';
 import { StatusPill } from '@/shared/components/StatusPill';
 import './document-preview.css';
 
@@ -67,6 +70,7 @@ export function DocumentPreviewPage({
         description="Review safe preview content served by the document preview API."
         meta={
           <>
+            <StatusPill tone="accent">Reading workspace</StatusPill>
             <StatusPill tone={documentId ? 'accent' : 'neutral'}>
               {documentId ? `Document ${documentId}` : 'No document selected'}
             </StatusPill>
@@ -77,27 +81,26 @@ export function DocumentPreviewPage({
       />
 
       {!documentId ? (
-        <div className="lrn-panel document-preview-page__state">
-          Open a document from Documents or a RAG Chat reference.
-        </div>
+        <EmptyState
+          title="No document selected"
+          description="Open a document from Documents or a RAG Chat reference."
+        />
       ) : null}
 
-      {isLoading ? <div className="lrn-panel document-preview-page__state">Loading preview</div> : null}
+      {isLoading ? <Panel className="document-preview-page__state">Loading preview</Panel> : null}
 
       {errorMessage ? (
-        <div className="document-preview-page__error" role="alert">
-          {errorMessage}
-        </div>
+        <ErrorState message={errorMessage} />
       ) : null}
 
       {documentId && preview && !isLoading && !errorMessage ? (
-        <article className="lrn-panel document-preview-page__content" aria-label="Document preview content">
+        <Panel as="article" className="document-preview-page__content" aria-label="Document preview content">
           {hasContent ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
           ) : (
             <p className="document-preview-page__empty">No preview content available.</p>
           )}
-        </article>
+        </Panel>
       ) : null}
     </section>
   );
