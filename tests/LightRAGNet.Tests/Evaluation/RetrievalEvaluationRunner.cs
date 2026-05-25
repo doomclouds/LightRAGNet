@@ -8,17 +8,17 @@ public static class RetrievalEvaluationRunner
         RetrievalEvaluationResult result,
         RetrievalEvaluationCase evaluationCase)
     {
-        result.RawData.Should().NotBeNull($"{evaluationCase.Name} should produce raw retrieval data");
-        var data = result.RawData!["data"].Should().BeOfType<Dictionary<string, object>>().Subject;
-        var metadata = result.RawData!["metadata"].Should().BeOfType<Dictionary<string, object>>().Subject;
+        var rawData = GetRawData(result, evaluationCase);
+        var data = GetDictionary(rawData, "data", evaluationCase, "raw data");
+        var metadata = GetDictionary(rawData, "metadata", evaluationCase, "raw data");
 
         metadata["query_mode"].Should().Be(evaluationCase.Mode.ToString());
         metadata.Should().ContainKey("processing_info");
 
-        var chunks = GetList(data, "chunks");
-        var references = GetList(data, "references");
-        var entities = GetList(data, "entities");
-        var relationships = GetList(data, "relationships");
+        var chunks = GetList(data, "chunks", evaluationCase);
+        var references = GetList(data, "references", evaluationCase);
+        var entities = GetList(data, "entities", evaluationCase);
+        var relationships = GetList(data, "relationships", evaluationCase);
 
         foreach (var chunkId in evaluationCase.ExpectedChunkIds)
         {
@@ -41,33 +41,88 @@ public static class RetrievalEvaluationRunner
                 $"{evaluationCase.Name} should include expected reference {filePath}");
         }
 
-        foreach (var entityId in evaluationCase.ExpectedEntityIds)
+        if (evaluationCase.ExpectedEntityIds.Count == 0)
         {
-            entities.Should().Contain(
-                entity => ValueEquals(entity, "entity_name", entityId),
-                $"{evaluationCase.Name} should include expected entity {entityId}");
+            entities.Should().BeEmpty($"{evaluationCase.Name} should not include KG entities");
+        }
+        else
+        {
+            foreach (var entityId in evaluationCase.ExpectedEntityIds)
+            {
+                entities.Should().Contain(
+                    entity => ValueEquals(entity, "entity_name", entityId),
+                    $"{evaluationCase.Name} should include expected entity {entityId}");
+            }
         }
 
-        foreach (var pair in evaluationCase.ExpectedRelationshipPairs)
+        if (evaluationCase.ExpectedRelationshipPairs.Count == 0)
         {
-            relationships.Should().Contain(
-                relationship =>
-                    ValueEquals(relationship, "src_id", pair.SourceId)
-                    && ValueEquals(relationship, "tgt_id", pair.TargetId),
-                $"{evaluationCase.Name} should include relationship {pair.SourceId}->{pair.TargetId}");
+            relationships.Should().BeEmpty($"{evaluationCase.Name} should not include KG relationships");
         }
+        else
+        {
+            foreach (var pair in evaluationCase.ExpectedRelationshipPairs)
+            {
+                relationships.Should().Contain(
+                    relationship =>
+                        ValueEquals(relationship, "src_id", pair.SourceId)
+                        && ValueEquals(relationship, "tgt_id", pair.TargetId),
+                    $"{evaluationCase.Name} should include relationship {pair.SourceId}->{pair.TargetId}");
+            }
+        }
+    }
+
+    public static void AssertChunkIds(
+        RetrievalEvaluationResult result,
+        RetrievalEvaluationCase evaluationCase,
+        IReadOnlyList<string> expectedChunkIds)
+    {
+        var rawData = GetRawData(result, evaluationCase);
+        var data = GetDictionary(rawData, "data", evaluationCase, "raw data");
+        var chunks = GetList(data, "chunks", evaluationCase);
+
+        chunks
+            .Select(chunk => chunk["chunk_id"].ToString())
+            .Should()
+            .Equal(expectedChunkIds, $"{evaluationCase.Name} should return expected chunks in order");
+    }
+
+    private static Dictionary<string, object> GetRawData(
+        RetrievalEvaluationResult result,
+        RetrievalEvaluationCase evaluationCase)
+    {
+        result.RawData.Should().NotBeNull($"{evaluationCase.Name} should produce raw retrieval data");
+        result.RawData!.Should().ContainKey("data", $"{evaluationCase.Name} should include raw data key 'data'");
+        result.RawData.Should().ContainKey("metadata", $"{evaluationCase.Name} should include raw data key 'metadata'");
+        return result.RawData;
+    }
+
+    private static Dictionary<string, object> GetDictionary(
+        Dictionary<string, object> source,
+        string key,
+        RetrievalEvaluationCase evaluationCase,
+        string section)
+    {
+        source.Should().ContainKey(key, $"{evaluationCase.Name} should include {section} key '{key}'");
+        return source[key]
+            .Should()
+            .BeOfType<Dictionary<string, object>>($"{evaluationCase.Name} {section} key '{key}' should be an object")
+            .Subject;
     }
 
     private static List<Dictionary<string, object>> GetList(
         Dictionary<string, object> data,
-        string key)
+        string key,
+        RetrievalEvaluationCase evaluationCase)
     {
+        data.Should().ContainKey(key, $"{evaluationCase.Name} data section should include key '{key}'");
+
         return data[key]
             .Should()
-            .BeAssignableTo<IEnumerable<object>>()
+            .BeAssignableTo<IEnumerable<object>>($"{evaluationCase.Name} data key '{key}' should be a list")
             .Subject
             .Should()
-            .AllBeAssignableTo<Dictionary<string, object>>()
+            .AllBeAssignableTo<Dictionary<string, object>>($"{evaluationCase.Name} data key '{key}' should contain objects")
             .Subject
             .Cast<Dictionary<string, object>>()
             .ToList();

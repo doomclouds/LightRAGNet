@@ -22,12 +22,19 @@ public sealed class OfflineRetrievalEvaluationTests
             ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
             ExpectedEntityIds: [],
             ExpectedRelationshipPairs: [],
-            ForbiddenChunkIds: [],
+            ForbiddenChunkIds: ["chunk-operations-health-cache"],
             EnableRerank: false);
 
         var result = await fixture.RunAsync(evaluationCase);
 
         RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+        RetrievalEvaluationRunner.AssertChunkIds(
+            result,
+            evaluationCase,
+            [
+                "chunk-overview-hallucination",
+                "chunk-architecture-rag-components"
+            ]);
     }
 
     [Fact]
