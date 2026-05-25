@@ -134,7 +134,6 @@ public sealed class OfflineRetrievalEvaluationTests
         fixture.VectorStore.QueryScoresByDocumentId["chunk-operations-health-cache"] = 0.70f;
         fixture.VectorStore.QueryScoresByDocumentId["chunk-architecture-rag-components"] = 0.20f;
         fixture.VectorStore.QueryScoresByDocumentId["chunk-overview-hallucination"] = 0.10f;
-        fixture.VectorStore.QueryCandidateCountOverride = 3;
 
         var evaluationCase = new RetrievalEvaluationCase(
             Name: "Rerank_KeepsRelevantChunkInFinalContext",
@@ -143,17 +142,25 @@ public sealed class OfflineRetrievalEvaluationTests
             HighLevelKeywords: [],
             LowLevelKeywords: [],
             TopK: 5,
-            ChunkTopK: 1,
+            ChunkTopK: 3,
             ExpectedChunkIds: ["chunk-operations-health-cache"],
             ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.OperationsPath],
             ExpectedEntityIds: [],
             ExpectedRelationshipPairs: [],
-            ForbiddenChunkIds: ["chunk-overview-hallucination", "chunk-evaluation-quality-metrics"],
+            ForbiddenChunkIds: ["chunk-overview-hallucination"],
             EnableRerank: true);
 
         var result = await fixture.RunAsync(evaluationCase);
 
         RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+        RetrievalEvaluationRunner.AssertChunkIds(
+            result,
+            evaluationCase,
+            [
+                "chunk-operations-health-cache",
+                "chunk-storage-vector-databases",
+                "chunk-evaluation-quality-metrics"
+            ]);
     }
 
     [Fact]

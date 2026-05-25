@@ -20,7 +20,6 @@ public sealed class InMemoryVectorStore : IVectorStore
     public List<(string Collection, IReadOnlyList<VectorDocument> Documents)> UpsertCalls { get; } = [];
     public Dictionary<string, float> QueryScoresByDocumentId { get; } = new(StringComparer.Ordinal);
 
-    public int? QueryCandidateCountOverride { get; set; }
     public string? ThrowOnDeleteCollection { get; set; }
     public string? ThrowOnUpsertCollection { get; set; }
 
@@ -65,7 +64,7 @@ public sealed class InMemoryVectorStore : IVectorStore
         }
 
         var results = scoredDocuments
-            .Take(QueryCandidateCountOverride ?? topK)
+            .Take(topK)
             .ToList();
 
         return Task.FromResult(results);
