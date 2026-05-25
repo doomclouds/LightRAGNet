@@ -33,14 +33,14 @@ public sealed class OfflineRetrievalEvaluationTests
     public async Task RetrievalEvaluationCorpus_SeedsExpectedDocumentsGraphAndChunks()
     {
         var fixture = await RetrievalEvaluationFixture.CreateAsync();
+        var architectureVector = fixture.VectorStore.Get(
+            RetrievalEvaluationCorpus.ChunksCollection,
+            "chunk-architecture-rag-components");
 
-        fixture.VectorStore.Get("chunks", "chunk-architecture-rag-components")
+        architectureVector.Should().NotBeNull();
+        architectureVector!.Metadata[RetrievalEvaluationCorpus.FilePathKey]
             .Should()
-            .NotBeNull();
-        fixture.VectorStore.Get("chunks", "chunk-architecture-rag-components")!
-            .Metadata["file_path"]
-            .Should()
-            .Be("docs/eval/02-rag-architecture.md");
+            .Be(RetrievalEvaluationCorpus.ArchitecturePath);
         fixture.GraphStore.GetSeededNode("RETRIEVAL_SYSTEM")
             .Should()
             .NotBeNull();
@@ -52,7 +52,53 @@ public sealed class OfflineRetrievalEvaluationTests
             "chunk-architecture-rag-components",
             CancellationToken.None);
         architectureChunk.Should().NotBeNull();
-        architectureChunk!["content"].Should().BeOfType<string>()
+        architectureChunk![RetrievalEvaluationCorpus.ContentKey].Should().BeOfType<string>()
             .Which.Should().Contain("retrieval system");
+
+        var vectorChunks = fixture.VectorStore.Collections[RetrievalEvaluationCorpus.ChunksCollection];
+        var textChunkItems = fixture.TextChunks.Items;
+        vectorChunks.Should().HaveCount(5);
+        textChunkItems.Should().HaveCount(5);
+        vectorChunks.Keys.Should().BeEquivalentTo(textChunkItems.Keys);
+
+        foreach (var (chunkId, document) in vectorChunks)
+        {
+            document.Metadata.Should().ContainKey(RetrievalEvaluationCorpus.ChunkIdKey);
+            document.Metadata.Should().ContainKey(RetrievalEvaluationCorpus.FilePathKey);
+            document.Metadata[RetrievalEvaluationCorpus.ChunkIdKey]
+                .Should()
+                .Be(chunkId);
+            document.Metadata[RetrievalEvaluationCorpus.FilePathKey]
+                .Should()
+                .BeOfType<string>()
+                .Which.Should()
+                .NotBeNullOrWhiteSpace();
+        }
+
+        foreach (var chunk in textChunkItems.Values)
+        {
+            chunk.Should().ContainKey(RetrievalEvaluationCorpus.ContentKey);
+            chunk.Should().ContainKey(RetrievalEvaluationCorpus.FilePathKey);
+            chunk[RetrievalEvaluationCorpus.ContentKey]
+                .Should()
+                .BeOfType<string>()
+                .Which.Should()
+                .NotBeNullOrWhiteSpace();
+            chunk[RetrievalEvaluationCorpus.FilePathKey]
+                .Should()
+                .BeOfType<string>()
+                .Which.Should()
+                .NotBeNullOrWhiteSpace();
+        }
+
+        fixture.GraphStore.GetSeededNode("EMBEDDING_MODEL")
+            .Should()
+            .NotBeNull();
+        fixture.GraphStore.GetSeededNode("CACHE_MANAGEMENT")
+            .Should()
+            .NotBeNull();
+        fixture.GraphStore.GetSeededEdge("CACHE_MANAGEMENT", "RETRIEVAL_SYSTEM")
+            .Should()
+            .NotBeNull();
     }
 }
