@@ -1260,16 +1260,27 @@ select {
   gap: 12px;
 }
 
+.document-upload__panel-header > div {
+  display: grid;
+  gap: 5px;
+}
+
 .document-upload__panel-header h2 {
   margin: 0;
   font-size: 18px;
 }
 
 .document-upload__dropzone {
+  display: grid;
+  place-items: center;
+  gap: 14px;
   min-height: 260px;
+  padding: 28px;
   color: var(--text-secondary);
   background: var(--panel-bg-elevated);
-  border-color: var(--panel-border-strong);
+  border: 1px dashed var(--panel-border-strong);
+  border-radius: var(--radius-panel);
+  text-align: center;
 }
 
 .document-upload__dropzone strong {
@@ -1288,6 +1299,21 @@ select {
   background: var(--accent-fill-hover);
 }
 
+.document-upload__formats {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.document-upload__formats span {
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.document-upload__formats strong {
+  font-size: 14px;
+}
+
 .document-upload__summary {
   min-width: 0;
 }
@@ -1295,6 +1321,13 @@ select {
 .document-upload__file-list li {
   background: var(--panel-bg-elevated);
   border-color: var(--panel-border);
+}
+
+.document-upload__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .document-preview__scrim {

@@ -1,8 +1,12 @@
 import { useRef, useState } from 'react';
-import { UploadCloud } from 'lucide-react';
+import { FileUp, Trash2 } from 'lucide-react';
 import { getApiBase } from '@/api/http';
 import { uploadDocuments as uploadDocumentsDefault } from '@/api/documentsApi';
+import { Button, ButtonLink } from '@/shared/components/Button';
+import { EmptyState } from '@/shared/components/EmptyState';
+import { ErrorState } from '@/shared/components/ErrorState';
 import { PageHeader } from '@/shared/components/PageHeader';
+import { Panel } from '@/shared/components/Panel';
 import { StatusPill } from '@/shared/components/StatusPill';
 import type { DocumentSubmissionResponse } from './documentTypes';
 
@@ -91,6 +95,22 @@ export function UploadDocumentPage({
     setErrorMessage(null);
   }
 
+  function clearSelection() {
+    if (isUploading) {
+      return;
+    }
+
+    setFiles([]);
+    setMessages([]);
+    setHasBlockingErrors(false);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
+  }
+
   async function handleUpload() {
     setSuccessMessage(null);
     setErrorMessage(null);
@@ -127,6 +147,8 @@ export function UploadDocumentPage({
   }
 
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  const canClearSelection =
+    files.length > 0 || messages.length > 0 || successMessage !== null || errorMessage !== null || hasBlockingErrors;
 
   return (
     <section className="document-upload" aria-label="Upload Document">
@@ -142,18 +164,21 @@ export function UploadDocumentPage({
             </>
           }
           actions={
-            <a className="lrn-button" href="/documents">
+            <ButtonLink href="/documents">
               Back to Documents
-            </a>
+            </ButtonLink>
           }
         />
       </article>
 
-      <div className="document-upload__workbench">
-        <section className="document-upload__panel" aria-labelledby="batch-upload-title">
+      <section className="document-upload__workbench" aria-label="Upload workbench">
+        <Panel as="section" className="document-upload__panel" aria-labelledby="batch-upload-title">
           <div className="document-upload__panel-header">
-            <h2 id="batch-upload-title">Batch Upload</h2>
-            <span>Local validation runs before submit.</span>
+            <div>
+              <h2 id="batch-upload-title">Batch Upload</h2>
+              <span>Local validation runs before submit.</span>
+            </div>
+            <span>{maxFiles} files max</span>
           </div>
 
           <div
@@ -161,7 +186,7 @@ export function UploadDocumentPage({
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleDrop}
           >
-            <UploadCloud size={30} aria-hidden="true" />
+            <FileUp size={34} aria-hidden="true" />
             <strong>Drop documents here</strong>
             <label className="document-upload__picker">
               <span>Choose documents</span>
@@ -175,14 +200,20 @@ export function UploadDocumentPage({
                 onChange={handleFileChange}
               />
             </label>
-            <span className="document-upload__hint">.md, .markdown, .pdf, .docx</span>
+            <div className="document-upload__formats">
+              <span>Accepted formats</span>
+              <strong>{acceptedExtensions.join(', ')}</strong>
+            </div>
           </div>
-        </section>
+        </Panel>
 
-        <section className="document-upload__panel document-upload__selected-panel" aria-labelledby="selected-files-title">
+        <Panel as="section" className="document-upload__panel document-upload__selected-panel" aria-labelledby="selected-files-title">
           <div className="document-upload__panel-header">
-            <h2 id="selected-files-title">Selected Files</h2>
-            <span>{files.length} / {maxFiles} staged</span>
+            <div>
+              <h2 id="selected-files-title">Selected Files</h2>
+              <span>{files.length} / {maxFiles} staged</span>
+            </div>
+            <span>{formatFileSize(totalSize)}</span>
           </div>
 
           {files.length > 0 ? (
@@ -201,10 +232,10 @@ export function UploadDocumentPage({
               </ul>
             </div>
           ) : (
-            <p className="document-upload__empty">No files selected.</p>
+            <EmptyState title="No files selected" description="Choose up to 10 documents before uploading." />
           )}
-        </section>
-      </div>
+        </Panel>
+      </section>
 
       {messages.length > 0 ? (
         <div className="document-upload__messages" role="status" aria-live="polite">
@@ -221,14 +252,18 @@ export function UploadDocumentPage({
       ) : null}
 
       {errorMessage ? (
-        <p className="document-upload__feedback document-upload__feedback--error" role="alert">
-          {errorMessage}
-        </p>
+        <ErrorState message={errorMessage} />
       ) : null}
 
-      <button className="document-upload__submit" type="button" onClick={handleUpload} disabled={isUploading}>
-        {isUploading ? 'Uploading...' : 'Upload'}
-      </button>
+      <div className="document-upload__actions">
+        <Button tone="primary" onClick={handleUpload} disabled={isUploading}>
+          {isUploading ? 'Uploading...' : 'Upload'}
+        </Button>
+        <Button onClick={clearSelection} disabled={isUploading || !canClearSelection}>
+          <Trash2 size={16} aria-hidden="true" />
+          Clear selection
+        </Button>
+      </div>
     </section>
   );
 }
