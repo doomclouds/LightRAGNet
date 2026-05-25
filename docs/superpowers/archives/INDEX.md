@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-25-offline-retrieval-evaluation-fixture-archives.md](./2026-05/2026-05-25-offline-retrieval-evaluation-fixture-archives.md): 增加离线检索评估 fixture，用固定语料和 raw data oracle 覆盖 Naive、Local、Global、Mix 与 rerank 回归。
 - [2026-05-24-cache-management-workbench-archives.md](./2026-05/2026-05-24-cache-management-workbench-archives.md): 增加基于真实 hit/miss 指标和安全库存的 Cache Management 工作台，提供缓存效率、风险、趋势和确认式清理能力。
 - [2026-05-24-react-full-ui-migration-archives.md](./2026-05/2026-05-24-react-full-ui-migration-archives.md): 将 Blazor-hosted React islands 迁入独立 React shell，形成深色完整前端路由、文档工作台、安全预览、图谱和运营页面体验。
 - [2026-05-24-react-standalone-documents-migration-archives.md](./2026-05/2026-05-24-react-standalone-documents-migration-archives.md): 新建独立 Vite/React 前端并迁移文档上传、文档列表、预览、操作和 SignalR 生命周期刷新，同时保持 Blazor 项目共存。
