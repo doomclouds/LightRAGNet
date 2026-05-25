@@ -161,6 +161,11 @@ public sealed class OfflineRetrievalEvaluationTests
                 "chunk-storage-vector-databases",
                 "chunk-evaluation-quality-metrics"
             ]);
+        fixture.VectorStore.QueryCalls.Should().Contain(
+            call => call.Collection == "chunks"
+                    && call.Query == evaluationCase.Query
+                    && call.TopK == 3,
+            "rerank evaluation should use the production-requested chunk candidate count");
     }
 
     [Fact]
