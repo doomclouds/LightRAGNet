@@ -52,7 +52,7 @@ public sealed class OfflineRetrievalEvaluationTests
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
             ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
             ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
-            ExpectedRelationshipPairs: [],
+            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("EMBEDDING_MODEL", "RETRIEVAL_SYSTEM")],
             ForbiddenChunkIds: [],
             EnableRerank: false);
 
@@ -75,7 +75,7 @@ public sealed class OfflineRetrievalEvaluationTests
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
             ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
-            ExpectedEntityIds: [],
+            ExpectedEntityIds: ["RETRIEVAL_SYSTEM", "EMBEDDING_MODEL"],
             ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
             ForbiddenChunkIds: [],
             EnableRerank: false);

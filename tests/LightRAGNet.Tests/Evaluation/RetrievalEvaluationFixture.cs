@@ -115,15 +115,6 @@ public sealed class RetrievalEvaluationFixture
             EnableRerank = evaluationCase.EnableRerank
         };
 
-        if (evaluationCase.Mode == QueryMode.Local)
-        {
-            queryParam.MaxRelationTokens = 0;
-        }
-        else if (evaluationCase.Mode == QueryMode.Global)
-        {
-            queryParam.MaxEntityTokens = 0;
-        }
-
         if (evaluationCase.Mode == QueryMode.Naive)
         {
             var result = await naiveQueryService.BuildContextAsync(
