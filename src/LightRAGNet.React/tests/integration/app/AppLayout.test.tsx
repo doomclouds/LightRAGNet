@@ -1,8 +1,10 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRagTaskHubClient, type RagTaskHubClient, type RagTaskHubHandlers } from '@/api/ragTaskHubClient';
 import { App } from '@/app/App';
+import type { SystemHealthResponse } from '@/api/systemStatusApi';
 import type { MarkdownDocumentDto, PagedResult } from '@/features/documents/documentTypes';
+import type { GraphViewDto } from '@/types/graph';
 
 vi.mock('@/api/ragTaskHubClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/ragTaskHubClient')>();
@@ -12,6 +14,14 @@ vi.mock('@/api/ragTaskHubClient', async (importOriginal) => {
     createRagTaskHubClient: vi.fn()
   };
 });
+
+vi.mock('@/features/graph-workbench/GraphWorkbench', () => ({
+  GraphWorkbench: ({ apiBase }: { apiBase: string }) => (
+    <main className="graph-workbench" data-api-base={apiBase}>
+      <h1>Knowledge Graph</h1>
+    </main>
+  )
+}));
 
 const createRagTaskHubClientMock = vi.mocked(createRagTaskHubClient);
 
@@ -51,6 +61,69 @@ function createClient(): RagTaskHubClient & { capturedHandlers?: RagTaskHubHandl
   };
 
   return client;
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function makeGraphView(): GraphViewDto {
+  return {
+    nodes: [
+      {
+        id: 'LIGHTRAG',
+        label: 'LightRAGNet',
+        size: 12,
+        color: '#2f6fed',
+        type: 'Project',
+        properties: {
+          description: 'LightRAGNet graph smoke node'
+        }
+      }
+    ],
+    edges: [],
+    isTruncated: false
+  };
+}
+
+function makeSystemHealth(): SystemHealthResponse {
+  return {
+    status: 'Healthy',
+    generatedAt: '2026-05-24T10:00:00Z',
+    durationMs: 12,
+    summary: {
+      healthy: 1,
+      degraded: 0,
+      unhealthy: 0,
+      notMeasured: 0
+    },
+    checks: [],
+    fixFirst: [],
+    featureImpacts: []
+  };
+}
+
+function mockRouteFetch() {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes('/api/graph/config')) {
+      return jsonResponse({ maxNodesLimit: 2000 });
+    }
+
+    if (url.includes('/api/graph/query')) {
+      return jsonResponse(makeGraphView());
+    }
+
+    if (url.includes('/api/system/health')) {
+      return jsonResponse(makeSystemHealth());
+    }
+
+    return jsonResponse(paged([]));
+  });
 }
 
 describe('AppLayout', () => {
@@ -176,5 +249,27 @@ describe('AppLayout', () => {
     const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
     expect(navigation.getByRole('link', { name: 'Upload Document' })).toHaveAttribute('aria-current', 'page');
     expect(navigation.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('keeps the graph route mounted inside the light shell', async () => {
+    window.history.pushState({}, '', '/graph-view');
+    mockRouteFetch();
+
+    render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Knowledge Graph' })).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(screen.getByRole('main')).toHaveClass('graph-workbench'));
+  });
+
+  it('keeps the system status route mounted inside the light shell', async () => {
+    window.history.pushState({}, '', '/system-status');
+    mockRouteFetch();
+
+    render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'System Status' })).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveClass('system-status');
   });
 });
