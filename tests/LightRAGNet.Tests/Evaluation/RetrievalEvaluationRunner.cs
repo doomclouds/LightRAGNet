@@ -12,8 +12,13 @@ public static class RetrievalEvaluationRunner
         var data = GetDictionary(rawData, "data", evaluationCase, "raw data");
         var metadata = GetDictionary(rawData, "metadata", evaluationCase, "raw data");
 
+        metadata.Should().ContainKey(
+            "query_mode",
+            $"{evaluationCase.Name} metadata should include key 'query_mode'");
         metadata["query_mode"].Should().Be(evaluationCase.Mode.ToString());
-        metadata.Should().ContainKey("processing_info");
+        metadata.Should().ContainKey(
+            "processing_info",
+            $"{evaluationCase.Name} metadata should include key 'processing_info'");
 
         var chunks = GetList(data, "chunks", evaluationCase);
         var references = GetList(data, "references", evaluationCase);
