@@ -7,6 +7,30 @@ namespace LightRAGNet.Tests.Evaluation;
 public sealed class OfflineRetrievalEvaluationTests
 {
     [Fact]
+    public async Task Naive_ReturnsExpectedArchitectureChunk()
+    {
+        var fixture = await RetrievalEvaluationFixture.CreateAsync();
+        var evaluationCase = new RetrievalEvaluationCase(
+            Name: "Naive_ReturnsExpectedArchitectureChunk",
+            Query: "Which components are required in a RAG system?",
+            Mode: QueryMode.Naive,
+            HighLevelKeywords: [],
+            LowLevelKeywords: [],
+            TopK: 3,
+            ChunkTopK: 2,
+            ExpectedChunkIds: ["chunk-architecture-rag-components"],
+            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedEntityIds: [],
+            ExpectedRelationshipPairs: [],
+            ForbiddenChunkIds: [],
+            EnableRerank: false);
+
+        var result = await fixture.RunAsync(evaluationCase);
+
+        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+    }
+
+    [Fact]
     public void RetrievalEvaluationCase_CapturesExpectedOracleFields()
     {
         var evaluationCase = new RetrievalEvaluationCase(
