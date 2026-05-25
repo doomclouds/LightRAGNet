@@ -12,6 +12,9 @@ namespace LightRAGNet.Tests.Evaluation;
 
 public sealed class RetrievalEvaluationFixture
 {
+    // The offline KG oracle uses WEIGHT to keep related chunk selection deterministic.
+    private const string EvaluationKgChunkPickMethod = "WEIGHT";
+
     private readonly NaiveQueryService naiveQueryService;
     private readonly RetrievalContextService retrievalContextService;
 
@@ -61,7 +64,7 @@ public sealed class RetrievalEvaluationFixture
             rerankCoordinator,
             tokenizer,
             textChunks,
-            Options.Create(new LightRAGOptions { KgChunkPickMethod = "WEIGHT" }),
+            Options.Create(new LightRAGOptions { KgChunkPickMethod = EvaluationKgChunkPickMethod }),
             NullLoggerFactory.Instance);
 
         return new RetrievalEvaluationFixture(

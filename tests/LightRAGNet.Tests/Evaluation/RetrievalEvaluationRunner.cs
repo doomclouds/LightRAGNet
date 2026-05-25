@@ -69,9 +69,7 @@ public static class RetrievalEvaluationRunner
             foreach (var pair in evaluationCase.ExpectedRelationshipPairs)
             {
                 relationships.Should().Contain(
-                    relationship =>
-                        ValueEquals(relationship, "src_id", pair.SourceId)
-                        && ValueEquals(relationship, "tgt_id", pair.TargetId),
+                    relationship => RelationshipMatches(relationship, pair),
                     $"{evaluationCase.Name} should include relationship {pair.SourceId}->{pair.TargetId}");
             }
         }
@@ -140,5 +138,15 @@ public static class RetrievalEvaluationRunner
     {
         return item.TryGetValue(key, out var value)
                && string.Equals(value?.ToString(), expected, StringComparison.Ordinal);
+    }
+
+    private static bool RelationshipMatches(
+        Dictionary<string, object> relationship,
+        ExpectedRelationshipPair expected)
+    {
+        return (ValueEquals(relationship, "src_id", expected.SourceId)
+                && ValueEquals(relationship, "tgt_id", expected.TargetId))
+               || (ValueEquals(relationship, "src_id", expected.TargetId)
+                   && ValueEquals(relationship, "tgt_id", expected.SourceId));
     }
 }

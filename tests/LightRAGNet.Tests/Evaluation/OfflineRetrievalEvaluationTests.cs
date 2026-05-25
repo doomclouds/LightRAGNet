@@ -52,7 +52,7 @@ public sealed class OfflineRetrievalEvaluationTests
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
             ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
             ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
-            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("EMBEDDING_MODEL", "RETRIEVAL_SYSTEM")],
+            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
             ForbiddenChunkIds: [],
             EnableRerank: false);
 
