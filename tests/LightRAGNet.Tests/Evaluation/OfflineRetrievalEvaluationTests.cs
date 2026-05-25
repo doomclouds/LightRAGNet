@@ -59,6 +59,11 @@ public sealed class OfflineRetrievalEvaluationTests
         var result = await fixture.RunAsync(evaluationCase);
 
         RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+        fixture.VectorStore.QueryCalls.Should().Contain(
+            call => call.Collection == "entities"
+                    && call.Query == "RETRIEVAL_SYSTEM"
+                    && call.TopK == 3,
+            "Local evaluation should route low-level keywords to entity vector search");
     }
 
     [Fact]
@@ -83,6 +88,11 @@ public sealed class OfflineRetrievalEvaluationTests
         var result = await fixture.RunAsync(evaluationCase);
 
         RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+        fixture.VectorStore.QueryCalls.Should().Contain(
+            call => call.Collection == "relationships"
+                    && call.Query == "rag architecture"
+                    && call.TopK == 3,
+            "Global evaluation should route high-level keywords to relationship vector search");
     }
 
     [Fact]
