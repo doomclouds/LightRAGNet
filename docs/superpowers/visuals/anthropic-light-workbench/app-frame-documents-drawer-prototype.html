@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LightRAGNet App Frame Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #fbfaf6;
+      --paper: #fffefa;
+      --paper-2: #f7f3ea;
+      --paper-3: #f0eadf;
+      --text: #191817;
+      --text-soft: #5f5a52;
+      --text-faint: #8f887d;
+      --line: #e5ded2;
+      --line-strong: #d7ccbd;
+      --accent: #c8552d;
+      --accent-strong: #a94221;
+      --accent-soft: #f3e2d8;
+      --green: #4d8a58;
+      --green-soft: #e6f0e3;
+      --amber: #c6871d;
+      --amber-soft: #f8ead0;
+      --red: #ce4c34;
+      --red-soft: #f7dfd9;
+      --gray-soft: #ece7de;
+      --shadow-panel: 0 18px 46px rgba(64, 46, 24, .08);
+      --shadow-card: 0 10px 24px rgba(64, 46, 24, .06);
+      --shadow-drawer: 0 28px 80px rgba(36, 31, 26, .22);
+      --sidebar-width: 202px;
+      --topbar-height: 64px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1180px;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .app-frame {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      background:
+        radial-gradient(circle at 85% 4%, rgba(200, 85, 45, .05), transparent 34%),
+        linear-gradient(180deg, rgba(255,255,255,.52), rgba(247,243,234,.38)),
+        var(--bg);
+    }
+
+    .sidebar {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: var(--topbar-height) minmax(0, 1fr) auto;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 254, 250, .8);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      font-size: 17px;
+      font-weight: 760;
+    }
+
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      color: var(--accent);
+    }
+
+    .brand-mark svg {
+      width: 26px;
+      height: 26px;
+      display: block;
+    }
+
+    .nav {
+      padding: 26px 14px 18px;
+      overflow: hidden auto;
+    }
+
+    .nav-group + .nav-group {
+      margin-top: 28px;
+    }
+
+    .nav-heading {
+      margin: 0 0 9px;
+      color: #837c71;
+      font-size: 11px;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .nav-link {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: #413d37;
+      font-size: 14px;
+      font-weight: 640;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .nav-link + .nav-link {
+      margin-top: 5px;
+    }
+
+    .nav-link.is-active {
+      color: #873819;
+      background: var(--accent-soft);
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: currentColor;
+      text-align: center;
+      opacity: .82;
+    }
+
+    .icon {
+      width: 17px;
+      height: 17px;
+      display: inline-block;
+      flex: 0 0 auto;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .icon-sm {
+      width: 15px;
+      height: 15px;
+    }
+
+    .icon-lg {
+      width: 21px;
+      height: 21px;
+    }
+
+    .sidebar-status {
+      margin: 0 18px 16px;
+      padding: 16px 0 0;
+      border-top: 1px solid var(--line);
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .realtime-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #3c6f45;
+      font-weight: 720;
+    }
+
+    .realtime-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(77, 138, 88, .13);
+    }
+
+    .version {
+      margin-top: 12px;
+      color: var(--text-faint);
+      font-size: 12px;
+    }
+
+    .main-shell {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: var(--topbar-height) minmax(0, 1fr);
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: auto minmax(380px, 520px) 1fr auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 254, 250, .86);
+      backdrop-filter: blur(12px);
+    }
+
+    .menu {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: #504b43;
+      font-size: 18px;
+    }
+
+    .global-search {
+      height: 39px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.84);
+      color: var(--text-faint);
+      font-size: 13px;
+    }
+
+    .kbd {
+      margin-left: auto;
+      padding: 2px 7px 3px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f7f3ec;
+      color: #777064;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .top-icon,
+    .avatar {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #4f4a42;
+      font-size: 15px;
+    }
+
+    .avatar {
+      background: #f0ebe2;
+      color: #201d19;
+      font-weight: 760;
+    }
+
+    .workspace {
+      position: relative;
+      min-width: 0;
+      padding: 28px 24px 34px;
+      overflow: hidden;
+    }
+
+    .workspace-inner {
+      width: min(1180px, 100%);
+      display: grid;
+      gap: 24px;
+    }
+
+    .prototype-page {
+      display: none;
+      gap: 24px;
+    }
+
+    body[data-page="documents"] .prototype-page[data-panel="documents"],
+    body[data-page="upload"] .prototype-page[data-panel="upload"],
+    body[data-page="preview"] .prototype-page[data-panel="preview"] {
+      display: grid;
+    }
+
+    .page-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 18px;
+    }
+
+    .page-head h1 {
+      margin: 0 0 5px;
+      font-size: 28px;
+      line-height: 1.12;
+      font-weight: 780;
+    }
+
+    .page-head p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 14px;
+    }
+
+    .primary-action {
+      height: 39px;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 15px;
+      border: 1px solid var(--accent-strong);
+      border-radius: 9px;
+      background: var(--accent);
+      color: #fffaf3;
+      box-shadow: 0 12px 22px rgba(200, 85, 45, .18);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .summary-card {
+      min-height: 108px;
+      display: grid;
+      align-content: center;
+      gap: 10px;
+      padding: 17px 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: var(--shadow-card);
+    }
+
+    .summary-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 780;
+    }
+
+    .summary-note {
+      color: var(--green);
+      font-size: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tab {
+      position: relative;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-soft);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .tab.is-active {
+      color: var(--accent-strong);
+    }
+
+    .tab.is-active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .count {
+      min-width: 26px;
+      min-height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: #f1ece3;
+      color: #625b51;
+      font-size: 11px;
+      font-weight: 760;
+    }
+
+    .toolbar-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .field,
+    .selectish,
+    .square-button {
+      height: 37px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      color: var(--text-soft);
+      font-size: 13px;
+      box-shadow: 0 6px 16px rgba(64,46,24,.035);
+    }
+
+    .selectish {
+      min-width: 96px;
+      justify-content: space-between;
+    }
+
+    .square-button {
+      width: 37px;
+      justify-content: center;
+      padding: 0;
+      justify-self: end;
+    }
+
+    .table-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 254, 250, .95);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      height: 56px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    th {
+      height: 45px;
+      color: #4f4940;
+      background: #fcf9f3;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .check {
+      width: 13px;
+      height: 13px;
+      display: inline-block;
+      border: 1px solid var(--line-strong);
+      border-radius: 3px;
+      background: #fffdfa;
+    }
+
+    .file-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .file-icon {
+      width: 23px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      background: var(--red);
+      color: #fffaf3;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .file-icon.blue {
+      background: #2674c9;
+    }
+
+    .file-icon.gray {
+      background: #85827b;
+    }
+
+    .file-icon .icon {
+      width: 14px;
+      height: 14px;
+      stroke-width: 2;
+    }
+
+    .file-name {
+      display: grid;
+      gap: 4px;
+    }
+
+    .file-name strong {
+      font-size: 13px;
+      font-weight: 690;
+    }
+
+    .file-type {
+      width: fit-content;
+      padding: 2px 5px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      color: var(--text-soft);
+      background: #f4efe7;
+      font-size: 10px;
+      font-weight: 760;
+    }
+
+    .pill {
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 730;
+    }
+
+    .pill.green {
+      color: #2f7039;
+      background: var(--green-soft);
+    }
+
+    .pill.amber {
+      color: #8a5d0f;
+      background: var(--amber-soft);
+    }
+
+    .pill.red {
+      color: #9a3424;
+      background: var(--red-soft);
+    }
+
+    .progress {
+      width: 104px;
+      height: 4px;
+      display: inline-block;
+      border-radius: 999px;
+      background: #ece7de;
+      overflow: hidden;
+      vertical-align: middle;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--green);
+    }
+
+    .progress.amber > span {
+      background: #e39a20;
+    }
+
+    .row-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 11px;
+      color: #504b43;
+      font-size: 15px;
+    }
+
+    .table-footer {
+      height: 72px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 16px;
+      border-top: 1px solid var(--line);
+      color: var(--text-soft);
+      font-size: 13px;
+    }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .page-box {
+      min-width: 29px;
+      height: 29px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--paper);
+      color: #4e493f;
+      font-size: 12px;
+      font-weight: 730;
+    }
+
+    .page-box.is-active {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fffaf3;
+    }
+
+    .page-size {
+      height: 35px;
+      min-width: 90px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      color: #4e493f;
+      font-weight: 690;
+    }
+
+    .drawer-scrim {
+      position: fixed;
+      inset: 0 0 0 calc(var(--sidebar-width) + 900px);
+      background: rgba(42, 39, 35, .34);
+      backdrop-filter: blur(3px);
+      pointer-events: none;
+    }
+
+    .drawer {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      bottom: 16px;
+      width: min(445px, calc(100vw - 940px));
+      min-width: 390px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      border: 1px solid rgba(229, 222, 210, .88);
+      border-radius: 13px;
+      background: rgba(255, 254, 250, .97);
+      box-shadow: var(--shadow-drawer);
+      overflow: hidden;
+    }
+
+    .drawer-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 13px;
+      align-items: start;
+      padding: 48px 22px 20px;
+    }
+
+    .drawer-file {
+      width: 42px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: #e64634;
+      color: #fffaf3;
+      font-size: 12px;
+      font-weight: 800;
+      box-shadow: 0 8px 18px rgba(206, 76, 52, .2);
+    }
+
+    .drawer-file .icon {
+      width: 20px;
+      height: 20px;
+      stroke-width: 2;
+    }
+
+    .drawer-title {
+      min-width: 0;
+    }
+
+    .drawer-title h2 {
+      margin: 4px 0 6px;
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+
+    .drawer-title p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 13px;
+    }
+
+    .close {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      background: transparent;
+      color: #4b463f;
+      font-size: 22px;
+    }
+
+    .drawer-tabs {
+      display: flex;
+      gap: 36px;
+      padding: 0 34px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .drawer-tab {
+      position: relative;
+      height: 42px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--text-soft);
+      font-size: 13px;
+      font-weight: 690;
+    }
+
+    .drawer-tab.is-active {
+      color: var(--accent-strong);
+    }
+
+    .drawer-tab.is-active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    .drawer-body {
+      min-height: 0;
+      padding: 22px;
+      overflow: hidden auto;
+    }
+
+    .metadata-card,
+    .preview-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fcfaf5;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+    }
+
+    .metadata-card {
+      padding: 16px;
+      display: grid;
+      gap: 13px;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      color: #2e2a25;
+      font-size: 13px;
+    }
+
+    .meta-row span:first-child {
+      color: var(--text-soft);
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .tag {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f7f2e9;
+      color: #4b463f;
+      font-size: 12px;
+    }
+
+    .preview-section {
+      margin-top: 20px;
+    }
+
+    .section-title {
+      margin: 0 0 12px;
+      color: #2d2924;
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .preview-card {
+      height: 430px;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .paper-preview {
+      min-height: 100%;
+      padding: 24px 24px 34px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: 0 8px 22px rgba(64,46,24,.05);
+    }
+
+    .paper-preview h3 {
+      margin: 0 0 16px;
+      padding-bottom: 13px;
+      border-bottom: 1px solid var(--line);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 20px;
+    }
+
+    .diagram {
+      height: 150px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    .diagram-box {
+      min-height: 56px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8f3eb;
+      color: #4b463f;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .drawer-foot {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 0 22px;
+      border-top: 1px solid var(--line);
+      background: rgba(255,254,250,.97);
+    }
+
+    .secondary-action,
+    .download-action {
+      height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 740;
+    }
+
+    .secondary-action {
+      border: 1px solid var(--line);
+      background: var(--paper);
+      color: #332f2a;
+    }
+
+    .download-action {
+      min-width: 150px;
+      border: 1px solid var(--accent-strong);
+      background: var(--accent);
+      color: #fffaf3;
+      box-shadow: 0 12px 22px rgba(200, 85, 45, .16);
+    }
+
+    .meta-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .support-pill {
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f8f3eb;
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .upload-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr);
+      gap: 18px;
+    }
+
+    .work-panel {
+      min-width: 0;
+      display: grid;
+      align-content: start;
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: var(--shadow-card);
+    }
+
+    .work-panel__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .work-panel__head h2 {
+      margin: 0 0 5px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .work-panel__head p,
+    .work-panel__head span {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .dropzone {
+      min-height: 290px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 14px;
+      padding: 30px;
+      border: 1px dashed #d1b9a7;
+      border-radius: 13px;
+      background: linear-gradient(180deg, rgba(243, 226, 216, .45), rgba(255, 254, 250, .55)), #fcfaf6;
+      color: var(--text-soft);
+      text-align: center;
+    }
+
+    .dropzone-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .dropzone strong {
+      color: var(--text);
+      font-size: 19px;
+    }
+
+    .selected-list {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .selected-file {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fcfaf5;
+    }
+
+    .selected-file strong {
+      display: block;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .selected-file span {
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .feedback {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fcfaf5;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .feedback.success {
+      color: #2f7039;
+      border-color: #cadfca;
+      background: var(--green-soft);
+    }
+
+    .preview-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .preview-content {
+      padding: 28px 34px 42px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--paper);
+      box-shadow: var(--shadow-card);
+      line-height: 1.68;
+    }
+
+    .preview-content h2 {
+      margin: 0 0 16px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid var(--line);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 25px;
+      line-height: 1.2;
+    }
+
+    .preview-content h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+
+    .preview-content p,
+    .preview-content li {
+      color: #4f4940;
+      font-size: 14px;
+    }
+
+    .preview-content code {
+      padding: 2px 5px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #f6f0e8;
+      color: #843818;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .metadata-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+    }
+
+    .metadata-list div {
+      display: grid;
+      gap: 4px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metadata-list div:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .metadata-list dt {
+      color: var(--text-faint);
+      font-size: 11px;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .metadata-list dd {
+      margin: 0;
+      color: #2f2b27;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body data-page="documents">
+  <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="i-panel-left" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="9" y="2" width="6" height="6" rx="1"></rect><path d="M12 8v4"></path><path d="M5 16v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"></path></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8L9 4l-3 8H2"></path></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"></path><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"></path></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"></path></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.9"></path><path d="M16 3.1a4 4 0 0 1 0 7.8"></path></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7"></path></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.7 8.8a1 1 0 0 1-.6 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.2-2.5a1.3 1.3 0 0 1 1.6 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"></path></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 1 1 5.8 1c-.8 1.3-2.9 1.8-2.9 3.5"></path><path d="M12 17h.01"></path></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.3 21a2 2 0 0 0 3.4 0"></path><path d="M18 8A6 6 0 0 0 6 8c0 7-3 7-3 9h18c0-2-3-2-3-9"></path></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m17 8-5-5-5 5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 21v-5h5"></path><path d="M21 3v5h-5"></path></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18"></path><path d="M6 12h12"></path><path d="M10 19h4"></path></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></symbol>
+    <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></symbol>
+    <symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M22 12H2l3-8h14z"></path><path d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path><path d="M6 16h.01"></path><path d="M10 16h.01"></path></symbol>
+  </svg>
+  <main class="app-frame">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="img">
+            <circle cx="16" cy="16" r="3.2" fill="currentColor"></circle>
+            <path d="M16 2.8v6.2M16 23v6.2M2.8 16h6.2M23 16h6.2M6.7 6.7l4.4 4.4M20.9 20.9l4.4 4.4M25.3 6.7l-4.4 4.4M11.1 20.9l-4.4 4.4" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+          </svg>
+        </span>
+        <span>LightRAGNet</span>
+      </div>
+
+      <nav class="nav">
+        <section class="nav-group">
+          <p class="nav-heading">Workspace</p>
+          <button class="nav-link" type="button"><span class="nav-icon"><svg class="icon"><use href="#i-message"></use></svg></span><span>RAG Chat</span></button>
+          <button class="nav-link is-active" type="button" data-page-target="documents"><span class="nav-icon"><svg class="icon"><use href="#i-file-text"></use></svg></span><span>Documents</span></button>
+          <div class="nav-link"><span class="nav-icon"><svg class="icon"><use href="#i-network"></use></svg></span><span>Knowledge Graph</span></div>
+        </section>
+
+        <section class="nav-group">
+          <p class="nav-heading">Document Flow</p>
+          <button class="nav-link" type="button" data-page-target="upload"><span class="nav-icon"><svg class="icon"><use href="#i-upload"></use></svg></span><span>Upload Document</span></button>
+          <button class="nav-link" type="button" data-page-target="preview"><span class="nav-icon"><svg class="icon"><use href="#i-eye"></use></svg></span><span>Document Preview</span></button>
+        </section>
+
+        <section class="nav-group">
+          <p class="nav-heading">Operations</p>
+          <div class="nav-link"><span class="nav-icon"><svg class="icon"><use href="#i-activity"></use></svg></span><span>System Status</span></div>
+          <div class="nav-link"><span class="nav-icon"><svg class="icon"><use href="#i-database"></use></svg></span><span>Cache Management</span></div>
+        </section>
+      </nav>
+
+      <div class="sidebar-status">
+        <div class="realtime-status"><span class="realtime-dot"></span><span>SignalR Connected</span></div>
+        <div class="version">LightRAGNet v1.0.0</div>
+      </div>
+    </aside>
+
+    <section class="main-shell">
+      <header class="topbar">
+        <button class="menu" type="button" aria-label="Toggle navigation"><svg class="icon"><use href="#i-panel-left"></use></svg></button>
+        <div class="global-search"><svg class="icon icon-sm"><use href="#i-search"></use></svg><span>Search documents, chunks, knowledge...</span><span class="kbd">Ctrl K</span></div>
+        <div></div>
+        <div class="top-actions">
+          <button class="top-icon" type="button" aria-label="Help"><svg class="icon"><use href="#i-help"></use></svg></button>
+          <button class="top-icon" type="button" aria-label="Notifications"><svg class="icon"><use href="#i-bell"></use></svg></button>
+          <div class="avatar">A</div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <div class="workspace-inner">
+          <section class="prototype-page" data-panel="documents" aria-label="Documents prototype">
+          <div class="page-head">
+            <div>
+              <h1>Documents</h1>
+              <p>Manage and monitor your knowledge base documents</p>
+            </div>
+            <button class="primary-action" type="button" data-page-target="upload"><svg class="icon icon-sm"><use href="#i-upload"></use></svg> Upload Document ˅</button>
+          </div>
+
+          <section class="summary-grid" aria-label="Document summary">
+            <article class="summary-card">
+              <div class="summary-top"><span><svg class="icon icon-sm"><use href="#i-file-text"></use></svg> Total Documents</span></div>
+              <div class="summary-value">1,248</div>
+              <div class="summary-note">+12 this week</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-top"><span><svg class="icon icon-sm"><use href="#i-check"></use></svg> Indexed</span><span class="count">79.0%</span></div>
+              <div class="summary-value">986</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-top"><span><svg class="icon icon-sm"><use href="#i-clock"></use></svg> Processing</span><span class="count">1.4%</span></div>
+              <div class="summary-value">18</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-top"><span><svg class="icon icon-sm"><use href="#i-x-circle"></use></svg> Failed</span><span class="count">1.9%</span></div>
+              <div class="summary-value">24</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-top"><span><svg class="icon icon-sm"><use href="#i-hard-drive"></use></svg> Total Size</span></div>
+              <div class="summary-value">256.7 GB</div>
+              <div style="color:var(--text-soft);font-size:12px">+8.3 GB this week</div>
+            </article>
+          </section>
+
+          <nav class="tabs" aria-label="Document states">
+            <span class="tab is-active">All <span class="count">1,248</span></span>
+            <span class="tab">Indexed <span class="count">986</span></span>
+            <span class="tab">Processing <span class="count">18</span></span>
+            <span class="tab">Failed <span class="count">24</span></span>
+            <span class="tab">Skipped <span class="count">220</span></span>
+          </nav>
+
+          <section class="toolbar-row" aria-label="Document toolbar">
+            <div class="field"><svg class="icon icon-sm"><use href="#i-search"></use></svg><span>Search documents...</span></div>
+            <div class="selectish"><span>File Type</span><span>⌄</span></div>
+            <div class="selectish"><span>RAG Status</span><span>⌄</span></div>
+            <div class="selectish"><span>Tag</span><span>⌄</span></div>
+            <div class="field" style="width:116px"><svg class="icon icon-sm"><use href="#i-filter"></use></svg><span>More Filters</span></div>
+            <button class="square-button" type="button" aria-label="Refresh"><svg class="icon icon-sm"><use href="#i-refresh"></use></svg></button>
+          </section>
+
+          <section class="table-card" aria-label="Document table frame">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:42px"><span class="check"></span></th>
+                  <th>File Name</th>
+                  <th>Size</th>
+                  <th>Uploaded Time</th>
+                  <th>RAG Status</th>
+                  <th>Progress</th>
+                  <th style="text-align:right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="check"></span></td>
+                  <td>
+                    <div class="file-cell">
+                      <span class="file-icon"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                      <span class="file-name"><strong>LightRAGNet_Architecture_Overview.pdf</strong><span class="file-type">PDF</span></span>
+                    </div>
+                  </td>
+                  <td>12.4 MB</td>
+                  <td>2024-05-24 14:32</td>
+                  <td><span class="pill green">✓ Indexed</span></td>
+                  <td>100% <span class="progress"><span style="width:100%"></span></span></td>
+                  <td><span class="row-actions"><svg class="icon icon-sm"><use href="#i-eye"></use></svg><svg class="icon icon-sm"><use href="#i-download"></use></svg><svg class="icon icon-sm"><use href="#i-more"></use></svg></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check"></span></td>
+                  <td>
+                    <div class="file-cell">
+                      <span class="file-icon blue"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                      <span class="file-name"><strong>RAG_Retrieval_Best_Practices.md</strong><span class="file-type">MD</span></span>
+                    </div>
+                  </td>
+                  <td>856 KB</td>
+                  <td>2024-05-24 11:08</td>
+                  <td><span class="pill green">✓ Indexed</span></td>
+                  <td>100% <span class="progress"><span style="width:100%"></span></span></td>
+                  <td><span class="row-actions"><svg class="icon icon-sm"><use href="#i-eye"></use></svg><svg class="icon icon-sm"><use href="#i-download"></use></svg><svg class="icon icon-sm"><use href="#i-more"></use></svg></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check"></span></td>
+                  <td>
+                    <div class="file-cell">
+                      <span class="file-icon blue"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                      <span class="file-name"><strong>Product_Requirements.docx</strong><span class="file-type">DOCX</span></span>
+                    </div>
+                  </td>
+                  <td>2.1 MB</td>
+                  <td>2024-05-23 18:45</td>
+                  <td><span class="pill amber">◷ Processing</span></td>
+                  <td>65% <span class="progress amber"><span style="width:65%"></span></span></td>
+                  <td><span class="row-actions"><svg class="icon icon-sm"><use href="#i-eye"></use></svg><svg class="icon icon-sm"><use href="#i-download"></use></svg><svg class="icon icon-sm"><use href="#i-more"></use></svg></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check"></span></td>
+                  <td>
+                    <div class="file-cell">
+                      <span class="file-icon"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                      <span class="file-name"><strong>API_Reference_Guide.pdf</strong><span class="file-type">PDF</span></span>
+                    </div>
+                  </td>
+                  <td>5.3 MB</td>
+                  <td>2024-05-23 09:12</td>
+                  <td><span class="pill red">× Failed</span></td>
+                  <td>0% <span class="progress"><span style="width:0%"></span></span></td>
+                  <td><span class="row-actions"><svg class="icon icon-sm"><use href="#i-eye"></use></svg><svg class="icon icon-sm"><use href="#i-download"></use></svg><svg class="icon icon-sm"><use href="#i-more"></use></svg></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check"></span></td>
+                  <td>
+                    <div class="file-cell">
+                      <span class="file-icon gray"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                      <span class="file-name"><strong>Meeting_Notes_2024-05-22.txt</strong><span class="file-type">TXT</span></span>
+                    </div>
+                  </td>
+                  <td>120 KB</td>
+                  <td>2024-05-22 21:33</td>
+                  <td><span class="pill green">✓ Indexed</span></td>
+                  <td>100% <span class="progress"><span style="width:100%"></span></span></td>
+                  <td><span class="row-actions"><svg class="icon icon-sm"><use href="#i-eye"></use></svg><svg class="icon icon-sm"><use href="#i-download"></use></svg><svg class="icon icon-sm"><use href="#i-more"></use></svg></span></td>
+                </tr>
+              </tbody>
+            </table>
+            <footer class="table-footer">
+              <span>Showing 1 to 20 of 1,248 results</span>
+              <div class="pagination">
+                <span class="page-box">‹</span>
+                <span class="page-box is-active">1</span>
+                <span class="page-box">2</span>
+                <span class="page-box">3</span>
+                <span>...</span>
+                <span class="page-box">63</span>
+                <span class="page-box">›</span>
+              </div>
+              <span class="page-size">20 / page ˅</span>
+            </footer>
+          </section>
+          </section>
+
+          <section class="prototype-page" data-panel="upload" aria-label="Upload Document prototype">
+            <div class="page-head">
+              <div>
+                <h1>Upload Document</h1>
+                <p>Stage markdown, PDF, and Word documents for later knowledge ingestion.</p>
+                <div class="meta-pills">
+                  <span class="support-pill">10 files max</span>
+                  <span class="support-pill">10 MB each</span>
+                  <span class="support-pill">.md / .markdown / .pdf / .docx</span>
+                  <span class="support-pill">Add to RAG later</span>
+                </div>
+              </div>
+              <button class="button secondary-action" type="button" data-page-target="documents">Back to Documents</button>
+            </div>
+
+            <div class="upload-workbench">
+              <section class="work-panel" aria-label="Batch upload">
+                <div class="work-panel__head">
+                  <div>
+                    <h2>Batch Upload</h2>
+                    <p>Local validation runs before submit.</p>
+                  </div>
+                  <span>0 / 10 queued</span>
+                </div>
+
+                <div class="dropzone">
+                  <div class="dropzone-icon"><svg class="icon icon-lg"><use href="#i-upload"></use></svg></div>
+                  <strong>Drop documents here</strong>
+                  <button class="primary-action" type="button"><svg class="icon icon-sm"><use href="#i-upload"></use></svg> Choose documents</button>
+                  <span>.md, .markdown, .pdf, .docx</span>
+                </div>
+              </section>
+
+              <section class="work-panel" aria-label="Selected files">
+                <div class="work-panel__head">
+                  <div>
+                    <h2>Selected Files</h2>
+                    <p>Files are uploaded together as multipart field <code>files</code>.</p>
+                  </div>
+                  <span>3 / 10 staged</span>
+                </div>
+
+                <ul class="selected-list">
+                  <li class="selected-file">
+                    <span class="file-icon"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                    <span><strong>LightRAGNet_Architecture_Overview.pdf</strong><span>12.4 MB</span></span>
+                    <span class="pill amber">Too large</span>
+                  </li>
+                  <li class="selected-file">
+                    <span class="file-icon blue"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                    <span><strong>RAG_Retrieval_Best_Practices.md</strong><span>856 KB</span></span>
+                    <span class="pill green">Ready</span>
+                  </li>
+                  <li class="selected-file">
+                    <span class="file-icon blue"><svg class="icon"><use href="#i-file-text"></use></svg></span>
+                    <span><strong>Product_Requirements.docx</strong><span>2.1 MB</span></span>
+                    <span class="pill green">Ready</span>
+                  </li>
+                </ul>
+
+                <div class="feedback">Unsupported extension, oversized files, and duplicate selected file names are rejected before upload.</div>
+                <button class="primary-action" type="button">Upload</button>
+              </section>
+            </div>
+
+            <p class="feedback success">Uploaded documents will appear in Documents. Add to RAG is started later from the document list.</p>
+          </section>
+
+          <section class="prototype-page" data-panel="preview" aria-label="Document Preview prototype">
+            <div class="page-head">
+              <div>
+                <h1>Document Preview</h1>
+                <p>Review safe preview content served by the document preview API.</p>
+                <div class="meta-pills">
+                  <span class="support-pill">Document 1248</span>
+                  <span class="support-pill">RAG_Retrieval_Best_Practices.md</span>
+                  <span class="support-pill">text/markdown</span>
+                </div>
+              </div>
+              <button class="button secondary-action" type="button" data-page-target="documents">Back to Documents</button>
+            </div>
+
+            <div class="preview-layout">
+              <article class="preview-content" aria-label="Document preview content">
+                <h2>RAG Retrieval Best Practices</h2>
+                <p>This page represents the full preview route for a selected document. The frontend only renders content returned by the preview API; it does not guess links from physical file paths.</p>
+                <h3>1. Retrieval Flow</h3>
+                <p>Documents are uploaded first, then added to RAG from the document list. When indexing completes, references from chat can open this same safe preview route.</p>
+                <ul>
+                  <li>Markdown and text render as readable content.</li>
+                  <li>Converted DOCX content appears as Markdown when available.</li>
+                  <li>Missing preview content shows an explicit empty state.</li>
+                </ul>
+                <h3>2. Contract Boundary</h3>
+                <p>The UI calls <code>GET /api/document-preview/{id}/content</code> and renders the returned <code>fileName</code>, <code>contentType</code>, and <code>content</code>.</p>
+              </article>
+
+              <aside class="work-panel" aria-label="Preview metadata">
+                <div class="work-panel__head">
+                  <div>
+                    <h2>Preview Metadata</h2>
+                    <p>Returned by the safe preview endpoint.</p>
+                  </div>
+                </div>
+                <dl class="metadata-list">
+                  <div><dt>File Name</dt><dd>RAG_Retrieval_Best_Practices.md</dd></div>
+                  <div><dt>Document Id</dt><dd>1248</dd></div>
+                  <div><dt>Content Type</dt><dd>text/markdown</dd></div>
+                  <div><dt>State</dt><dd><span class="pill green">Preview available</span></dd></div>
+                  <div><dt>Empty State</dt><dd>No document selected opens a neutral empty page.</dd></div>
+                </dl>
+              </aside>
+            </div>
+          </section>
+        </div>
+
+      </section>
+    </section>
+  </main>
+  <script>
+    const pageTitles = {
+      documents: "Documents",
+      upload: "Upload Document",
+      preview: "Document Preview"
+    };
+
+    function setPage(page) {
+      if (!pageTitles[page]) {
+        return;
+      }
+
+      document.body.dataset.page = page;
+      document.querySelectorAll("[data-page-target]").forEach((element) => {
+        element.classList.toggle("is-active", element.dataset.pageTarget === page);
+      });
+      document.title = `LightRAGNet ${pageTitles[page]} Prototype`;
+    }
+
+    document.querySelectorAll("[data-page-target]").forEach((element) => {
+      element.addEventListener("click", () => {
+        setPage(element.dataset.pageTarget);
+        history.replaceState(null, "", `#${element.dataset.pageTarget}`);
+      });
+    });
+
+    setPage(location.hash.replace("#", "") || "documents");
+  </script>
+</body>
+</html>
