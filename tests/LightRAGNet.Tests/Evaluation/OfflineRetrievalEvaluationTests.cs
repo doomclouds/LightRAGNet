@@ -1,4 +1,5 @@
 using FluentAssertions;
+using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 
 namespace LightRAGNet.Tests.Evaluation;
@@ -33,12 +34,56 @@ public sealed class OfflineRetrievalEvaluationTests
     public async Task RetrievalEvaluationCorpus_SeedsExpectedDocumentsGraphAndChunks()
     {
         var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var architectureVector = fixture.VectorStore.Get(
-            RetrievalEvaluationCorpus.ChunksCollection,
-            "chunk-architecture-rag-components");
+        var expectedChunks = new Dictionary<string, (string FilePath, string Content)>
+        {
+            ["chunk-overview-hallucination"] = (
+                RetrievalEvaluationCorpus.OverviewPath,
+                "LightRAG reduces hallucinations by grounding generated answers in retrieved documents and references."),
+            ["chunk-architecture-rag-components"] = (
+                RetrievalEvaluationCorpus.ArchitecturePath,
+                "A RAG system requires a retrieval system, an embedding model, and a generation model."),
+            ["chunk-operations-health-cache"] = (
+                RetrievalEvaluationCorpus.OperationsPath,
+                "Operations include health checks, cache management, deployment readiness, and safe maintenance workflows."),
+            ["chunk-storage-vector-databases"] = (
+                RetrievalEvaluationCorpus.StoragePath,
+                "LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure."),
+            ["chunk-evaluation-quality-metrics"] = (
+                RetrievalEvaluationCorpus.EvaluationPath,
+                "Evaluation tracks faithfulness, answer relevance, context recall, and context precision.")
+        };
+        var seededVectors = new Dictionary<string, VectorDocument>();
+        var seededTextChunks = new Dictionary<string, Dictionary<string, object>>();
 
+        foreach (var (chunkId, expected) in expectedChunks)
+        {
+            var vectorDocument = fixture.VectorStore.Get(
+                RetrievalEvaluationCorpus.ChunksCollection,
+                chunkId);
+            vectorDocument.Should().NotBeNull();
+            vectorDocument!.Content.Should().Be(expected.Content);
+            vectorDocument.Metadata[RetrievalEvaluationCorpus.ChunkIdKey]
+                .Should()
+                .Be(chunkId);
+            vectorDocument.Metadata[RetrievalEvaluationCorpus.FilePathKey]
+                .Should()
+                .Be(expected.FilePath);
+            seededVectors[chunkId] = vectorDocument;
+
+            var textChunk = await fixture.TextChunks.GetByIdAsync(chunkId, CancellationToken.None);
+            textChunk.Should().NotBeNull();
+            textChunk![RetrievalEvaluationCorpus.ContentKey]
+                .Should()
+                .Be(expected.Content);
+            textChunk[RetrievalEvaluationCorpus.FilePathKey]
+                .Should()
+                .Be(expected.FilePath);
+            seededTextChunks[chunkId] = textChunk;
+        }
+
+        var architectureVector = seededVectors["chunk-architecture-rag-components"];
         architectureVector.Should().NotBeNull();
-        architectureVector!.Metadata[RetrievalEvaluationCorpus.FilePathKey]
+        architectureVector.Metadata[RetrievalEvaluationCorpus.FilePathKey]
             .Should()
             .Be(RetrievalEvaluationCorpus.ArchitecturePath);
         fixture.GraphStore.GetSeededNode("RETRIEVAL_SYSTEM")
@@ -48,17 +93,17 @@ public sealed class OfflineRetrievalEvaluationTests
             .Should()
             .NotBeNull();
 
-        var architectureChunk = await fixture.TextChunks.GetByIdAsync(
-            "chunk-architecture-rag-components",
-            CancellationToken.None);
+        var architectureChunk = seededTextChunks["chunk-architecture-rag-components"];
         architectureChunk.Should().NotBeNull();
-        architectureChunk![RetrievalEvaluationCorpus.ContentKey].Should().BeOfType<string>()
+        architectureChunk[RetrievalEvaluationCorpus.ContentKey].Should().BeOfType<string>()
             .Which.Should().Contain("retrieval system");
 
         var vectorChunks = fixture.VectorStore.Collections[RetrievalEvaluationCorpus.ChunksCollection];
         var textChunkItems = fixture.TextChunks.Items;
         vectorChunks.Should().HaveCount(5);
         textChunkItems.Should().HaveCount(5);
+        vectorChunks.Keys.Should().BeEquivalentTo(expectedChunks.Keys);
+        textChunkItems.Keys.Should().BeEquivalentTo(expectedChunks.Keys);
         vectorChunks.Keys.Should().BeEquivalentTo(textChunkItems.Keys);
 
         foreach (var (chunkId, document) in vectorChunks)
