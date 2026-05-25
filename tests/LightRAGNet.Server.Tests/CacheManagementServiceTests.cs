@@ -614,7 +614,8 @@ public sealed class CacheManagementServiceTests
                 NullLogger<LightRagLlmCacheService>.Instance),
             metricsRecorder ?? new RecordingCacheMetricsRecorder(),
             new CacheClearPlanner(),
-            NullLogger<CacheManagementService>.Instance);
+            NullLogger<CacheManagementService>.Instance,
+            new FixedTimeProvider(StableMetricHour.AddMinutes(10)));
     }
 
     private static CacheMetricEvent CreateRead(
@@ -680,6 +681,14 @@ public sealed class CacheManagementServiceTests
                 metrics
                     .Where(metric => metric.Timestamp >= from && metric.Timestamp <= to)
                     .ToList());
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow()
+        {
+            return utcNow;
         }
     }
 

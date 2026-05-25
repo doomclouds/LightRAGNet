@@ -9,7 +9,8 @@ public sealed class CacheManagementService(
     LightRagLlmCacheService llmCacheService,
     ICacheMetricsRecorder metricsRecorder,
     CacheClearPlanner clearPlanner,
-    ILogger<CacheManagementService> logger)
+    ILogger<CacheManagementService> logger,
+    TimeProvider? timeProvider = null)
 {
     private static readonly string[] FamilyOrder =
     [
@@ -26,7 +27,7 @@ public sealed class CacheManagementService(
     {
         var normalizedWorkspace = NormalizeWorkspace(workspace);
         var normalizedWindow = string.Equals(window, "7d", StringComparison.OrdinalIgnoreCase) ? "7d" : "24h";
-        var generatedAt = DateTimeOffset.UtcNow;
+        var generatedAt = (timeProvider ?? TimeProvider.System).GetUtcNow();
         var from = normalizedWindow == "7d" ? generatedAt.AddDays(-7) : generatedAt.AddHours(-24);
 
         var metrics = await metricsStore.ReadAsync(from, generatedAt, cancellationToken);
