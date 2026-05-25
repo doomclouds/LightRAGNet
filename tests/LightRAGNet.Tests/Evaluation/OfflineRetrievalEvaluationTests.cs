@@ -38,6 +38,54 @@ public sealed class OfflineRetrievalEvaluationTests
     }
 
     [Fact]
+    public async Task Local_UsesLowLevelEntityFocus()
+    {
+        var fixture = await RetrievalEvaluationFixture.CreateAsync();
+        var evaluationCase = new RetrievalEvaluationCase(
+            Name: "Local_UsesLowLevelEntityFocus",
+            Query: "How does the retrieval system work?",
+            Mode: QueryMode.Local,
+            HighLevelKeywords: [],
+            LowLevelKeywords: ["RETRIEVAL_SYSTEM"],
+            TopK: 3,
+            ChunkTopK: 2,
+            ExpectedChunkIds: ["chunk-architecture-rag-components"],
+            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
+            ExpectedRelationshipPairs: [],
+            ForbiddenChunkIds: [],
+            EnableRerank: false);
+
+        var result = await fixture.RunAsync(evaluationCase);
+
+        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+    }
+
+    [Fact]
+    public async Task Global_UsesHighLevelRelationshipFocus()
+    {
+        var fixture = await RetrievalEvaluationFixture.CreateAsync();
+        var evaluationCase = new RetrievalEvaluationCase(
+            Name: "Global_UsesHighLevelRelationshipFocus",
+            Query: "Which architecture relationship connects retrieval and embedding?",
+            Mode: QueryMode.Global,
+            HighLevelKeywords: ["rag architecture"],
+            LowLevelKeywords: [],
+            TopK: 3,
+            ChunkTopK: 2,
+            ExpectedChunkIds: ["chunk-architecture-rag-components"],
+            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedEntityIds: [],
+            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
+            ForbiddenChunkIds: [],
+            EnableRerank: false);
+
+        var result = await fixture.RunAsync(evaluationCase);
+
+        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+    }
+
+    [Fact]
     public void RetrievalEvaluationCase_CapturesExpectedOracleFields()
     {
         var evaluationCase = new RetrievalEvaluationCase(

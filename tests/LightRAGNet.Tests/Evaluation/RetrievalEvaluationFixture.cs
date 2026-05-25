@@ -2,7 +2,9 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Services.Query;
+using LightRAGNet.Services.RetrievalContext;
 using LightRAGNet.Tests.TestDoubles;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -11,17 +13,20 @@ namespace LightRAGNet.Tests.Evaluation;
 public sealed class RetrievalEvaluationFixture
 {
     private readonly NaiveQueryService naiveQueryService;
+    private readonly RetrievalContextService retrievalContextService;
 
     private RetrievalEvaluationFixture(
         InMemoryVectorStore vectorStore,
         InMemoryGraphStore graphStore,
         InMemoryKvStore textChunks,
-        NaiveQueryService naiveQueryService)
+        NaiveQueryService naiveQueryService,
+        RetrievalContextService retrievalContextService)
     {
         VectorStore = vectorStore;
         GraphStore = graphStore;
         TextChunks = textChunks;
         this.naiveQueryService = naiveQueryService;
+        this.retrievalContextService = retrievalContextService;
     }
 
     public InMemoryVectorStore VectorStore { get; }
@@ -42,14 +47,60 @@ public sealed class RetrievalEvaluationFixture
             rerankService ?? Substitute.For<IRerankService>(),
             new RerankDocumentChunker(tokenizer, rerankOptions),
             rerankOptions);
+        var embeddingService = Substitute.For<IEmbeddingService>();
+        embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([0.1f, 0.2f, 0.3f]);
 
         await RetrievalEvaluationCorpus.SeedAsync(vectorStore, graphStore, textChunks);
+        SeedKnowledgeGraphVectors(vectorStore);
+
+        var retrievalContextService = new RetrievalContextService(
+            embeddingService,
+            vectorStore,
+            graphStore,
+            rerankCoordinator,
+            tokenizer,
+            textChunks,
+            Options.Create(new LightRAGOptions { KgChunkPickMethod = "WEIGHT" }),
+            NullLoggerFactory.Instance);
 
         return new RetrievalEvaluationFixture(
             vectorStore,
             graphStore,
             textChunks,
-            new NaiveQueryService(vectorStore, rerankCoordinator, tokenizer));
+            new NaiveQueryService(vectorStore, rerankCoordinator, tokenizer),
+            retrievalContextService);
+    }
+
+    private static void SeedKnowledgeGraphVectors(InMemoryVectorStore vectorStore)
+    {
+        vectorStore.Seed("entities", new VectorDocument
+        {
+            Id = "entity-RETRIEVAL_SYSTEM",
+            Content = "Retrieves relevant documents for a query.",
+            Metadata = new Dictionary<string, object>
+            {
+                ["entity_name"] = "RETRIEVAL_SYSTEM",
+                ["entity_type"] = "Component",
+                ["description"] = "Retrieves relevant documents for a query.",
+                ["source_id"] = "chunk-architecture-rag-components",
+                ["file_path"] = RetrievalEvaluationCorpus.ArchitecturePath
+            }
+        });
+
+        vectorStore.Seed("relationships", new VectorDocument
+        {
+            Id = "relationship-RETRIEVAL_SYSTEM-EMBEDDING_MODEL",
+            Content = "Retrieval systems depend on embedding models for vector search.",
+            Metadata = new Dictionary<string, object>
+            {
+                ["src_id"] = "RETRIEVAL_SYSTEM",
+                ["tgt_id"] = "EMBEDDING_MODEL",
+                ["keywords"] = "rag architecture",
+                ["description"] = "Retrieval systems depend on embedding models for vector search.",
+                ["source_id"] = "chunk-architecture-rag-components"
+            }
+        });
     }
 
     public async Task<RetrievalEvaluationResult> RunAsync(RetrievalEvaluationCase evaluationCase)
@@ -64,6 +115,15 @@ public sealed class RetrievalEvaluationFixture
             EnableRerank = evaluationCase.EnableRerank
         };
 
+        if (evaluationCase.Mode == QueryMode.Local)
+        {
+            queryParam.MaxRelationTokens = 0;
+        }
+        else if (evaluationCase.Mode == QueryMode.Global)
+        {
+            queryParam.MaxEntityTokens = 0;
+        }
+
         if (evaluationCase.Mode == QueryMode.Naive)
         {
             var result = await naiveQueryService.BuildContextAsync(
@@ -74,7 +134,19 @@ public sealed class RetrievalEvaluationFixture
             return RetrievalEvaluationResult.FromRawData(result?.RawData);
         }
 
-        throw new NotSupportedException($"Evaluation mode '{evaluationCase.Mode}' is not wired yet.");
+        var keywords = new KeywordsResult
+        {
+            HighLevelKeywords = [.. evaluationCase.HighLevelKeywords],
+            LowLevelKeywords = [.. evaluationCase.LowLevelKeywords]
+        };
+
+        var contextResult = await retrievalContextService.BuildQueryContextAsync(
+            evaluationCase.Query,
+            keywords,
+            queryParam,
+            CancellationToken.None);
+
+        return RetrievalEvaluationResult.FromRawData(contextResult?.RawData);
     }
 }
 
