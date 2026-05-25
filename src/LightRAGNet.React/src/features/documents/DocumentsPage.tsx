@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Download, Eye, Play, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { getApiBase } from '@/api/http';
 import {
@@ -8,8 +9,13 @@ import {
   getMarkdownDocuments,
   retryDocument
 } from '@/api/documentsApi';
+import { Button, ButtonLink } from '@/shared/components/Button';
+import { EmptyState } from '@/shared/components/EmptyState';
+import { ErrorState } from '@/shared/components/ErrorState';
+import { IconButton } from '@/shared/components/IconButton';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { PageTabs, type PageTabItem } from '@/shared/components/PageTabs';
+import { Panel } from '@/shared/components/Panel';
 import { StatusPill } from '@/shared/components/StatusPill';
 import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
@@ -510,29 +516,21 @@ export function DocumentsPage({
             </>
           }
           actions={
-            <a className="lrn-button document-list__upload-link" href="/documents/upload" aria-label="Upload">
-              Upload
-            </a>
+            <ButtonLink tone="primary" className="document-list__upload-link" href="/documents/upload">
+              Upload Document
+            </ButtonLink>
           }
         />
       </article>
 
-      <div onClickCapture={handleStatusTabClick}>
-        <PageTabs
-          tabs={statusTabs}
-          currentId={status.length > 0 ? status.toLowerCase() : 'all'}
-          label="Document status views"
-        />
-      </div>
-
-      <div className="document-list__summary" aria-label="Document lifecycle summary">
-        <SummaryCard label="Total Documents" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
-        <SummaryCard label="Completed" value={completedCount} detail="Completed on this page" />
-        <SummaryCard label="In Flight" value={activeCount} detail="Active on this page" />
-        <SummaryCard label="Needs Review" value={failedCount} detail="Failed on this page" />
-      </div>
-
       <div className="document-list__toolbar">
+        <div onClickCapture={handleStatusTabClick}>
+          <PageTabs
+            tabs={statusTabs}
+            currentId={status.length > 0 ? status.toLowerCase() : 'all'}
+            label="Document status views"
+          />
+        </div>
         <label className="document-list__filter">
           <span>Status</span>
           <select aria-label="RAG status filter" value={status} onChange={handleStatusChange}>
@@ -546,20 +544,28 @@ export function DocumentsPage({
         </label>
       </div>
 
+      <section className="document-list__summary-grid" aria-label="Document summary">
+        <SummaryCard label="Total in result" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
+        <SummaryCard label="Active on this page" value={activeCount} detail="Queued, processing, pending, or deleting" />
+        <SummaryCard label="Failed on this page" value={failedCount} detail="Failed ingestion or deletion" />
+        <SummaryCard label="Completed on this page" value={completedCount} detail="Ready in the RAG system" />
+      </section>
+
       {isLoading ? <p className="document-list__state">Loading documents...</p> : null}
 
       {errorMessage ? (
-        <p className="document-list__feedback document-list__feedback--error" role="alert">
-          {errorMessage}
-        </p>
+        <ErrorState message={errorMessage} />
       ) : null}
 
       {!isLoading && !errorMessage && documents.length === 0 ? (
-        <p className="document-list__state">No documents found.</p>
+        <EmptyState
+          title="No documents found"
+          description="Upload a document or adjust the status filter to see matching files."
+        />
       ) : null}
 
       {!isLoading && documents.length > 0 ? (
-        <div className="document-list__table-wrap">
+        <Panel className="document-list__table-panel">
           <table className="lrn-data-table document-list__table" aria-label="Document lifecycle">
             <thead>
               <tr>
@@ -586,7 +592,7 @@ export function DocumentsPage({
               ))}
             </tbody>
           </table>
-        </div>
+        </Panel>
       ) : null}
 
       {previewDocument ? (
@@ -599,15 +605,15 @@ export function DocumentsPage({
       ) : null}
 
       <footer className="document-list__footer">
-        <button type="button" disabled={page <= 1 || isLoading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+        <Button disabled={page <= 1 || isLoading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
           Previous
-        </button>
+        </Button>
         <span>
           Page {page} of {totalPages}
         </span>
-        <button type="button" disabled={page >= totalPages || isLoading} onClick={() => setPage((current) => current + 1)}>
+        <Button disabled={page >= totalPages || isLoading} onClick={() => setPage((current) => current + 1)}>
           Next
-        </button>
+        </Button>
       </footer>
     </section>
   );
@@ -656,32 +662,57 @@ function DocumentRow({
       </td>
       <td>
         <div className="document-list__actions">
-          <button type="button" aria-label={`View ${document.fileName}`} disabled={isActionPending} onClick={() => void onView(document)}>
-            View
-          </button>
+          <IconButton
+            icon={Eye}
+            label={`View ${document.fileName}`}
+            disabled={isActionPending}
+            onClick={() => void onView(document)}
+          />
           {downloadHref ? (
-            <a href={downloadHref} download aria-label={`Download ${document.fileName}`}>
-              Download
+            <a
+              className="lrn-icon-link"
+              href={downloadHref}
+              download
+              aria-label={`Download ${document.fileName}`}
+              title={`Download ${document.fileName}`}
+            >
+              <Download aria-hidden="true" size={16} />
             </a>
           ) : null}
           {canAddToRag(document) ? (
-            <button type="button" aria-label={`Add ${document.fileName} to RAG`} disabled={isActionPending} onClick={() => void onAddToRag(document)}>
-              Add to RAG
-            </button>
+            <IconButton
+              icon={Play}
+              label={`Add ${document.fileName} to RAG`}
+              tone="primary"
+              disabled={isActionPending}
+              onClick={() => void onAddToRag(document)}
+            />
           ) : null}
           {canRetry(document) ? (
-            <button type="button" aria-label={`Retry ${document.fileName}`} disabled={isActionPending} onClick={() => void onRetry(document)}>
-              Retry
-            </button>
+            <IconButton
+              icon={RotateCcw}
+              label={`Retry ${document.fileName}`}
+              tone="warning"
+              disabled={isActionPending}
+              onClick={() => void onRetry(document)}
+            />
           ) : null}
           {canCancel(document) ? (
-            <button type="button" aria-label={`Cancel ${document.fileName}`} disabled={isActionPending} onClick={() => void onCancel(document)}>
-              Cancel
-            </button>
+            <IconButton
+              icon={XCircle}
+              label={`Cancel ${document.fileName}`}
+              tone="warning"
+              disabled={isActionPending}
+              onClick={() => void onCancel(document)}
+            />
           ) : null}
-          <button type="button" aria-label={`Delete ${document.fileName}`} disabled={isActionPending || isBusy(document)} onClick={() => void onDelete(document)}>
-            Delete
-          </button>
+          <IconButton
+            icon={Trash2}
+            label={`Delete ${document.fileName}`}
+            tone="danger"
+            disabled={isActionPending || isBusy(document)}
+            onClick={() => void onDelete(document)}
+          />
         </div>
       </td>
     </tr>

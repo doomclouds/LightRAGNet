@@ -13,7 +13,7 @@ describe('DocumentsPage parity checklist', () => {
     expect(source).toContain('Status');
     expect(source).toContain('View');
     expect(source).toContain('Download');
-    expect(source).toContain('Add to RAG');
+    expect(source).toContain('Add ${document.fileName} to RAG');
     expect(source).toContain('Retry');
     expect(source).toContain('Cancel');
     expect(source).toContain('Delete');
