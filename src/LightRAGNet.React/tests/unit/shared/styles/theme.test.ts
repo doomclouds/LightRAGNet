@@ -5,8 +5,16 @@ import { describe, expect, it } from 'vitest';
 const themeCss = readCss('../../../../src/shared/styles/theme.css');
 const appCss = readCss('../../../../src/shared/styles/app.css');
 
-describe('dark ops theme tokens', () => {
-  it('carries the web dark ops token set with shell overlays', () => {
+describe('light workbench theme tokens', () => {
+  it('carries the approved light shell token set with compatibility aliases', () => {
+    const rootStyles = getRuleBlock(themeCss, ':root');
+
+    expect(rootStyles).toContain('--app-bg: #fbfaf6');
+    expect(rootStyles).toContain('--panel-bg: #fffefa');
+    expect(rootStyles).toContain('--panel-border: #e5ded2');
+    expect(rootStyles).toContain('--accent: #c8552d');
+    expect(rootStyles).toContain('--shadow-panel: 0 18px 46px rgba(64, 46, 24, .08)');
+
     [
       '--app-bg',
       '--panel-bg',
@@ -31,7 +39,12 @@ describe('dark ops theme tokens', () => {
       '--shadow-modal',
       '--scrim',
       '--radius-panel',
-      '--radius-control'
+      '--radius-control',
+      '--sidebar-width',
+      '--topbar-height',
+      '--color-bg',
+      '--color-surface',
+      '--color-primary'
     ].forEach((token) => {
       expect(themeCss).toContain(token);
     });
@@ -39,10 +52,12 @@ describe('dark ops theme tokens', () => {
 
   it('defines shared shell and reusable surface classes', () => {
     [
-      '.app-shell',
+      '.app-frame',
       '.app-topbar',
       '.app-sidebar',
-      '.app-statusbar',
+      '.app-main-shell',
+      '.app-sidebar-status',
+      '.app-realtime-status',
       '.lrn-page-tabs',
       '.lrn-data-table',
       '.lrn-status-pill',
@@ -54,7 +69,7 @@ describe('dark ops theme tokens', () => {
     });
   });
 
-  it('uses dark-theme-safe accent fill foregrounds for document CTAs', () => {
+  it('uses light-theme-safe accent fill foregrounds for document CTAs', () => {
     [
       '.document-upload__picker',
       '.document-upload__submit',
@@ -80,6 +95,16 @@ describe('dark ops theme tokens', () => {
 
 function readCss(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
+}
+
+function getRuleBlock(css: string, selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`${escapedSelector}\\s*\\{(?<block>[^}]+)\\}`, 'm');
+  const match = css.match(pattern);
+
+  expect(match, `Expected CSS rule for ${selector}`).not.toBeNull();
+
+  return match?.groups?.block ?? '';
 }
 
 function getRuleBlockContaining(css: string, selector: string, expectedDeclaration: string): string {

@@ -1,9 +1,19 @@
-import type { ReactNode } from 'react';
-import { Boxes, CircleDot, FileText } from 'lucide-react';
+import type { ComponentType, ReactNode } from 'react';
+import {
+  Activity,
+  Database,
+  FileSearch,
+  Files,
+  MessageSquare,
+  Network,
+  UploadCloud,
+  type LucideProps
+} from 'lucide-react';
 import type { RagTaskHubConnectionState } from '@/api/ragTaskHubClient';
-import { StatusPill } from '@/shared/components/StatusPill';
+import { AppBrandMark } from './AppBrandMark';
 import { ClearAllDataAction } from './ClearAllDataAction';
-import { primaryNavigation } from './navigation';
+import { appVersion } from './appVersion';
+import { primaryNavigationGroups, type NavigationIconId } from './navigation';
 import { resolveRoute } from './router';
 
 type AppLayoutProps = {
@@ -12,61 +22,93 @@ type AppLayoutProps = {
   children: ReactNode;
 };
 
-function getShellStatusTone(connectionStatus: RagTaskHubConnectionState): 'success' | 'accent' | 'warning' {
+const navigationIcons: Record<NavigationIconId, ComponentType<LucideProps>> = {
+  'message-square': MessageSquare,
+  files: Files,
+  network: Network,
+  'upload-cloud': UploadCloud,
+  'file-search': FileSearch,
+  activity: Activity,
+  database: Database
+};
+
+function getRealtimeStatusClass(connectionStatus: RagTaskHubConnectionState): string {
   if (connectionStatus === 'Connected') {
-    return 'success';
+    return 'app-realtime-status--connected';
   }
 
   if (connectionStatus === 'Connecting' || connectionStatus === 'Reconnecting') {
-    return 'accent';
+    return 'app-realtime-status--connecting';
   }
 
-  return 'warning';
+  return 'app-realtime-status--disconnected';
+}
+
+function getNavigationHeadingId(id: string): string {
+  return `nav-${id}`;
 }
 
 export function AppLayout({ currentPath, connectionStatus, children }: AppLayoutProps) {
   const activeRoute = resolveRoute(currentPath);
-  const shellStatusTone = getShellStatusTone(connectionStatus);
 
   return (
-    <div className="app-shell">
-      <header className="app-topbar">
-        <a className="app-brand" href="/" aria-label="LightRAGNet home">
-          <span className="app-brand__mark" aria-hidden="true">
-            <Boxes size={20} strokeWidth={2.4} />
+    <div className="app-frame">
+      <aside className="app-sidebar" aria-label="Application sidebar">
+        <header className="app-brand-row">
+          <a className="app-brand" href="/" aria-label="LightRAGNet home">
+            <AppBrandMark />
+            <span>LightRAGNet</span>
+          </a>
+        </header>
+
+        <nav className="app-nav" aria-label="Primary">
+          {primaryNavigationGroups.map((group) => {
+            const headingId = getNavigationHeadingId(group.id);
+
+            return (
+              <section className="app-nav__group" key={group.id} aria-labelledby={headingId}>
+                <h2 className="app-nav__heading" id={headingId}>
+                  {group.label}
+                </h2>
+                {group.items.map((item) => {
+                  const Icon = navigationIcons[item.icon];
+
+                  return (
+                    <a
+                      key={item.routeId}
+                      className="app-nav__link"
+                      href={item.href}
+                      aria-current={item.routeId === activeRoute.id ? 'page' : undefined}
+                    >
+                      <Icon size={17} aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </a>
+                  );
+                })}
+              </section>
+            );
+          })}
+        </nav>
+
+        <footer className="app-sidebar-status" role="contentinfo" aria-label="Application status">
+          <span className={`app-realtime-status ${getRealtimeStatusClass(connectionStatus)}`}>
+            <span className="app-realtime-status__dot" aria-hidden="true" />
+            <span>SignalR {connectionStatus}</span>
           </span>
-          <span>LightRAGNet</span>
-        </a>
-        <ClearAllDataAction />
-      </header>
+          <span className="app-version">LightRAGNet v{appVersion}</span>
+        </footer>
+      </aside>
 
-      <div className="app-content">
-        <aside className="app-sidebar" aria-label="Application sections">
-          <nav className="app-nav" aria-label="Primary">
-            {primaryNavigation.map((item) => (
-              <a
-                key={item.routeId}
-                className="app-nav__link"
-                href={item.href}
-                aria-current={item.routeId === activeRoute.id ? 'page' : undefined}
-              >
-                <FileText size={16} aria-hidden="true" />
-                <span>{item.label}</span>
-              </a>
-            ))}
-          </nav>
-        </aside>
-
+      <section className="app-main-shell">
+        <div className="app-topbar">
+          <div className="app-route-context">
+            <span className="app-route-context__eyebrow">Current workspace</span>
+            <strong>{activeRoute.title}</strong>
+          </div>
+          <ClearAllDataAction />
+        </div>
         <main className="app-main">{children}</main>
-      </div>
-
-      <div className="app-statusbar" role="contentinfo" aria-label="Application status">
-        <span className="app-statusbar__item">
-          <CircleDot size={14} aria-hidden="true" />
-          SignalR {connectionStatus}
-        </span>
-        <StatusPill tone={shellStatusTone}>{activeRoute.title}</StatusPill>
-      </div>
+      </section>
     </div>
   );
 }

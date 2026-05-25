@@ -1,8 +1,10 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRagTaskHubClient, type RagTaskHubClient, type RagTaskHubHandlers } from '@/api/ragTaskHubClient';
 import { App } from '@/app/App';
+import type { SystemHealthResponse } from '@/api/systemStatusApi';
 import type { MarkdownDocumentDto, PagedResult } from '@/features/documents/documentTypes';
+import type { GraphViewDto } from '@/types/graph';
 
 vi.mock('@/api/ragTaskHubClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/ragTaskHubClient')>();
@@ -12,6 +14,14 @@ vi.mock('@/api/ragTaskHubClient', async (importOriginal) => {
     createRagTaskHubClient: vi.fn()
   };
 });
+
+vi.mock('@/features/graph-workbench/GraphWorkbench', () => ({
+  GraphWorkbench: ({ apiBase }: { apiBase: string }) => (
+    <section className="graph-workbench" data-api-base={apiBase}>
+      <h1>Knowledge Graph</h1>
+    </section>
+  )
+}));
 
 const createRagTaskHubClientMock = vi.mocked(createRagTaskHubClient);
 
@@ -53,6 +63,69 @@ function createClient(): RagTaskHubClient & { capturedHandlers?: RagTaskHubHandl
   return client;
 }
 
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function makeGraphView(): GraphViewDto {
+  return {
+    nodes: [
+      {
+        id: 'LIGHTRAG',
+        label: 'LightRAGNet',
+        size: 12,
+        color: '#2f6fed',
+        type: 'Project',
+        properties: {
+          description: 'LightRAGNet graph smoke node'
+        }
+      }
+    ],
+    edges: [],
+    isTruncated: false
+  };
+}
+
+function makeSystemHealth(): SystemHealthResponse {
+  return {
+    status: 'Healthy',
+    generatedAt: '2026-05-24T10:00:00Z',
+    durationMs: 12,
+    summary: {
+      healthy: 1,
+      degraded: 0,
+      unhealthy: 0,
+      notMeasured: 0
+    },
+    checks: [],
+    fixFirst: [],
+    featureImpacts: []
+  };
+}
+
+function mockRouteFetch() {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes('/api/graph/config')) {
+      return jsonResponse({ maxNodesLimit: 2000 });
+    }
+
+    if (url.includes('/api/graph/query')) {
+      return jsonResponse(makeGraphView());
+    }
+
+    if (url.includes('/api/system/health')) {
+      return jsonResponse(makeSystemHealth());
+    }
+
+    return jsonResponse(paged([]));
+  });
+}
+
 describe('AppLayout', () => {
   let client: RagTaskHubClient & { capturedHandlers?: RagTaskHubHandlers };
 
@@ -67,7 +140,7 @@ describe('AppLayout', () => {
     window.history.pushState({}, '', '/documents');
   });
 
-  it('renders the app banner and document navigation links', () => {
+  it('renders the app banner, grouped navigation, and sidebar footer', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(paged([])), {
         status: 200,
@@ -77,19 +150,30 @@ describe('AppLayout', () => {
 
     render(<App />);
 
-    expect(screen.getByRole('banner')).toHaveTextContent('LightRAGNet');
+    expect(screen.getByRole('link', { name: 'LightRAGNet home' })).toHaveTextContent('LightRAGNet');
 
     const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
+    expect(navigation.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument();
+    expect(navigation.getByRole('heading', { name: 'Document Flow' })).toBeInTheDocument();
+    expect(navigation.getByRole('heading', { name: 'Operations' })).toBeInTheDocument();
     expect(navigation.getByRole('link', { name: 'RAG Chat' })).toHaveAttribute('href', '/');
     expect(navigation.getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/documents');
-    expect(navigation.getByRole('link', { name: 'Upload' })).toHaveAttribute('href', '/documents/upload');
     expect(navigation.getByRole('link', { name: 'Knowledge Graph' })).toHaveAttribute('href', '/graph-view');
+    expect(navigation.getByRole('link', { name: 'Upload Document' })).toHaveAttribute('href', '/documents/upload');
+    expect(navigation.getByRole('link', { name: 'Document Preview' })).toHaveAttribute('href', '/document-preview');
     expect(navigation.getByRole('link', { name: 'System Status' })).toHaveAttribute('href', '/system-status');
     expect(navigation.getByRole('link', { name: 'Cache Management' })).toHaveAttribute('href', '/cache-management');
-    expect(navigation.getByRole('link', { name: 'Document Preview' })).toHaveAttribute('href', '/document-preview');
+
+    const mainLandmarks = screen.getAllByRole('main');
+    expect(mainLandmarks).toHaveLength(1);
+    expect(mainLandmarks[0]).toHaveClass('app-main');
+
+    const status = screen.getByRole('contentinfo', { name: 'Application status' });
+    expect(status).toHaveTextContent('SignalR Connecting');
+    expect(status).toHaveTextContent('LightRAGNet v0.1.0');
   });
 
-  it('renders SignalR status changes in the shell statusbar', async () => {
+  it('renders SignalR status changes in the sidebar footer', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(paged([])), {
         status: 200,
@@ -99,30 +183,30 @@ describe('AppLayout', () => {
 
     render(<App />);
 
-    const statusbar = screen.getByRole('contentinfo', { name: 'Application status' });
-    expect(statusbar).toHaveTextContent('SignalR Connecting');
-    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
+    const status = screen.getByLabelText('Application status');
+    expect(status).toHaveTextContent('SignalR Connecting');
+    expect(status.querySelector('.app-realtime-status--connecting')).toBeInTheDocument();
 
     await act(async () => {
       client.capturedHandlers?.onConnectionStateChanged?.('Connected');
     });
 
-    expect(statusbar).toHaveTextContent('SignalR Connected');
-    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--success');
+    expect(status).toHaveTextContent('SignalR Connected');
+    expect(status.querySelector('.app-realtime-status--connected')).toBeInTheDocument();
 
     await act(async () => {
       client.capturedHandlers?.onConnectionStateChanged?.('Reconnecting');
     });
 
-    expect(statusbar).toHaveTextContent('SignalR Reconnecting');
-    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--accent');
+    expect(status).toHaveTextContent('SignalR Reconnecting');
+    expect(status.querySelector('.app-realtime-status--connecting')).toBeInTheDocument();
 
     await act(async () => {
       client.capturedHandlers?.onConnectionStateChanged?.('ServerNotStarted');
     });
 
-    expect(statusbar).toHaveTextContent('SignalR ServerNotStarted');
-    expect(within(statusbar).getByText('Documents')).toHaveClass('lrn-status-pill--warning');
+    expect(status).toHaveTextContent('SignalR ServerNotStarted');
+    expect(status.querySelector('.app-realtime-status--disconnected')).toBeInTheDocument();
   });
 
   it('wires the production document route to task hub updates', async () => {
@@ -165,7 +249,34 @@ describe('AppLayout', () => {
     render(<App />);
 
     const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
-    expect(navigation.getByRole('link', { name: 'Upload' })).toHaveAttribute('aria-current', 'page');
+    expect(navigation.getByRole('link', { name: 'Upload Document' })).toHaveAttribute('aria-current', 'page');
     expect(navigation.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('keeps the graph route mounted inside the light shell', async () => {
+    window.history.pushState({}, '', '/graph-view');
+    mockRouteFetch();
+
+    const { container } = render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Knowledge Graph' })).toHaveAttribute('aria-current', 'page');
+    const appMain = screen.getByRole('main');
+    expect(appMain).toHaveClass('app-main');
+    await waitFor(() => expect(container.querySelector('.graph-workbench')).toBeInTheDocument());
+  });
+
+  it('keeps the system status route mounted inside the light shell', async () => {
+    window.history.pushState({}, '', '/system-status');
+    mockRouteFetch();
+
+    render(<App />);
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { name: 'System Status' });
+    const appMain = screen.getByRole('main');
+    expect(appMain).toHaveClass('app-main');
+    expect(appMain).toContainElement(heading);
+    expect(appMain.querySelector('.system-status')).toBeInTheDocument();
   });
 });

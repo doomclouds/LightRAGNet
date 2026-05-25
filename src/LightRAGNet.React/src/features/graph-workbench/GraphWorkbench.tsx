@@ -69,7 +69,7 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
   }, [loadGraph]);
 
   return (
-    <main className="graph-workbench" data-api-base={apiBase}>
+    <section className="graph-workbench" data-api-base={apiBase}>
       <div className="graph-workbench__main">
         <GraphCanvas graph={rawGraph} isFetching={isFetching} errorMessage={errorMessage}>
           <div className="graph-workbench__top-left">
@@ -88,6 +88,6 @@ export function GraphWorkbench({ apiBase }: GraphWorkbenchProps) {
         </GraphCanvas>
         <PropertiesPanel apiBase={apiBase} />
       </div>
-    </main>
+    </section>
   );
 }

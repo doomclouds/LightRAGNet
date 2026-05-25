@@ -94,7 +94,7 @@ describe('DocumentsPage', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Documents' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Upload' })).toHaveAttribute('href', '/documents/upload');
+    expect(screen.getByRole('link', { name: 'Upload Document' })).toHaveAttribute('href', '/documents/upload');
     expect(screen.getByRole('columnheader', { name: 'File Name' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'File Size' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Upload Time' })).toBeInTheDocument();
@@ -109,9 +109,9 @@ describe('DocumentsPage', () => {
     expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeInTheDocument();
   });
 
-  it('renders the dark document workbench visual contract', async () => {
+  it('renders the light document workbench visual contract', async () => {
     const loadDocuments = vi.fn().mockResolvedValue(
-      paged([makeDocument({ fileName: 'system-architecture.md' })])
+      paged([makeDocument({ fileName: 'system-architecture.md', fileUrl: '/uploads/system-architecture.md' })])
     );
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
@@ -121,13 +121,19 @@ describe('DocumentsPage', () => {
     const statusViews = screen.getByRole('navigation', { name: 'Document status views' });
     expect(within(statusViews).getByRole('link', { name: 'All Documents' })).toBeInTheDocument();
     expect(within(statusViews).getByRole('link', { name: 'Processing' })).toBeInTheDocument();
-    expect(screen.getByText('Active on this page')).toBeInTheDocument();
-    expect(screen.getByText('Failed on this page')).toBeInTheDocument();
+    const summary = screen.getByRole('region', { name: 'Document summary' });
+    expect(summary).toHaveClass('document-list__summary-grid');
+    expect(within(summary).getByText('Total in result')).toBeInTheDocument();
+    expect(within(summary).getByText('Active on this page')).toBeInTheDocument();
+    expect(within(summary).getByText('Failed on this page')).toBeInTheDocument();
+    expect(within(summary).getByText('Completed on this page')).toBeInTheDocument();
 
     const table = await screen.findByRole('table', { name: 'Document lifecycle' });
+    expect(table).toHaveClass('lrn-data-table');
     const row = within(table).getByRole('row', { name: /system-architecture\.md/i });
     expect(within(row).getByText('Completed')).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'View system-architecture.md' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'View system-architecture.md' })).toHaveClass('lrn-icon-button');
+    expect(within(row).getByRole('link', { name: 'Download system-architecture.md' })).toHaveClass('lrn-icon-link');
   });
 
   it('opens document previews in a same-page drawer without leaving the list route', async () => {
@@ -341,7 +347,7 @@ describe('DocumentsPage', () => {
     const emptyLoad = vi.fn().mockResolvedValue(paged([]));
     const emptyRender = render(<DocumentsPage apiBase={apiBase} loadDocuments={emptyLoad} />);
 
-    expect(await screen.findByText('No documents found.')).toBeInTheDocument();
+    expect(await screen.findByText('No documents found')).toBeInTheDocument();
 
     emptyRender.unmount();
     const failedLoad = vi.fn().mockRejectedValue(new Error('Backend unavailable'));

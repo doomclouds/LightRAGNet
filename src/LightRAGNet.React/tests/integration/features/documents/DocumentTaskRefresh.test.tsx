@@ -122,7 +122,7 @@ describe('Document task refresh', () => {
       dataClearedSubscription.emitDataCleared();
     });
 
-    expect(await screen.findByText('No documents found.')).toBeInTheDocument();
+    expect(await screen.findByText('No documents found')).toBeInTheDocument();
     expect(loadDocuments).toHaveBeenCalledTimes(2);
   });
 
@@ -209,7 +209,7 @@ describe('Document task refresh', () => {
       />
     );
 
-    await screen.findByText('No documents found.');
+    await screen.findByText('No documents found');
     await user.selectOptions(screen.getByLabelText('RAG status filter'), 'Queued');
     await waitFor(() => expect(loadDocuments).toHaveBeenCalledTimes(2));
     vi.useFakeTimers();

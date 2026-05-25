@@ -40,14 +40,17 @@ describe('UploadDocumentPage', () => {
     window.history.pushState({}, '', '/documents');
   });
 
-  it('renders the dark upload workbench visual contract', () => {
+  it('renders the upload workbench visual contract', () => {
     render(<UploadDocumentPage apiBase={apiBase} />);
 
     expect(screen.getByRole('heading', { name: 'Upload Document' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Upload workbench' })).toHaveClass('document-upload__workbench');
     expect(screen.getByText('Drop documents here')).toBeInTheDocument();
     expect(screen.getByLabelText('Choose documents')).toBeInTheDocument();
+    expect(screen.getByText('Accepted formats')).toBeInTheDocument();
     expect(screen.getByText('.md, .markdown, .pdf, .docx')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload' })).toHaveClass('lrn-button--primary');
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument();
   });
 
   it('rejects unsupported and oversized files before upload', async () => {
@@ -91,6 +94,52 @@ describe('UploadDocumentPage', () => {
     expect(screen.getByText(/Uploaded 2 documents successfully/i)).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(/Add to RAG can be started later/i);
     expect(screen.queryByText('2 files selected')).not.toBeInTheDocument();
+  });
+
+  it('clears the success message after a completed upload', async () => {
+    const user = userEvent.setup();
+    const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(1));
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    await user.upload(screen.getByLabelText('Choose documents'), makeFile('one.md', 1024));
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    await waitFor(() => expect(screen.getByText(/Uploaded 1 documents successfully/i)).toBeInTheDocument());
+    expect(screen.queryByText('1 files selected')).not.toBeInTheDocument();
+
+    const clearButton = screen.getByRole('button', { name: 'Clear selection' });
+    expect(clearButton).toBeEnabled();
+
+    await user.click(clearButton);
+
+    expect(screen.queryByText(/Uploaded 1 documents successfully/i)).not.toBeInTheDocument();
+  });
+
+  it('clears the current selection and local messages', async () => {
+    const user = userEvent.setup();
+    const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(0));
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    const input = screen.getByLabelText('Choose documents') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [makeFile('notes.md', 1024), makeFile('notes.txt', 1024, 'text/plain')]
+      }
+    });
+
+    expect(screen.getByText('notes.md')).toBeInTheDocument();
+    expect(screen.getByText(/Unsupported file type: notes\.txt/i)).toBeInTheDocument();
+    expect(input.files).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+
+    expect(screen.getByText('No files selected')).toBeInTheDocument();
+    expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unsupported file type: notes\.txt/i)).not.toBeInTheDocument();
+    expect(input.value).toBe('');
+    expect(uploadDocuments).not.toHaveBeenCalled();
   });
 
   it('rejects duplicate file names', async () => {
@@ -163,6 +212,7 @@ describe('UploadDocumentPage', () => {
 
     await waitFor(() => expect(uploadDocuments).toHaveBeenCalledTimes(1));
     expect(input).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeDisabled();
 
     fireEvent.change(input, {
       target: {
@@ -172,6 +222,9 @@ describe('UploadDocumentPage', () => {
 
     expect(screen.getByText('one.md')).toBeInTheDocument();
     expect(screen.queryByText('changed.md')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(screen.getByText('one.md')).toBeInTheDocument();
 
     resolveUpload(successfulUpload(1));
     await waitFor(() => expect(screen.getByText(/Uploaded 1 documents successfully/i)).toBeInTheDocument());
@@ -200,6 +253,25 @@ describe('UploadDocumentPage', () => {
     await user.click(screen.getByRole('button', { name: 'Upload' }));
 
     expect(screen.getByText('Please select files first')).toBeInTheDocument();
+    expect(uploadDocuments).not.toHaveBeenCalled();
+  });
+
+  it('clears the empty selection upload error', async () => {
+    const user = userEvent.setup();
+    const uploadDocuments = vi.fn().mockResolvedValue(successfulUpload(0));
+
+    render(<UploadDocumentPage apiBase={apiBase} uploadDocuments={uploadDocuments} />);
+
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(screen.getByText('Please select files first')).toBeInTheDocument();
+
+    const clearButton = screen.getByRole('button', { name: 'Clear selection' });
+    expect(clearButton).toBeEnabled();
+
+    await user.click(clearButton);
+
+    expect(screen.queryByText('Please select files first')).not.toBeInTheDocument();
     expect(uploadDocuments).not.toHaveBeenCalled();
   });
 });
