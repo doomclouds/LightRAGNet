@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const themeCss = readCss('../../../../src/shared/styles/theme.css');
 const appCss = readCss('../../../../src/shared/styles/app.css');
+const cacheCss = readCss('../../../../src/features/cache-management/cache-management.css');
 
 describe('light workbench theme tokens', () => {
   it('carries the approved light shell token set with compatibility aliases', () => {
@@ -89,6 +90,30 @@ describe('light workbench theme tokens', () => {
       expect(getRuleBlockContaining(appCss, selector, 'background: var(--accent-fill-hover)')).toContain(
         'background: var(--accent-fill-hover)'
       );
+    });
+  });
+
+  it('keeps cache management surfaces on the approved light theme tokens', () => {
+    [
+      '#111922',
+      '#1b2430',
+      '#263140',
+      '#2a3544',
+      '#0a0f15',
+      '#d7f7ff',
+      '#d5deea',
+      '#dce4ee'
+    ].forEach((darkLiteral) => {
+      expect(cacheCss).not.toContain(darkLiteral);
+    });
+
+    [
+      'background: var(--panel-bg-elevated)',
+      'border-bottom: 1px solid var(--panel-border)',
+      'color: var(--text-muted)',
+      'background: var(--accent-soft)'
+    ].forEach((lightDeclaration) => {
+      expect(cacheCss).toContain(lightDeclaration);
     });
   });
 });
