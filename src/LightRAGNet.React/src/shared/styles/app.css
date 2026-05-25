@@ -521,7 +521,7 @@ select {
 
 .document-panel h1 {
   margin: 0 0 8px;
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: 30px;
 }
 
 .document-panel p {
@@ -550,7 +550,7 @@ select {
 
 .document-upload h1 {
   margin: 0 0 8px;
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: 30px;
 }
 
 .document-upload p {
@@ -715,7 +715,7 @@ select {
 
 .document-list h1 {
   margin: 0 0 8px;
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: 30px;
 }
 
 .document-list__header p {

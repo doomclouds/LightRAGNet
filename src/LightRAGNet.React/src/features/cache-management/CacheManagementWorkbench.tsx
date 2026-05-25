@@ -295,7 +295,7 @@ export function CacheManagementWorkbenchView({
     overview.entrySamples.length === 0;
 
   return (
-    <main className="cache-workbench" data-api-base={apiBase}>
+    <section className="cache-workbench" data-api-base={apiBase}>
       <section className="cache-workbench__inner">
         <header className="cache-page-head">
           <div>
@@ -378,6 +378,6 @@ export function CacheManagementWorkbenchView({
           </>
         ) : null}
       </section>
-    </main>
+    </section>
   );
 }

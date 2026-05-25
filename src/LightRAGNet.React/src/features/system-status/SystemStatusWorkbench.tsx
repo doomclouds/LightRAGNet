@@ -50,7 +50,7 @@ export function SystemStatusWorkbench({ apiBase }: SystemStatusWorkbenchProps) {
   }
 
   return (
-    <main className="system-status" data-api-base={apiBase}>
+    <section className="system-status" data-api-base={apiBase}>
       <header className="system-status__header">
         <div>
           <p className="system-status__eyebrow">Operations</p>
@@ -79,6 +79,6 @@ export function SystemStatusWorkbench({ apiBase }: SystemStatusWorkbenchProps) {
           <SystemStatusFeatureImpact items={health.featureImpacts} />
         </div>
       ) : null}
-    </main>
+    </section>
   );
 }

@@ -17,9 +17,9 @@ vi.mock('@/api/ragTaskHubClient', async (importOriginal) => {
 
 vi.mock('@/features/graph-workbench/GraphWorkbench', () => ({
   GraphWorkbench: ({ apiBase }: { apiBase: string }) => (
-    <main className="graph-workbench" data-api-base={apiBase}>
+    <section className="graph-workbench" data-api-base={apiBase}>
       <h1>Knowledge Graph</h1>
-    </main>
+    </section>
   )
 }));
 
@@ -164,11 +164,13 @@ describe('AppLayout', () => {
     expect(navigation.getByRole('link', { name: 'System Status' })).toHaveAttribute('href', '/system-status');
     expect(navigation.getByRole('link', { name: 'Cache Management' })).toHaveAttribute('href', '/cache-management');
 
-    const status = screen.getByLabelText('Application status');
+    const mainLandmarks = screen.getAllByRole('main');
+    expect(mainLandmarks).toHaveLength(1);
+    expect(mainLandmarks[0]).toHaveClass('app-main');
+
+    const status = screen.getByRole('contentinfo', { name: 'Application status' });
     expect(status).toHaveTextContent('SignalR Connecting');
     expect(status).toHaveTextContent('LightRAGNet v0.1.0');
-    expect(screen.queryByRole('contentinfo', { name: 'Application status' })).not.toBeInTheDocument();
-    expect(screen.queryAllByRole('main')).toHaveLength(0);
   });
 
   it('renders SignalR status changes in the sidebar footer', async () => {
@@ -255,11 +257,13 @@ describe('AppLayout', () => {
     window.history.pushState({}, '', '/graph-view');
     mockRouteFetch();
 
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Knowledge Graph' })).toHaveAttribute('aria-current', 'page');
-    await waitFor(() => expect(screen.getByRole('main')).toHaveClass('graph-workbench'));
+    const appMain = screen.getByRole('main');
+    expect(appMain).toHaveClass('app-main');
+    await waitFor(() => expect(container.querySelector('.graph-workbench')).toBeInTheDocument());
   });
 
   it('keeps the system status route mounted inside the light shell', async () => {
@@ -269,7 +273,10 @@ describe('AppLayout', () => {
     render(<App />);
 
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'System Status' })).toBeInTheDocument();
-    expect(screen.getByRole('main')).toHaveClass('system-status');
+    const heading = await screen.findByRole('heading', { name: 'System Status' });
+    const appMain = screen.getByRole('main');
+    expect(appMain).toHaveClass('app-main');
+    expect(appMain).toContainElement(heading);
+    expect(appMain.querySelector('.system-status')).toBeInTheDocument();
   });
 });

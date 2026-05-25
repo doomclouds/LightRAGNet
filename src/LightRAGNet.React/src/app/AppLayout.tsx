@@ -90,13 +90,13 @@ export function AppLayout({ currentPath, connectionStatus, children }: AppLayout
           })}
         </nav>
 
-        <div className="app-sidebar-status" aria-label="Application status">
+        <footer className="app-sidebar-status" role="contentinfo" aria-label="Application status">
           <span className={`app-realtime-status ${getRealtimeStatusClass(connectionStatus)}`}>
             <span className="app-realtime-status__dot" aria-hidden="true" />
             <span>SignalR {connectionStatus}</span>
           </span>
           <span className="app-version">LightRAGNet v{appVersion}</span>
-        </div>
+        </footer>
       </aside>
 
       <section className="app-main-shell">
@@ -107,7 +107,7 @@ export function AppLayout({ currentPath, connectionStatus, children }: AppLayout
           </div>
           <ClearAllDataAction />
         </div>
-        <div className="app-main">{children}</div>
+        <main className="app-main">{children}</main>
       </section>
     </div>
   );

@@ -137,7 +137,7 @@ export function RagChatWorkbench({ apiBase, initialAssistantReferenceUrl }: Prop
   }, [apiBase, input, isRunning, settings]);
 
   return (
-    <main className="rag-chat">
+    <section className="rag-chat">
       <section className="rag-chat__inner">
         <PageHeader
           title="RAG Chat"
@@ -182,7 +182,7 @@ export function RagChatWorkbench({ apiBase, initialAssistantReferenceUrl }: Prop
           }
         />
       ) : null}
-    </main>
+    </section>
   );
 }
 
