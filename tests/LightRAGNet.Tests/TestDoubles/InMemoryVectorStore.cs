@@ -18,7 +18,9 @@ public sealed class InMemoryVectorStore : IVectorStore
     public List<(string Collection, IReadOnlyList<string> Ids)> GetByIdsCalls { get; } = [];
     public List<(string Collection, string Query, int TopK, float Threshold)> QueryCalls { get; } = [];
     public List<(string Collection, IReadOnlyList<VectorDocument> Documents)> UpsertCalls { get; } = [];
+    public Dictionary<string, float> QueryScoresByDocumentId { get; } = new(StringComparer.Ordinal);
 
+    public int? QueryCandidateCountOverride { get; set; }
     public string? ThrowOnDeleteCollection { get; set; }
     public string? ThrowOnUpsertCollection { get; set; }
 
@@ -45,16 +47,25 @@ public sealed class InMemoryVectorStore : IVectorStore
         cancellationToken.ThrowIfCancellationRequested();
         QueryCalls.Add((collection, query, topK, threshold));
 
-        var results = GetCollection(collection)
+        var scoredDocuments = GetCollection(collection)
             .Values
-            .Take(topK)
             .Select(document => new SearchResult
             {
                 Id = document.Id,
-                Score = 1.0f,
+                Score = QueryScoresByDocumentId.TryGetValue(document.Id, out var score) ? score : 1.0f,
                 Metadata = Clone(document.Metadata),
                 Content = document.Content
-            })
+            });
+
+        if (QueryScoresByDocumentId.Count > 0)
+        {
+            scoredDocuments = scoredDocuments
+                .OrderByDescending(item => item.Score)
+                .ThenBy(item => item.Id, StringComparer.Ordinal);
+        }
+
+        var results = scoredDocuments
+            .Take(QueryCandidateCountOverride ?? topK)
             .ToList();
 
         return Task.FromResult(results);

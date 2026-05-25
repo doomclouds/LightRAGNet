@@ -96,6 +96,67 @@ public sealed class OfflineRetrievalEvaluationTests
     }
 
     [Fact]
+    public async Task Mix_ReturnsKgEntityRelationshipAndRelatedChunk()
+    {
+        var fixture = await RetrievalEvaluationFixture.CreateAsync();
+        var evaluationCase = new RetrievalEvaluationCase(
+            Name: "Mix_ReturnsKgEntityRelationshipAndRelatedChunk",
+            Query: "How do retrieval and embedding work together in RAG architecture?",
+            Mode: QueryMode.Mix,
+            HighLevelKeywords: ["rag architecture"],
+            LowLevelKeywords: ["RETRIEVAL_SYSTEM"],
+            TopK: 3,
+            ChunkTopK: 2,
+            ExpectedChunkIds: ["chunk-architecture-rag-components"],
+            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
+            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
+            ForbiddenChunkIds: [],
+            EnableRerank: false);
+
+        var result = await fixture.RunAsync(evaluationCase);
+
+        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+    }
+
+    [Fact]
+    public async Task Rerank_KeepsRelevantChunkInFinalContext()
+    {
+        var rerankService = new DeterministicEvaluationRerankService(new Dictionary<string, float>(StringComparer.Ordinal)
+        {
+            ["Operations include health checks, cache management, deployment readiness, and safe maintenance workflows."] = 0.99f,
+            ["LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure."] = 0.10f,
+            ["Evaluation tracks faithfulness, answer relevance, context recall, and context precision."] = 0.05f
+        });
+        var fixture = await RetrievalEvaluationFixture.CreateAsync(rerankService);
+        fixture.VectorStore.QueryScoresByDocumentId["chunk-storage-vector-databases"] = 0.90f;
+        fixture.VectorStore.QueryScoresByDocumentId["chunk-evaluation-quality-metrics"] = 0.80f;
+        fixture.VectorStore.QueryScoresByDocumentId["chunk-operations-health-cache"] = 0.70f;
+        fixture.VectorStore.QueryScoresByDocumentId["chunk-architecture-rag-components"] = 0.20f;
+        fixture.VectorStore.QueryScoresByDocumentId["chunk-overview-hallucination"] = 0.10f;
+        fixture.VectorStore.QueryCandidateCountOverride = 3;
+
+        var evaluationCase = new RetrievalEvaluationCase(
+            Name: "Rerank_KeepsRelevantChunkInFinalContext",
+            Query: "Which operational workflow covers cache and health checks?",
+            Mode: QueryMode.Naive,
+            HighLevelKeywords: [],
+            LowLevelKeywords: [],
+            TopK: 5,
+            ChunkTopK: 1,
+            ExpectedChunkIds: ["chunk-operations-health-cache"],
+            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.OperationsPath],
+            ExpectedEntityIds: [],
+            ExpectedRelationshipPairs: [],
+            ForbiddenChunkIds: ["chunk-overview-hallucination", "chunk-evaluation-quality-metrics"],
+            EnableRerank: true);
+
+        var result = await fixture.RunAsync(evaluationCase);
+
+        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+    }
+
+    [Fact]
     public void RetrievalEvaluationCase_CapturesExpectedOracleFields()
     {
         var evaluationCase = new RetrievalEvaluationCase(
@@ -234,5 +295,28 @@ public sealed class OfflineRetrievalEvaluationTests
         fixture.GraphStore.GetSeededEdge("CACHE_MANAGEMENT", "RETRIEVAL_SYSTEM")
             .Should()
             .NotBeNull();
+    }
+
+    private sealed class DeterministicEvaluationRerankService(
+        IReadOnlyDictionary<string, float> scoresByDocument) : IRerankService
+    {
+        public Task<List<RerankResult>> RerankAsync(
+            string query,
+            List<string> documents,
+            int topN,
+            CancellationToken cancellationToken = default)
+        {
+            var results = documents
+                .Select((document, index) => new RerankResult
+                {
+                    Index = index,
+                    RelevanceScore = scoresByDocument.TryGetValue(document, out var score) ? score : 0.0f
+                })
+                .OrderByDescending(result => result.RelevanceScore)
+                .Take(topN)
+                .ToList();
+
+            return Task.FromResult(results);
+        }
     }
 }
