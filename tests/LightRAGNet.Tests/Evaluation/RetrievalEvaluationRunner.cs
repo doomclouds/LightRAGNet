@@ -39,6 +39,16 @@ public static class RetrievalEvaluationRunner
                 $"{evaluationCase.Name} should not include forbidden chunk {chunkId}");
         }
 
+        if (evaluationCase.ExpectedChunkOrder.Count > 0)
+        {
+            chunks
+                .Select(chunk => chunk["chunk_id"].ToString())
+                .Should()
+                .Equal(
+                    evaluationCase.ExpectedChunkOrder,
+                    $"{evaluationCase.Name} should return expected chunks in order");
+        }
+
         foreach (var filePath in evaluationCase.ExpectedReferenceFilePaths)
         {
             references.Should().Contain(
@@ -73,21 +83,6 @@ public static class RetrievalEvaluationRunner
                     $"{evaluationCase.Name} should include relationship {pair.SourceId}->{pair.TargetId}");
             }
         }
-    }
-
-    public static void AssertChunkIds(
-        RetrievalEvaluationResult result,
-        RetrievalEvaluationCase evaluationCase,
-        IReadOnlyList<string> expectedChunkIds)
-    {
-        var rawData = GetRawData(result, evaluationCase);
-        var data = GetDictionary(rawData, "data", evaluationCase, "raw data");
-        var chunks = GetList(data, "chunks", evaluationCase);
-
-        chunks
-            .Select(chunk => chunk["chunk_id"].ToString())
-            .Should()
-            .Equal(expectedChunkIds, $"{evaluationCase.Name} should return expected chunks in order");
     }
 
     private static Dictionary<string, object> GetRawData(

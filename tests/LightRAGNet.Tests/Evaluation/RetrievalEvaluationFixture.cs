@@ -17,19 +17,22 @@ public sealed class RetrievalEvaluationFixture
 
     private readonly NaiveQueryService naiveQueryService;
     private readonly RetrievalContextService retrievalContextService;
+    private readonly DeterministicEvaluationRerankService? deterministicRerankService;
 
     private RetrievalEvaluationFixture(
         InMemoryVectorStore vectorStore,
         InMemoryGraphStore graphStore,
         InMemoryKvStore textChunks,
         NaiveQueryService naiveQueryService,
-        RetrievalContextService retrievalContextService)
+        RetrievalContextService retrievalContextService,
+        DeterministicEvaluationRerankService? deterministicRerankService)
     {
         VectorStore = vectorStore;
         GraphStore = graphStore;
         TextChunks = textChunks;
         this.naiveQueryService = naiveQueryService;
         this.retrievalContextService = retrievalContextService;
+        this.deterministicRerankService = deterministicRerankService;
     }
 
     public InMemoryVectorStore VectorStore { get; }
@@ -68,8 +71,11 @@ public sealed class RetrievalEvaluationFixture
         var textChunks = new InMemoryKvStore();
         var tokenizer = new FakeTokenizer();
         var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
+        var deterministicRerankService = rerankService is null
+            ? new DeterministicEvaluationRerankService()
+            : null;
         var rerankCoordinator = new RerankCoordinator(
-            rerankService ?? Substitute.For<IRerankService>(),
+            rerankService ?? deterministicRerankService!,
             new RerankDocumentChunker(tokenizer, rerankOptions),
             rerankOptions);
         var embeddingService = Substitute.For<IEmbeddingService>();
@@ -94,7 +100,8 @@ public sealed class RetrievalEvaluationFixture
             graphStore,
             textChunks,
             new NaiveQueryService(vectorStore, rerankCoordinator, tokenizer),
-            retrievalContextService);
+            retrievalContextService,
+            deterministicRerankService);
     }
 
     private static void SeedKnowledgeGraphVectors(
@@ -172,6 +179,55 @@ public sealed class RetrievalEvaluationFixture
             CancellationToken.None);
 
         return RetrievalEvaluationResult.FromRawData(contextResult?.RawData);
+    }
+
+    public void ApplyRankingHints(RetrievalEvaluationCase evaluationCase)
+    {
+        ArgumentNullException.ThrowIfNull(evaluationCase);
+
+        VectorStore.QueryScoresByDocumentId.Clear();
+        foreach (var (chunkId, score) in evaluationCase.VectorScoresByChunkId)
+        {
+            VectorStore.QueryScoresByDocumentId[chunkId] = score;
+        }
+
+        deterministicRerankService?.SetScores(evaluationCase.RerankScoresByContent);
+    }
+
+    private sealed class DeterministicEvaluationRerankService : IRerankService
+    {
+        private readonly Dictionary<string, float> scoresByDocument = new(StringComparer.Ordinal);
+
+        public void SetScores(IReadOnlyDictionary<string, float> scores)
+        {
+            scoresByDocument.Clear();
+            foreach (var (document, score) in scores)
+            {
+                scoresByDocument[document] = score;
+            }
+        }
+
+        public Task<List<RerankResult>> RerankAsync(
+            string query,
+            List<string> documents,
+            int topN,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var results = documents
+                .Select((document, index) => new RerankResult
+                {
+                    Index = index,
+                    RelevanceScore = scoresByDocument.TryGetValue(document, out var score) ? score : 0.0f
+                })
+                .OrderByDescending(result => result.RelevanceScore)
+                .ThenBy(result => result.Index)
+                .Take(topN)
+                .ToList();
+
+            return Task.FromResult(results);
+        }
     }
 }
 

@@ -6,193 +6,53 @@ namespace LightRAGNet.Tests.Evaluation;
 
 public sealed class OfflineRetrievalEvaluationTests
 {
-    private const string ArchitecturePath = "docs/eval/02_rag_architecture.md";
-    private const string OperationsPath = "docs/eval/03_lightrag_improvements.md";
-
     [Fact]
-    public async Task Naive_ReturnsExpectedArchitectureChunk()
+    public async Task JsonOracleCases_MatchRawRetrievalData()
     {
-        var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Naive_ReturnsExpectedArchitectureChunk",
-            Query: "Which components are required in a RAG system?",
-            Mode: QueryMode.Naive,
-            HighLevelKeywords: [],
-            LowLevelKeywords: [],
-            TopK: 3,
-            ChunkTopK: 2,
-            ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [ArchitecturePath],
-            ExpectedEntityIds: [],
-            ExpectedRelationshipPairs: [],
-            ForbiddenChunkIds: ["chunk-operations-health-cache"],
-            EnableRerank: false);
+        var dataSet = RetrievalEvaluationDataLoader.LoadDefault();
+        var fixture = await RetrievalEvaluationFixture.CreateFromDataSetAsync(dataSet);
 
-        var result = await fixture.RunAsync(evaluationCase);
-
-        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
-        RetrievalEvaluationRunner.AssertChunkIds(
-            result,
-            evaluationCase,
+        dataSet.Cases.Select(evaluationCase => evaluationCase.Name).Should().Contain(
             [
-                "chunk-overview-hallucination",
-                "chunk-architecture-rag-components"
-            ]);
-    }
+                "Local_UsesLowLevelEntityFocus",
+                "Global_UsesHighLevelRelationshipFocus",
+                "Rerank_KeepsRelevantChunkInFinalContext"
+            ],
+            "routing assertions should stay attached to their JSON cases");
 
-    [Fact]
-    public async Task Local_UsesLowLevelEntityFocus()
-    {
-        var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Local_UsesLowLevelEntityFocus",
-            Query: "How does the retrieval system work?",
-            Mode: QueryMode.Local,
-            HighLevelKeywords: [],
-            LowLevelKeywords: ["RETRIEVAL_SYSTEM"],
-            TopK: 3,
-            ChunkTopK: 2,
-            ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [ArchitecturePath],
-            ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
-            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
-            ForbiddenChunkIds: [],
-            EnableRerank: false);
-
-        var result = await fixture.RunAsync(evaluationCase);
-
-        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
-        fixture.VectorStore.QueryCalls.Should().Contain(
-            call => call.Collection == "entities"
-                    && call.Query == "RETRIEVAL_SYSTEM"
-                    && call.TopK == 3,
-            "Local evaluation should route low-level keywords to entity vector search");
-    }
-
-    [Fact]
-    public async Task Global_UsesHighLevelRelationshipFocus()
-    {
-        var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Global_UsesHighLevelRelationshipFocus",
-            Query: "Which architecture relationship connects retrieval and embedding?",
-            Mode: QueryMode.Global,
-            HighLevelKeywords: ["rag architecture"],
-            LowLevelKeywords: [],
-            TopK: 3,
-            ChunkTopK: 2,
-            ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [ArchitecturePath],
-            ExpectedEntityIds: ["RETRIEVAL_SYSTEM", "EMBEDDING_MODEL"],
-            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
-            ForbiddenChunkIds: [],
-            EnableRerank: false);
-
-        var result = await fixture.RunAsync(evaluationCase);
-
-        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
-        fixture.VectorStore.QueryCalls.Should().Contain(
-            call => call.Collection == "relationships"
-                    && call.Query == "rag architecture"
-                    && call.TopK == 3,
-            "Global evaluation should route high-level keywords to relationship vector search");
-    }
-
-    [Fact]
-    public async Task Mix_ReturnsKgEntityRelationshipAndRelatedChunk()
-    {
-        var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Mix_ReturnsKgEntityRelationshipAndRelatedChunk",
-            Query: "How do retrieval and embedding work together in RAG architecture?",
-            Mode: QueryMode.Mix,
-            HighLevelKeywords: ["rag architecture"],
-            LowLevelKeywords: ["RETRIEVAL_SYSTEM"],
-            TopK: 3,
-            ChunkTopK: 2,
-            ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [ArchitecturePath],
-            ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
-            ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
-            ForbiddenChunkIds: [],
-            EnableRerank: false);
-
-        var result = await fixture.RunAsync(evaluationCase);
-
-        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
-    }
-
-    [Fact]
-    public async Task Rerank_KeepsRelevantChunkInFinalContext()
-    {
-        var rerankService = new DeterministicEvaluationRerankService(new Dictionary<string, float>(StringComparer.Ordinal)
+        foreach (var evaluationCase in dataSet.Cases)
         {
-            ["Operations include health checks, cache management, deployment readiness, and safe maintenance workflows."] = 0.99f,
-            ["LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure."] = 0.10f,
-            ["Evaluation tracks faithfulness, answer relevance, context recall, and context precision."] = 0.05f
-        });
-        var fixture = await RetrievalEvaluationFixture.CreateAsync(rerankService);
-        fixture.VectorStore.QueryScoresByDocumentId["chunk-storage-vector-databases"] = 0.90f;
-        fixture.VectorStore.QueryScoresByDocumentId["chunk-evaluation-quality-metrics"] = 0.80f;
-        fixture.VectorStore.QueryScoresByDocumentId["chunk-operations-health-cache"] = 0.70f;
-        fixture.VectorStore.QueryScoresByDocumentId["chunk-architecture-rag-components"] = 0.20f;
-        fixture.VectorStore.QueryScoresByDocumentId["chunk-overview-hallucination"] = 0.10f;
+            fixture.ApplyRankingHints(evaluationCase);
+            var queryCallCountBefore = fixture.VectorStore.QueryCalls.Count;
+            var result = await fixture.RunAsync(evaluationCase);
 
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Rerank_KeepsRelevantChunkInFinalContext",
-            Query: "Which operational workflow covers cache and health checks?",
-            Mode: QueryMode.Naive,
-            HighLevelKeywords: [],
-            LowLevelKeywords: [],
-            TopK: 5,
-            ChunkTopK: 3,
-            ExpectedChunkIds: ["chunk-operations-health-cache"],
-            ExpectedReferenceFilePaths: [OperationsPath],
-            ExpectedEntityIds: [],
-            ExpectedRelationshipPairs: [],
-            ForbiddenChunkIds: ["chunk-overview-hallucination"],
-            EnableRerank: true);
+            RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
+            AssertRoutingCalls(fixture, evaluationCase, queryCallCountBefore);
+        }
+    }
 
-        var result = await fixture.RunAsync(evaluationCase);
+    [Fact]
+    public void RetrievalEvaluationCase_LoadsExpectedOracleFieldsFromJson()
+    {
+        var dataSet = RetrievalEvaluationDataLoader.LoadDefault();
+        var evaluationCase = dataSet.Cases.Should()
+            .ContainSingle(item => item.Name == "Rerank_KeepsRelevantChunkInFinalContext")
+            .Subject;
 
-        RetrievalEvaluationRunner.AssertCase(result, evaluationCase);
-        RetrievalEvaluationRunner.AssertChunkIds(
-            result,
-            evaluationCase,
+        evaluationCase.ExpectedDocumentNames.Should().Equal("03_lightrag_improvements.md");
+        evaluationCase.ExpectedChunkIds.Should().Equal("chunk-operations-health-cache");
+        evaluationCase.ExpectedChunkOrder.Should().Equal(
             [
                 "chunk-operations-health-cache",
                 "chunk-storage-vector-databases",
                 "chunk-evaluation-quality-metrics"
             ]);
-        fixture.VectorStore.QueryCalls.Should().Contain(
-            call => call.Collection == "chunks"
-                    && call.Query == evaluationCase.Query
-                    && call.TopK == 3,
-            "rerank evaluation should use the production-requested chunk candidate count");
-    }
-
-    [Fact]
-    public void RetrievalEvaluationCase_CapturesExpectedOracleFields()
-    {
-        var evaluationCase = new RetrievalEvaluationCase(
-            Name: "Naive_ReturnsExpectedArchitectureChunk",
-            Query: "Which components are required in a RAG system?",
-            Mode: QueryMode.Naive,
-            HighLevelKeywords: [],
-            LowLevelKeywords: [],
-            TopK: 3,
-            ChunkTopK: 2,
-            ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [ArchitecturePath],
-            ExpectedEntityIds: [],
-            ExpectedRelationshipPairs: [],
-            ForbiddenChunkIds: ["chunk-storage-vector-databases"],
-            EnableRerank: false);
-
-        evaluationCase.Name.Should().Be("Naive_ReturnsExpectedArchitectureChunk");
-        evaluationCase.Mode.Should().Be(QueryMode.Naive);
-        evaluationCase.ExpectedChunkIds.Should().ContainSingle("chunk-architecture-rag-components");
-        evaluationCase.ForbiddenChunkIds.Should().ContainSingle("chunk-storage-vector-databases");
+        evaluationCase.VectorScoresByChunkId.Should().Contain(
+            "chunk-storage-vector-databases",
+            0.90f);
+        evaluationCase.RerankScoresByContent.Should().Contain(
+            "Operations include health checks, cache management, deployment readiness, and safe maintenance workflows.",
+            0.99f);
     }
 
     [Fact]
@@ -328,26 +188,38 @@ public sealed class OfflineRetrievalEvaluationTests
         }
     }
 
-    private sealed class DeterministicEvaluationRerankService(
-        IReadOnlyDictionary<string, float> scoresByDocument) : IRerankService
+    private static void AssertRoutingCalls(
+        RetrievalEvaluationFixture fixture,
+        RetrievalEvaluationCase evaluationCase,
+        int queryCallCountBefore)
     {
-        public Task<List<RerankResult>> RerankAsync(
-            string query,
-            List<string> documents,
-            int topN,
-            CancellationToken cancellationToken = default)
-        {
-            var results = documents
-                .Select((document, index) => new RerankResult
-                {
-                    Index = index,
-                    RelevanceScore = scoresByDocument.TryGetValue(document, out var score) ? score : 0.0f
-                })
-                .OrderByDescending(result => result.RelevanceScore)
-                .Take(topN)
-                .ToList();
+        var newQueryCalls = fixture.VectorStore.QueryCalls.Skip(queryCallCountBefore);
 
-            return Task.FromResult(results);
+        switch (evaluationCase.Name)
+        {
+            case "Local_UsesLowLevelEntityFocus":
+                newQueryCalls.Should().Contain(
+                    call => call.Collection == "entities"
+                            && call.Query == "RETRIEVAL_SYSTEM"
+                            && call.TopK == 3,
+                    "Local evaluation should route low-level keywords to entity vector search");
+                break;
+
+            case "Global_UsesHighLevelRelationshipFocus":
+                newQueryCalls.Should().Contain(
+                    call => call.Collection == "relationships"
+                            && call.Query == "rag architecture"
+                            && call.TopK == 3,
+                    "Global evaluation should route high-level keywords to relationship vector search");
+                break;
+
+            case "Rerank_KeepsRelevantChunkInFinalContext":
+                newQueryCalls.Should().Contain(
+                    call => call.Collection == "chunks"
+                            && call.Query == evaluationCase.Query
+                            && call.TopK == evaluationCase.ChunkTopK,
+                    "rerank evaluation should use the production-requested chunk candidate count");
+                break;
         }
     }
 }
