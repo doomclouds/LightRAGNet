@@ -11,7 +11,12 @@ import { EdgeArrowProgram } from "sigma/rendering";
 import { useGraphSettingsStore } from "@/stores/graphSettingsStore";
 import { useGraphStore } from "@/stores/graphStore";
 import type { GraphViewDto } from "@/types/graph";
-import { createGraphologyGraph, GraphLabelPalette, type SigmaGraphAttributes } from "./graphologyAdapter";
+import {
+  createGraphologyGraph,
+  GraphInteractionPalette,
+  GraphLabelPalette,
+  type SigmaGraphAttributes
+} from "./graphologyAdapter";
 
 type GraphCanvasProps = {
   graph: GraphViewDto | null;
@@ -149,7 +154,7 @@ function GraphReducers() {
         const nextData = { ...data };
 
         if (selectedNodeId === node) {
-          nextData.borderColor = "#0f172a";
+          nextData.borderColor = GraphInteractionPalette.selectedNodeBorder;
           nextData.highlighted = true;
           nextData.forceLabel = true;
         }
@@ -160,7 +165,7 @@ function GraphReducers() {
             nextData.highlighted = true;
             nextData.forceLabel = node === activeNode;
           } else {
-            nextData.color = "#cbd5d1";
+            nextData.color = GraphInteractionPalette.dimmedNode;
             nextData.labelColor = GraphLabelPalette.dimmedLabel;
           }
         }
@@ -178,10 +183,10 @@ function GraphReducers() {
         const nextData = { ...data };
 
         if (edge === selectedEdgeKey) {
-          nextData.color = "#dc2626";
+          nextData.color = GraphInteractionPalette.selectedEdge;
           nextData.size = Math.max(Number(data.size ?? 1.75), 4);
         } else if (edge === focusedEdgeKey) {
-          nextData.color = "#0891b2";
+          nextData.color = GraphInteractionPalette.focusedEdge;
           nextData.size = Math.max(Number(data.size ?? 1.75), 3);
         }
 
@@ -189,7 +194,8 @@ function GraphReducers() {
           if (settings.hideUnselectedEdges) {
             nextData.hidden = true;
           } else {
-            nextData.color = "#d1d9d5";
+            nextData.color = GraphInteractionPalette.dimmedEdge;
+            nextData.labelColor = GraphLabelPalette.dimmedLabel;
             nextData.size = Math.max(Number(data.size ?? 1.75) * 0.65, 0.8);
           }
         }
@@ -198,7 +204,8 @@ function GraphReducers() {
           if (settings.hideUnselectedEdges) {
             nextData.hidden = true;
           } else {
-            nextData.color = "#d1d9d5";
+            nextData.color = GraphInteractionPalette.dimmedEdge;
+            nextData.labelColor = GraphLabelPalette.dimmedLabel;
           }
         }
 

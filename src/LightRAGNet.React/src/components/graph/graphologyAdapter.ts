@@ -5,8 +5,19 @@ import type { GraphEdgeDto, GraphNodeDto, GraphViewDto, JsonValue } from "@/type
 export type SigmaGraphAttributes = Record<string, JsonValue | undefined>;
 
 export const GraphLabelPalette = {
-  label: "#edf2f7",
-  dimmedLabel: "#a9b4c2"
+  label: "#191817",
+  dimmedLabel: "#5f5a52"
+} as const;
+
+export const GraphInteractionPalette = {
+  selectedNode: "#c8552d",
+  selectedNodeBorder: "#a94221",
+  selectedEdge: "#ce4c34",
+  focusedEdge: "#c8552d",
+  fallbackEdge: "#8f887d",
+  dimmedNode: "#d7ccbd",
+  dimmedEdge: "#d7ccbd",
+  defaultNodeBorder: "#fffefa"
 } as const;
 
 const minNodeSize = 4;
@@ -65,7 +76,7 @@ export function getGraphEdgeKey(edge: GraphEdgeDto, index: number): string {
 }
 
 function getEdgeColor(edge: GraphEdgeDto): string {
-  return edge.color.toLowerCase() === "#cccccc" ? "#8a98a8" : edge.color;
+  return edge.color.toLowerCase() === "#cccccc" ? GraphInteractionPalette.fallbackEdge : edge.color;
 }
 
 function calculateNodeSizes(graph: GraphViewDto): Map<string, number> {
@@ -162,8 +173,8 @@ export function createGraphologyGraph(
       y: position.y,
       label: getNodeLabel(node),
       size: isSelected ? Math.max(size + 4, 13) : size,
-      color: isSelected ? "#0f766e" : node.color,
-      borderColor: isSelected ? "#0f172a" : "#ffffff",
+      color: isSelected ? GraphInteractionPalette.selectedNode : node.color,
+      borderColor: isSelected ? GraphInteractionPalette.selectedNodeBorder : GraphInteractionPalette.defaultNodeBorder,
       labelColor: GraphLabelPalette.label,
       domainType: node.type ?? undefined,
       properties: node.properties
@@ -182,7 +193,7 @@ export function createGraphologyGraph(
     sigmaGraph.addUndirectedEdgeWithKey(edgeKey, edge.source, edge.target, {
       label: getEdgeLabel(edge),
       size: isSelected ? Math.max(edgeSize + 2, 4) : edgeSize,
-      color: isSelected ? "#dc2626" : getEdgeColor(edge),
+      color: isSelected ? GraphInteractionPalette.selectedEdge : getEdgeColor(edge),
       type: "curvedNoArrow",
       originalWeight: readEdgeWeight(edge),
       labelColor: GraphLabelPalette.label,

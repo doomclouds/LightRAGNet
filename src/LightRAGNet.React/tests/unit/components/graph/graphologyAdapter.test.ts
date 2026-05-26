@@ -1,7 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
-import { createGraphologyGraph } from "@/components/graph/graphologyAdapter";
+import {
+  createGraphologyGraph,
+  GraphInteractionPalette,
+  GraphLabelPalette
+} from "@/components/graph/graphologyAdapter";
 import type { GraphViewDto } from "@/types/graph";
+
+const graphCanvasSource = readFileSync("src/components/graph/GraphCanvas.tsx", "utf8");
 
 describe("createGraphologyGraph", () => {
   test("does not seed loaded nodes on a single circular shell", () => {
@@ -68,6 +75,61 @@ describe("createGraphologyGraph", () => {
     expect(sigmaGraph.getNodeAttribute("CONCEPT", "domainType")).toBe("concept");
     expect(sigmaGraph.getEdgeAttribute("self", "type")).toBe("curvedNoArrow");
     expect(sigmaGraph.getEdgeAttribute("self", "domainType")).toBe("related");
+  });
+
+  test("uses readable light-theme labels for graph nodes and relation descriptions", () => {
+    const graph: GraphViewDto = {
+      nodes: [
+        {
+          id: "CONCEPT",
+          label: "Concept",
+          size: 3,
+          color: "#999999",
+          type: "concept",
+          properties: { entity_id: "CONCEPT" }
+        }
+      ],
+      edges: [
+        {
+          id: "self",
+          source: "CONCEPT",
+          target: "CONCEPT",
+          type: "related",
+          size: 1,
+          color: "#cccccc",
+          properties: { description: "source article reference" }
+        }
+      ],
+      isTruncated: false
+    };
+
+    const sigmaGraph = createGraphologyGraph(graph);
+
+    expect(GraphLabelPalette.label).toBe("#191817");
+    expect(GraphLabelPalette.dimmedLabel).toBe("#5f5a52");
+    expect(sigmaGraph.getNodeAttribute("CONCEPT", "labelColor")).toBe(GraphLabelPalette.label);
+    expect(sigmaGraph.getEdgeAttribute("self", "label")).toBe("source article reference");
+    expect(sigmaGraph.getEdgeAttribute("self", "labelColor")).toBe(GraphLabelPalette.label);
+    expect(sigmaGraph.getEdgeAttribute("self", "color")).toBe("#8f887d");
+  });
+
+  test("keeps graph interaction colors out of the old dark-canvas palette", () => {
+    expect(GraphInteractionPalette.selectedNode).toBe("#c8552d");
+    expect(GraphInteractionPalette.selectedNodeBorder).toBe("#a94221");
+    expect(GraphInteractionPalette.focusedEdge).toBe("#c8552d");
+    expect(GraphInteractionPalette.dimmedNode).toBe("#d7ccbd");
+    expect(GraphInteractionPalette.dimmedEdge).toBe("#d7ccbd");
+
+    [
+      "#edf2f7",
+      "#a9b4c2",
+      "#cbd5d1",
+      "#d1d9d5",
+      "#0f172a",
+      "#0891b2"
+    ].forEach((darkCanvasColor) => {
+      expect(graphCanvasSource).not.toContain(darkCanvasColor);
+    });
   });
 
   test("renders multiple edges even when backend edge ids are blank", () => {
