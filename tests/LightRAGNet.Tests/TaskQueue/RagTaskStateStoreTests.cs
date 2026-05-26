@@ -13,7 +13,7 @@ public sealed class RagTaskStateStoreTests
     {
         var workingDir = CreateTempDirectory();
         await using var cleanup = new TempDirectoryCleanup(workingDir);
-        var store = CreateStore(workingDir);
+        await using var store = CreateStore(workingDir);
         await store.SaveTaskStateAsync(CreateTask("task-initial", progress: 10));
         var tasksFilePath = Path.Combine(workingDir, "tasks.json");
 
@@ -38,7 +38,7 @@ public sealed class RagTaskStateStoreTests
     {
         var workingDir = CreateTempDirectory();
         await using var cleanup = new TempDirectoryCleanup(workingDir);
-        var store = CreateStore(workingDir);
+        await using var store = CreateStore(workingDir);
         var task = CreateTask("task-chinese", progress: 30);
         task.Content = "请用100字简述采集流程";
         task.FilePath = "线性修正业务说明.md";
@@ -53,6 +53,29 @@ public sealed class RagTaskStateStoreTests
         json.Should().NotContain("\\u8BF7");
         json.Should().NotContain("\\u7EBF");
         json.Should().NotContain("\\u9519");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WaitsForStartupLoadBeforeDirectoryCleanup()
+    {
+        var workingDir = CreateTempDirectory();
+        await using var cleanup = new TempDirectoryCleanup(workingDir);
+        var tasksFilePath = Path.Combine(workingDir, "tasks.json");
+        await File.WriteAllTextAsync(
+            tasksFilePath,
+            """
+            {
+              "version": "1.0",
+              "lastUpdated": "2026-05-26T00:00:00Z",
+              "tasks": []
+            }
+            """);
+
+        var store = CreateStore(workingDir);
+
+        await store.DisposeAsync();
+
+        Directory.Delete(workingDir, recursive: true);
     }
 
     private static RagTaskStateStore CreateStore(string workingDir)

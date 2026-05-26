@@ -11,13 +11,14 @@ namespace LightRAGNet.Services.TaskQueue;
 /// <summary>
 /// Task state persistence service implementation
 /// </summary>
-public class RagTaskStateStore : IRagTaskStateStore
+public class RagTaskStateStore : IRagTaskStateStore, IAsyncDisposable
 {
     private readonly string _tasksFilePath;
     private readonly ILogger<RagTaskStateStore> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly ConcurrentDictionary<string, RagTask> _tasksCache = new();
     private readonly JsonSerializerOptions _jsonOptions = LightRAGJsonOptions.HumanReadableCamelCaseIndented;
+    private readonly Task _startupLoadTask;
 
     public RagTaskStateStore(IOptions<LightRAGOptions> options, ILogger<RagTaskStateStore> logger)
     {
@@ -35,7 +36,7 @@ public class RagTaskStateStore : IRagTaskStateStore
         _logger = logger;
         
         // Load task state on startup
-        _ = Task.Run(async () =>
+        _startupLoadTask = Task.Run(async () =>
         {
             try
             {
@@ -46,6 +47,18 @@ public class RagTaskStateStore : IRagTaskStateStore
                 _logger.LogError(ex, "Failed to load task state on startup");
             }
         });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _startupLoadTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Dispose();
+        }
     }
 
     public async Task SaveTaskStateAsync(RagTask task, CancellationToken cancellationToken = default)
