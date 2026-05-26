@@ -46,7 +46,7 @@ function paged(items: MarkdownDocumentDto[]): PagedResult<MarkdownDocumentDto> {
     items,
     totalCount: items.length,
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     totalPages: Math.max(1, items.length === 0 ? 0 : 1)
   };
 }

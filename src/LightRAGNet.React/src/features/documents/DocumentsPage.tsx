@@ -33,6 +33,7 @@ import { FileTypeIcon } from '@/shared/components/FileTypeIcon';
 import { IconButton } from '@/shared/components/IconButton';
 import { MetricCard } from '@/shared/components/MetricCard';
 import { PageHeader } from '@/shared/components/PageHeader';
+import { Pagination } from '@/shared/components/Pagination';
 import { PageTabs, type PageTabItem } from '@/shared/components/PageTabs';
 import { ProgressBar } from '@/shared/components/ProgressBar';
 import { StatusPill } from '@/shared/components/StatusPill';
@@ -79,7 +80,7 @@ type DocumentsPageProps = {
   subscribeToDataCleared?: DataClearedSubscriptionFn;
 };
 
-const pageSize = 10;
+const defaultPageSize = 20;
 const statusOptions = ['Queued', 'Processing', 'Completed', 'Failed', 'Cancelled'];
 const statusOptionSet = new Set(statusOptions);
 const fileTypeOptions = ['PDF', 'Markdown', 'DOCX', 'PPTX', 'TXT'];
@@ -97,6 +98,7 @@ export function DocumentsPage({
 }: DocumentsPageProps) {
   const [documents, setDocuments] = useState<MarkdownDocumentDto[]>([]);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(defaultPageSize);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [status, setStatus] = useState<string>(() => getStatusFromLocation());
@@ -111,6 +113,7 @@ export function DocumentsPage({
   const documentActionTokensRef = useRef<Record<number, string>>({});
   const documentsRef = useRef<MarkdownDocumentDto[]>([]);
   const pageRef = useRef(page);
+  const pageSizeRef = useRef(pageSize);
   const totalCountRef = useRef(totalCount);
   const previewTriggerRef = useRef<HTMLElement | null>(null);
   const refreshTimerRef = useRef<number | undefined>(undefined);
@@ -167,7 +170,7 @@ export function DocumentsPage({
     return () => {
       isActive = false;
     };
-  }, [apiBase, loadDocuments, page, refreshVersion, status]);
+  }, [apiBase, loadDocuments, page, pageSize, refreshVersion, status]);
 
   useEffect(() => {
     documentsRef.current = documents;
@@ -176,6 +179,10 @@ export function DocumentsPage({
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
+
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
 
   useEffect(() => {
     totalCountRef.current = totalCount;
@@ -223,8 +230,9 @@ export function DocumentsPage({
 
   const removeDeletedDocumentFromCurrentPage = useCallback((documentId: number) => {
     const currentPage = pageRef.current;
+    const currentPageSize = pageSizeRef.current;
     const nextTotalCount = Math.max(0, totalCountRef.current - 1);
-    const nextTotalPages = Math.max(1, Math.ceil(nextTotalCount / pageSize));
+    const nextTotalPages = Math.max(1, Math.ceil(nextTotalCount / currentPageSize));
     const nextPage = Math.min(currentPage, nextTotalPages);
     const nextDocuments = documentsRef.current.filter((document) => document.id !== documentId);
 
@@ -691,18 +699,20 @@ export function DocumentsPage({
       ) : null}
 
       <footer className="document-list__footer">
-        <span className="document-list__result-count">
-          Showing {shownStart} to {shownEnd} of {formatCount(totalCount)} results
-        </span>
-        <Button disabled={page <= 1 || isLoading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-          Previous
-        </Button>
-        <span>
-          Page {page} of {totalPages}
-        </span>
-        <Button disabled={page >= totalPages || isLoading} onClick={() => setPage((current) => current + 1)}>
-          Next
-        </Button>
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          shownStart={shownStart}
+          shownEnd={shownEnd}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          isLoading={isLoading}
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize);
+            setPage(1);
+          }}
+        />
       </footer>
     </section>
   );

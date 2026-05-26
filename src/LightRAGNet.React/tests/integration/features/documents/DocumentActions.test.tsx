@@ -30,7 +30,7 @@ function paged(items: MarkdownDocumentDto[], overrides: Partial<PagedResult<Mark
     items,
     totalCount: items.length,
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     totalPages: Math.max(1, items.length === 0 ? 0 : 1),
     ...overrides
   };
@@ -233,23 +233,23 @@ describe('Document actions', () => {
     const removeDocument = vi.fn().mockResolvedValue({ succeeded: true, deletedImmediately: true } satisfies MarkdownDocumentDeleteClientResult);
     const loadDocuments = vi
       .fn()
-      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'first-page.md' })], { page: 1, totalCount: 11, totalPages: 2 }))
-      .mockResolvedValueOnce(paged([makeDocument({ id: 11, fileName: 'last-on-page.md' })], { page: 2, totalCount: 11, totalPages: 2 }))
-      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'filled-page-one.md' })], { page: 1, totalCount: 10, totalPages: 1 }));
+      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'first-page.md' })], { page: 1, totalCount: 21, totalPages: 2 }))
+      .mockResolvedValueOnce(paged([makeDocument({ id: 21, fileName: 'last-on-page.md' })], { page: 2, totalCount: 21, totalPages: 2 }))
+      .mockResolvedValueOnce(paged([makeDocument({ id: 1, fileName: 'filled-page-one.md' })], { page: 1, totalCount: 20, totalPages: 1 }));
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
 
-    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
 
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 2, pageSize: 10, status: undefined }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 2, pageSize: 20, status: undefined }));
 
     await openRowActions(user, 'last-on-page.md');
     await user.click(screen.getByRole('menuitem', { name: 'Delete last-on-page.md' }));
 
-    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 1, pageSize: 10, status: undefined }));
-    expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
-    expect(screen.queryByText('Page 2 of 1')).not.toBeInTheDocument();
+    await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 1, pageSize: 20, status: undefined }));
+    expect(await screen.findByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('button', { name: 'Go to page 2' })).not.toBeInTheDocument();
     expect(await screen.findByText('filled-page-one.md')).toBeInTheDocument();
   });
 

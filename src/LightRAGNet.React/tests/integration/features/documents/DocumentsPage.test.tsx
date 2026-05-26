@@ -26,7 +26,7 @@ function paged(items: MarkdownDocumentDto[], overrides: Partial<PagedResult<Mark
     items,
     totalCount: items.length,
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     totalPages: Math.max(1, items.length === 0 ? 0 : 1),
     ...overrides
   };
@@ -88,7 +88,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: undefined
       })
     );
@@ -180,7 +180,18 @@ describe('DocumentsPage', () => {
     expect(within(row).getByRole('button', { name: 'View LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-icon-button');
     expect(within(row).getByRole('link', { name: 'Download LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-icon-link');
     expect(within(row).getByRole('button', { name: 'More actions for LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-action-menu__trigger');
+    expect(
+      within(row).getAllByText('PDF').find((element) => element.closest('.lrn-file-type-icon'))?.closest('.lrn-file-type-icon')
+    ).toHaveClass('lrn-file-type-icon--pdf');
+    expect(
+      within(table).getAllByText('DOCX').find((element) => element.closest('.lrn-file-type-icon'))?.closest('.lrn-file-type-icon')
+    ).toHaveClass('lrn-file-type-icon--docx');
     expect(screen.getByText('Showing 1 to 3 of 1,248 results')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Go to page 2' })).toBeInTheDocument();
+    expect(screen.getByText('...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to page 63' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Rows per page' })).toHaveValue('20');
   });
 
   it('opens document previews in a same-page drawer without leaving the list route', async () => {
@@ -254,7 +265,7 @@ describe('DocumentsPage', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
     const closeButton = within(dialog).getByRole('button', { name: 'Close preview' });
     const previewTab = within(dialog).getByRole('tab', { name: 'Preview' });
-    const previousPageButton = screen.getByRole('button', { name: 'Previous' });
+    const previousPageButton = screen.getByRole('button', { name: 'Previous page' });
 
     await waitFor(() => expect(closeButton).toHaveFocus());
 
@@ -280,7 +291,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: 'Failed'
       })
     );
@@ -302,7 +313,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: 'Processing'
       })
     );
@@ -315,7 +326,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: 'Failed'
       })
     );
@@ -328,7 +339,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: undefined
       })
     );
@@ -349,7 +360,7 @@ describe('DocumentsPage', () => {
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: 'Failed'
       })
     );
@@ -460,25 +471,54 @@ describe('DocumentsPage', () => {
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
 
-    expect(await screen.findByText('Page 1 of 3')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
 
-    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 2,
-        pageSize: 10,
+        pageSize: 20,
         status: undefined
       })
     );
-    expect(await screen.findByText('Page 2 of 3')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Go to page 2' })).toHaveAttribute('aria-current', 'page');
 
-    await user.click(screen.getByRole('button', { name: 'Previous' }));
+    await user.click(screen.getByRole('button', { name: 'Previous page' }));
     await waitFor(() =>
       expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
         page: 1,
-        pageSize: 10,
+        pageSize: 20,
         status: undefined
       })
     );
+  });
+
+  it('changes the server page size from the footer selector and resets to the first page', async () => {
+    const user = userEvent.setup();
+    const loadDocuments = vi.fn().mockResolvedValue(paged([makeDocument()], { totalCount: 1248, totalPages: 63 }));
+
+    render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
+
+    expect(await screen.findByRole('combobox', { name: 'Rows per page' })).toHaveValue('20');
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
+        page: 2,
+        pageSize: 20,
+        status: undefined
+      })
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Rows per page' }), '50');
+
+    await waitFor(() =>
+      expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, {
+        page: 1,
+        pageSize: 50,
+        status: undefined
+      })
+    );
+    expect(screen.getByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
   });
 });

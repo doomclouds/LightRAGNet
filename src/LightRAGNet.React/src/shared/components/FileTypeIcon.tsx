@@ -1,5 +1,3 @@
-import { FileText } from 'lucide-react';
-
 type FileTypeIconProps = {
   type: string;
   label?: string;
@@ -16,8 +14,7 @@ export function FileTypeIcon({ type, label, size = 'md', className }: FileTypeIc
       className={['lrn-file-type-icon', `lrn-file-type-icon--${normalizedType}`, `lrn-file-type-icon-size--${size}`, className].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      <FileText size={size === 'lg' ? 22 : 18} strokeWidth={1.8} />
-      <span>{displayLabel}</span>
+      <span className="lrn-file-type-icon__label">{displayLabel}</span>
     </span>
   );
 }

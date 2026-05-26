@@ -30,7 +30,7 @@ function paged(
     items,
     totalCount: items.length,
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     totalPages: Math.max(1, items.length === 0 ? 0 : 1),
     ...overrides
   };
@@ -256,7 +256,7 @@ describe('Document task refresh', () => {
     });
 
     expect(screen.queryByText('pipeline.pdf')).not.toBeInTheDocument();
-    expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to page 1' })).toHaveAttribute('aria-current', 'page');
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(260);

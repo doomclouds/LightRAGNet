@@ -25,7 +25,7 @@ function paged(items: MarkdownDocumentDto[]): PagedResult<MarkdownDocumentDto> {
     items,
     totalCount: items.length,
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     totalPages: 1
   };
 }

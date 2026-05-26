@@ -19,6 +19,7 @@
 - `/document-preview` 与 `/document-preview/:id` 保留安全预览加载、错误态、空态和文档内容展示，改为浅色阅读工作区。
 - Knowledge Graph、RAG Chat、System Status、Cache Management 未做内容重设计，但通过 smoke 测试确认可继续挂在新 shell 下。
 - Follow-up on `2026-05-26`: `/documents` 按参考截图补齐细节，对摘要卡、状态 tabs、搜索/筛选工具栏、彩色文件类型图标、RAG Status 语义 badge、独立 Progress 列、行级 kebab 菜单和预览 drawer 做了二次对齐，并抽出 `MetricCard`、`Toolbar`、`ProgressBar`、`DataTableSurface`、`ActionMenu`、`FileTypeIcon` 等共享小组件。
+- Follow-up on `2026-05-26`: `/documents` 补齐真实分页组件和每页数量选择，默认切到参考图一致的 `20 / page`，页码、折叠省略号、左右翻页和 page size 变化都走真实服务端查询；同时把 PDF/DOCX/MD/PPTX/TXT 图标重做为折角彩色文件块，并收紧表格宽度保证 actions 菜单在常规桌面视口完整显示。
 
 ## Out of Scope
 
@@ -38,6 +39,9 @@
 - Follow-up verification on `2026-05-26`: `npm test --prefix src/LightRAGNet.React` -> `30` files / `229` tests passed.
 - Follow-up verification on `2026-05-26`: `npm run build --prefix src/LightRAGNet.React` passed.
 - Follow-up browser QA on `2026-05-26`: Vite dev server with a local mock API rendered the Documents list and opened the light preview drawer with metadata, content preview, footer actions, and non-transparent backdrop.
+- Follow-up verification on `2026-05-26`: `npm test --prefix src/LightRAGNet.React` -> `31` files / `231` tests passed after adding shared pagination coverage.
+- Follow-up verification on `2026-05-26`: `npm run build --prefix src/LightRAGNet.React` passed; Vite kept the existing large chunk warning.
+- Follow-up browser QA on `2026-05-26`: local mock API plus Vite rendered the Documents table with colored folded file icons, complete row action buttons, page buttons `1 2 3 ... 63`, and `20 / page` selector.
 
 ## Source Documents
 
@@ -59,3 +63,4 @@
 - The existing React shell foundation inbox remains relevant because it already tracks isolated worktree edit discipline and shell-level review guardrails that also applied to this redesign.
 - Follow-up on `2026-05-26`: user validation found the RAG Chat query details modal still carried dark-ops assumptions after the light shell migration. The fix changed the portal dialog from the removed `lrn-dialog` primitive to `lrn-modal`, replaced dark hard-coded chat/detail colors with light theme tokens, and added regression coverage for the modal class and RAG Chat CSS dark-literal guard.
 - Follow-up on `2026-05-26`: user validation also found the Documents list still missed many reference-image micro-components and looked visually rough in file icons, status badges, typography, and spacing. The second pass kept server-side API boundaries intact: Search/File Type are current-page local filters, Tag remains a visual-ready control until the API exposes tag data, and RAG Status remains the only server-backed list filter.
+- Follow-up on `2026-05-26`: user validation identified the missing pagination function and weak PDF/Word icon fidelity as remaining gaps. The page now uses a reusable `Pagination` component instead of ad hoc footer buttons, and `FileTypeIcon` is a reusable CSS-shaped document icon rather than a generic line icon inside a colored rectangle.
