@@ -53,3 +53,4 @@
 
 - Screenshots were captured without the backend API running, so network error and SignalR disconnected states are expected in visual evidence; the purpose was verifying shell/page layout and visible route mounting.
 - The existing React shell foundation inbox remains relevant because it already tracks isolated worktree edit discipline and shell-level review guardrails that also applied to this redesign.
+- Follow-up on `2026-05-26`: user validation found the RAG Chat query details modal still carried dark-ops assumptions after the light shell migration. The fix changed the portal dialog from the removed `lrn-dialog` primitive to `lrn-modal`, replaced dark hard-coded chat/detail colors with light theme tokens, and added regression coverage for the modal class and RAG Chat CSS dark-literal guard.

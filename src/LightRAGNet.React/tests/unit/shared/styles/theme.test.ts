@@ -6,6 +6,7 @@ const themeCss = readCss('../../../../src/shared/styles/theme.css');
 const appCss = readCss('../../../../src/shared/styles/app.css');
 const cacheCss = readCss('../../../../src/features/cache-management/cache-management.css');
 const graphCss = readCss('../../../../src/features/graph-workbench/graph-workbench.css');
+const ragChatCss = readCss('../../../../src/features/rag-chat/rag-chat.css');
 const systemStatusCss = readCss('../../../../src/features/system-status/system-status.css');
 
 describe('light workbench theme tokens', () => {
@@ -164,6 +165,29 @@ describe('light workbench theme tokens', () => {
       'background: var(--scrim)'
     ].forEach((lightDeclaration) => {
       expect(graphCss).toContain(lightDeclaration);
+    });
+  });
+
+  it('keeps RAG chat messages and query details dialog on light theme-safe colors', () => {
+    [
+      '#0a0f15',
+      '#c7f3ff',
+      '#ffd5d5',
+      'rgba(0, 0, 0',
+      'rgba(76, 201, 240',
+      'rgba(255, 107, 107'
+    ].forEach((darkLiteral) => {
+      expect(ragChatCss).not.toContain(darkLiteral);
+    });
+
+    [
+      'background: var(--panel-bg)',
+      'background: var(--panel-bg-elevated)',
+      'background: var(--scrim)',
+      'color: var(--accent-strong)',
+      'color: var(--danger)'
+    ].forEach((lightDeclaration) => {
+      expect(ragChatCss).toContain(lightDeclaration);
     });
   });
 });

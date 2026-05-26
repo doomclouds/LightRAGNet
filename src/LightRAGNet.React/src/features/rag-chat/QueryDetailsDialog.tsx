@@ -262,8 +262,8 @@ export function QueryDetailsDialog({ apiBase, message, onClose, onUpdateMessage 
     message.retrievalData || activeTab?.unloadedFallback === undefined ? activeTab?.value : activeTab.unloadedFallback;
 
   return createPortal(
-    <div className="rag-chat__dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="rag-chat-query-details-title">
-      <div className="rag-chat__dialog lrn-dialog">
+    <div className="rag-chat__dialog-backdrop lrn-scrim" role="dialog" aria-modal="true" aria-labelledby="rag-chat-query-details-title">
+      <div className="rag-chat__dialog lrn-modal">
         <div className="lrn-panel__head">
           <div>
             <h2 id="rag-chat-query-details-title">Query details</h2>
@@ -276,7 +276,7 @@ export function QueryDetailsDialog({ apiBase, message, onClose, onUpdateMessage 
 
         <div className="rag-chat__dialog-toolbar">
           <button
-            className="lrn-button lrn-button--accent"
+            className="lrn-button lrn-button--primary"
             type="button"
             disabled={!message.request || Boolean(message.retrievalData) || message.isLoadingRetrievalData}
             onClick={() => void loadRetrievalData()}

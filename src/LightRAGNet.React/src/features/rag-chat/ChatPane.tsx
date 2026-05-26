@@ -41,7 +41,7 @@ export function ChatPane({ messages, input, isRunning, onInputChange, onSend, on
             }
           }}
         />
-        <button className="lrn-button lrn-button--accent" type="button" disabled={isRunning || !input.trim()} onClick={onSend}>
+        <button className="lrn-button lrn-button--primary" type="button" disabled={isRunning || !input.trim()} onClick={onSend}>
           Send
         </button>
       </div>

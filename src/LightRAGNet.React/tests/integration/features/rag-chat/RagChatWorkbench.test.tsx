@@ -246,6 +246,8 @@ describe("RagChatWorkbench", () => {
     await clickButton("View query details");
 
     expect(host.querySelector("[role='dialog']")).toBeNull();
+    expect(document.body.querySelector(".rag-chat__dialog")?.classList.contains("lrn-modal")).toBe(true);
+    expect(document.body.querySelector(".rag-chat__dialog")?.classList.contains("lrn-dialog")).toBe(false);
     expect(document.body.textContent).toContain("Query details");
     expect(document.body.textContent).toContain("Entities");
     expect(document.body.textContent).toContain("Relationships");
