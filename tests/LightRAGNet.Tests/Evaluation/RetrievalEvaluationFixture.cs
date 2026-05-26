@@ -17,19 +17,22 @@ public sealed class RetrievalEvaluationFixture
 
     private readonly NaiveQueryService naiveQueryService;
     private readonly RetrievalContextService retrievalContextService;
+    private readonly DeterministicEvaluationRerankService? deterministicRerankService;
 
     private RetrievalEvaluationFixture(
         InMemoryVectorStore vectorStore,
         InMemoryGraphStore graphStore,
         InMemoryKvStore textChunks,
         NaiveQueryService naiveQueryService,
-        RetrievalContextService retrievalContextService)
+        RetrievalContextService retrievalContextService,
+        DeterministicEvaluationRerankService? deterministicRerankService)
     {
         VectorStore = vectorStore;
         GraphStore = graphStore;
         TextChunks = textChunks;
         this.naiveQueryService = naiveQueryService;
         this.retrievalContextService = retrievalContextService;
+        this.deterministicRerankService = deterministicRerankService;
     }
 
     public InMemoryVectorStore VectorStore { get; }
@@ -38,24 +41,49 @@ public sealed class RetrievalEvaluationFixture
 
     public InMemoryKvStore TextChunks { get; }
 
-    public static async Task<RetrievalEvaluationFixture> CreateAsync(
+    public static Task<RetrievalEvaluationFixture> CreateAsync()
+    {
+        return CreateCoreAsync(dataSet: null, rerankService: null);
+    }
+
+    public static Task<RetrievalEvaluationFixture> CreateAsync(IRerankService? rerankService)
+    {
+        return CreateCoreAsync(dataSet: null, rerankService: rerankService);
+    }
+
+    public static Task<RetrievalEvaluationFixture> CreateFromDataSetAsync(
+        RetrievalEvaluationDataSet dataSet,
         IRerankService? rerankService = null)
     {
+        ArgumentNullException.ThrowIfNull(dataSet);
+
+        return CreateCoreAsync(dataSet, rerankService);
+    }
+
+    private static async Task<RetrievalEvaluationFixture> CreateCoreAsync(
+        RetrievalEvaluationDataSet? dataSet,
+        IRerankService? rerankService)
+    {
+        dataSet ??= RetrievalEvaluationDataLoader.LoadDefault();
+
         var vectorStore = new InMemoryVectorStore();
         var graphStore = new InMemoryGraphStore();
         var textChunks = new InMemoryKvStore();
         var tokenizer = new FakeTokenizer();
         var rerankOptions = Options.Create(new RerankChunkingOptions { EnableChunking = false });
+        var deterministicRerankService = rerankService is null
+            ? new DeterministicEvaluationRerankService()
+            : null;
         var rerankCoordinator = new RerankCoordinator(
-            rerankService ?? Substitute.For<IRerankService>(),
+            rerankService ?? deterministicRerankService!,
             new RerankDocumentChunker(tokenizer, rerankOptions),
             rerankOptions);
         var embeddingService = Substitute.For<IEmbeddingService>();
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([0.1f, 0.2f, 0.3f]);
 
-        await RetrievalEvaluationCorpus.SeedAsync(vectorStore, graphStore, textChunks);
-        SeedKnowledgeGraphVectors(vectorStore);
+        await RetrievalEvaluationCorpus.SeedAsync(dataSet, vectorStore, graphStore, textChunks);
+        SeedKnowledgeGraphVectors(dataSet, vectorStore);
 
         var retrievalContextService = new RetrievalContextService(
             embeddingService,
@@ -72,38 +100,48 @@ public sealed class RetrievalEvaluationFixture
             graphStore,
             textChunks,
             new NaiveQueryService(vectorStore, rerankCoordinator, tokenizer),
-            retrievalContextService);
+            retrievalContextService,
+            deterministicRerankService);
     }
 
-    private static void SeedKnowledgeGraphVectors(InMemoryVectorStore vectorStore)
+    private static void SeedKnowledgeGraphVectors(
+        RetrievalEvaluationDataSet dataSet,
+        InMemoryVectorStore vectorStore)
     {
-        vectorStore.Seed("entities", new VectorDocument
+        foreach (var entity in dataSet.Entities)
         {
-            Id = "entity-RETRIEVAL_SYSTEM",
-            Content = "Retrieves relevant documents for a query.",
-            Metadata = new Dictionary<string, object>
+            vectorStore.Seed("entities", new VectorDocument
             {
-                ["entity_name"] = "RETRIEVAL_SYSTEM",
-                ["entity_type"] = "Component",
-                ["description"] = "Retrieves relevant documents for a query.",
-                ["source_id"] = "chunk-architecture-rag-components",
-                ["file_path"] = RetrievalEvaluationCorpus.ArchitecturePath
-            }
-        });
+                Id = $"entity-{entity.Id}",
+                Content = entity.Description,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["entity_name"] = entity.Id,
+                    ["entity_type"] = entity.Type,
+                    ["description"] = entity.Description,
+                    ["source_id"] = entity.SourceId,
+                    ["file_path"] = entity.FilePath
+                }
+            });
+        }
 
-        vectorStore.Seed("relationships", new VectorDocument
+        foreach (var relationship in dataSet.Relationships)
         {
-            Id = "relationship-RETRIEVAL_SYSTEM-EMBEDDING_MODEL",
-            Content = "Retrieval systems depend on embedding models for vector search.",
-            Metadata = new Dictionary<string, object>
+            vectorStore.Seed("relationships", new VectorDocument
             {
-                ["src_id"] = "RETRIEVAL_SYSTEM",
-                ["tgt_id"] = "EMBEDDING_MODEL",
-                ["keywords"] = "rag architecture",
-                ["description"] = "Retrieval systems depend on embedding models for vector search.",
-                ["source_id"] = "chunk-architecture-rag-components"
-            }
-        });
+                Id = $"relationship-{relationship.SourceId}-{relationship.TargetId}",
+                Content = relationship.Description,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["src_id"] = relationship.SourceId,
+                    ["tgt_id"] = relationship.TargetId,
+                    ["keywords"] = relationship.Keywords,
+                    ["description"] = relationship.Description,
+                    ["weight"] = relationship.Weight,
+                    ["source_id"] = relationship.SourceIdList
+                }
+            });
+        }
     }
 
     public async Task<RetrievalEvaluationResult> RunAsync(RetrievalEvaluationCase evaluationCase)
@@ -141,6 +179,55 @@ public sealed class RetrievalEvaluationFixture
             CancellationToken.None);
 
         return RetrievalEvaluationResult.FromRawData(contextResult?.RawData);
+    }
+
+    public void ApplyRankingHints(RetrievalEvaluationCase evaluationCase)
+    {
+        ArgumentNullException.ThrowIfNull(evaluationCase);
+
+        VectorStore.QueryScoresByDocumentId.Clear();
+        foreach (var (chunkId, score) in evaluationCase.VectorScoresByChunkId)
+        {
+            VectorStore.QueryScoresByDocumentId[chunkId] = score;
+        }
+
+        deterministicRerankService?.SetScores(evaluationCase.RerankScoresByContent);
+    }
+
+    private sealed class DeterministicEvaluationRerankService : IRerankService
+    {
+        private readonly Dictionary<string, float> scoresByDocument = new(StringComparer.Ordinal);
+
+        public void SetScores(IReadOnlyDictionary<string, float> scores)
+        {
+            scoresByDocument.Clear();
+            foreach (var (document, score) in scores)
+            {
+                scoresByDocument[document] = score;
+            }
+        }
+
+        public Task<List<RerankResult>> RerankAsync(
+            string query,
+            List<string> documents,
+            int topN,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var results = documents
+                .Select((document, index) => new RerankResult
+                {
+                    Index = index,
+                    RelevanceScore = scoresByDocument.TryGetValue(document, out var score) ? score : 0.0f
+                })
+                .OrderByDescending(result => result.RelevanceScore)
+                .ThenBy(result => result.Index)
+                .Take(topN)
+                .ToList();
+
+            return Task.FromResult(results);
+        }
     }
 }
 

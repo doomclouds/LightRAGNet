@@ -1,0 +1,179 @@
+{
+  "corpus": {
+    "chunks": [
+      {
+        "id": "chunk-overview-hallucination",
+        "documentName": "01_lightrag_overview.md",
+        "filePath": "docs/eval/01_lightrag_overview.md",
+        "content": "LightRAG reduces hallucinations by grounding generated answers in retrieved documents and references."
+      },
+      {
+        "id": "chunk-architecture-rag-components",
+        "documentName": "02_rag_architecture.md",
+        "filePath": "docs/eval/02_rag_architecture.md",
+        "content": "A RAG system requires a retrieval system, an embedding model, and a generation model."
+      },
+      {
+        "id": "chunk-operations-health-cache",
+        "documentName": "03_lightrag_improvements.md",
+        "filePath": "docs/eval/03_lightrag_improvements.md",
+        "content": "Operations include health checks, cache management, deployment readiness, and safe maintenance workflows."
+      },
+      {
+        "id": "chunk-storage-vector-databases",
+        "documentName": "04_supported_databases.md",
+        "filePath": "docs/eval/04_supported_databases.md",
+        "content": "LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure."
+      },
+      {
+        "id": "chunk-evaluation-quality-metrics",
+        "documentName": "05_evaluation_and_deployment.md",
+        "filePath": "docs/eval/05_evaluation_and_deployment.md",
+        "content": "Evaluation tracks faithfulness, answer relevance, context recall, and context precision."
+      }
+    ],
+    "entities": [
+      {
+        "id": "RETRIEVAL_SYSTEM",
+        "type": "Component",
+        "description": "Retrieves relevant documents for a query.",
+        "sourceId": "chunk-architecture-rag-components",
+        "filePath": "docs/eval/02_rag_architecture.md"
+      },
+      {
+        "id": "EMBEDDING_MODEL",
+        "type": "Component",
+        "description": "Converts text into vectors for similarity retrieval.",
+        "sourceId": "chunk-architecture-rag-components",
+        "filePath": "docs/eval/02_rag_architecture.md"
+      },
+      {
+        "id": "CACHE_MANAGEMENT",
+        "type": "Operation",
+        "description": "Manages cache visibility and safe maintenance.",
+        "sourceId": "chunk-operations-health-cache",
+        "filePath": "docs/eval/03_lightrag_improvements.md"
+      }
+    ],
+    "relationships": [
+      {
+        "sourceId": "RETRIEVAL_SYSTEM",
+        "targetId": "EMBEDDING_MODEL",
+        "keywords": "rag architecture",
+        "description": "Retrieval systems depend on embedding models for vector search.",
+        "weight": 3.0,
+        "sourceIdList": "chunk-architecture-rag-components"
+      },
+      {
+        "sourceId": "CACHE_MANAGEMENT",
+        "targetId": "RETRIEVAL_SYSTEM",
+        "keywords": "operations retrieval",
+        "description": "Cache management protects retrieval operations during maintenance.",
+        "weight": 2.0,
+        "sourceIdList": "chunk-operations-health-cache"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "Naive_ReturnsExpectedArchitectureChunk",
+      "question": "What are the three main components required in a RAG system?",
+      "mode": "Naive",
+      "highLevelKeywords": [],
+      "lowLevelKeywords": [],
+      "topK": 3,
+      "chunkTopK": 2,
+      "enableRerank": false,
+      "expectedDocumentNames": ["02_rag_architecture.md"],
+      "expectedChunkIds": ["chunk-architecture-rag-components"],
+      "expectedChunkOrder": ["chunk-overview-hallucination", "chunk-architecture-rag-components"],
+      "expectedReferenceFilePaths": ["docs/eval/02_rag_architecture.md"],
+      "expectedEntityIds": [],
+      "expectedRelationshipPairs": [],
+      "forbiddenChunkIds": ["chunk-operations-health-cache"]
+    },
+    {
+      "name": "Local_UsesLowLevelEntityFocus",
+      "question": "How does the retrieval system work?",
+      "mode": "Local",
+      "highLevelKeywords": [],
+      "lowLevelKeywords": ["RETRIEVAL_SYSTEM"],
+      "topK": 3,
+      "chunkTopK": 2,
+      "enableRerank": false,
+      "expectedDocumentNames": ["02_rag_architecture.md"],
+      "expectedChunkIds": ["chunk-architecture-rag-components"],
+      "expectedReferenceFilePaths": ["docs/eval/02_rag_architecture.md"],
+      "expectedEntityIds": ["RETRIEVAL_SYSTEM"],
+      "expectedRelationshipPairs": [
+        { "sourceId": "RETRIEVAL_SYSTEM", "targetId": "EMBEDDING_MODEL" }
+      ],
+      "forbiddenChunkIds": []
+    },
+    {
+      "name": "Global_UsesHighLevelRelationshipFocus",
+      "question": "Which architecture relationship connects retrieval and embedding?",
+      "mode": "Global",
+      "highLevelKeywords": ["rag architecture"],
+      "lowLevelKeywords": [],
+      "topK": 3,
+      "chunkTopK": 2,
+      "enableRerank": false,
+      "expectedDocumentNames": ["02_rag_architecture.md"],
+      "expectedChunkIds": ["chunk-architecture-rag-components"],
+      "expectedReferenceFilePaths": ["docs/eval/02_rag_architecture.md"],
+      "expectedEntityIds": ["RETRIEVAL_SYSTEM", "EMBEDDING_MODEL"],
+      "expectedRelationshipPairs": [
+        { "sourceId": "RETRIEVAL_SYSTEM", "targetId": "EMBEDDING_MODEL" }
+      ],
+      "forbiddenChunkIds": []
+    },
+    {
+      "name": "Mix_ReturnsKgEntityRelationshipAndRelatedChunk",
+      "question": "How do retrieval and embedding work together in RAG architecture?",
+      "mode": "Mix",
+      "highLevelKeywords": ["rag architecture"],
+      "lowLevelKeywords": ["RETRIEVAL_SYSTEM"],
+      "topK": 3,
+      "chunkTopK": 2,
+      "enableRerank": false,
+      "expectedDocumentNames": ["02_rag_architecture.md"],
+      "expectedChunkIds": ["chunk-architecture-rag-components"],
+      "expectedReferenceFilePaths": ["docs/eval/02_rag_architecture.md"],
+      "expectedEntityIds": ["RETRIEVAL_SYSTEM"],
+      "expectedRelationshipPairs": [
+        { "sourceId": "RETRIEVAL_SYSTEM", "targetId": "EMBEDDING_MODEL" }
+      ],
+      "forbiddenChunkIds": []
+    },
+    {
+      "name": "Rerank_KeepsRelevantChunkInFinalContext",
+      "question": "Which operational workflow covers cache and health checks?",
+      "mode": "Naive",
+      "highLevelKeywords": [],
+      "lowLevelKeywords": [],
+      "topK": 5,
+      "chunkTopK": 3,
+      "enableRerank": true,
+      "expectedDocumentNames": ["03_lightrag_improvements.md"],
+      "expectedChunkIds": ["chunk-operations-health-cache"],
+      "expectedChunkOrder": ["chunk-operations-health-cache", "chunk-storage-vector-databases", "chunk-evaluation-quality-metrics"],
+      "expectedReferenceFilePaths": ["docs/eval/03_lightrag_improvements.md"],
+      "expectedEntityIds": [],
+      "expectedRelationshipPairs": [],
+      "forbiddenChunkIds": [],
+      "vectorScoresByChunkId": {
+        "chunk-storage-vector-databases": 0.90,
+        "chunk-evaluation-quality-metrics": 0.80,
+        "chunk-operations-health-cache": 0.70,
+        "chunk-architecture-rag-components": 0.20,
+        "chunk-overview-hallucination": 0.10
+      },
+      "rerankScoresByContent": {
+        "Operations include health checks, cache management, deployment readiness, and safe maintenance workflows.": 0.99,
+        "LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure.": 0.10,
+        "Evaluation tracks faithfulness, answer relevance, context recall, and context precision.": 0.05
+      }
+    }
+  ]
+}

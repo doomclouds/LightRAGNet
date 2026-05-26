@@ -78,6 +78,12 @@ Modify `tests/LightRAGNet.Tests/LightRAGNet.Tests.csproj` by adding this `ItemGr
 
 Create `tests/LightRAGNet.Tests/Evaluation/Data/sample_dataset.json`:
 
+The dataset intentionally contains 10 questions: 6 Python-compatible `lightrag_evaluation_sample`
+questions plus 4 `lightragnet_evaluation_extended` questions. The extra Global relationship
+question keeps the existing raw-data retrieval case query distinct from the Mix retrieval/embedding
+query, while still allowing Task 2 to join every extended oracle case back to the dataset and
+document oracle.
+
 ```json
 {
   "test_cases": [
@@ -110,6 +116,11 @@ Create `tests/LightRAGNet.Tests/Evaluation/Data/sample_dataset.json`:
       "question": "What are the core benefits of LightRAG and how does it improve upon traditional RAG systems?",
       "ground_truth": "LightRAG offers five core benefits: accuracy through document-grounded responses, up-to-date information without model retraining, domain expertise through specialized document collections, cost-effectiveness by avoiding expensive fine-tuning, and transparency by showing source documents. Compared to traditional RAG systems, LightRAG provides a simpler API with intuitive interfaces, faster retrieval performance with optimized operations, better integration with multiple vector database backends for flexible selection, and optimized prompting strategies with refined templates. LightRAG prioritizes ease of use while maintaining quality and combines speed with accuracy.",
       "project": "lightrag_evaluation_sample"
+    },
+    {
+      "question": "Which architecture relationship connects retrieval and embedding?",
+      "ground_truth": "The architecture relationship connects the retrieval system to the embedding model. Retrieval systems depend on embedding models for vector search because embeddings convert documents and queries into vectors used for similarity retrieval.",
+      "project": "lightragnet_evaluation_extended"
     },
     {
       "question": "How does the retrieval system work?",
@@ -163,6 +174,10 @@ Create `tests/LightRAGNet.Tests/Evaluation/Data/sample_retrieval_oracle.json`:
         "01_lightrag_overview.md",
         "03_lightrag_improvements.md"
       ]
+    },
+    {
+      "question": "Which architecture relationship connects retrieval and embedding?",
+      "expected_documents": ["02_rag_architecture.md"]
     },
     {
       "question": "How does the retrieval system work?",
@@ -470,11 +485,12 @@ Create `tests/LightRAGNet.Tests/Evaluation/Data/lightragnet_retrieval_oracle.jso
 }
 ```
 
-- [ ] **Step 6: Write failing data copy smoke test**
+- [ ] **Step 6: Write failing data copy and structure smoke tests**
 
 Create `tests/LightRAGNet.Tests/Evaluation/RetrievalEvaluationDataLoaderTests.cs`:
 
 ```csharp
+using System.Text.Json;
 using FluentAssertions;
 
 namespace LightRAGNet.Tests.Evaluation;
@@ -482,59 +498,63 @@ namespace LightRAGNet.Tests.Evaluation;
 public sealed class RetrievalEvaluationDataLoaderTests
 {
     [Fact]
-    public void DefaultDataDirectory_IsCopiedToTestOutput()
+    public void SampleDatasetJson_IsCopiedToOutputAndContainsExpectedTestCases()
     {
-        var dataDirectory = RetrievalEvaluationDataLoader.GetDefaultDataDirectory();
+        var dataPath = Path.Combine(AppContext.BaseDirectory, "Evaluation", "Data", "sample_dataset.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(dataPath));
 
-        Directory.Exists(dataDirectory).Should().BeTrue();
-        File.Exists(Path.Combine(dataDirectory, "sample_dataset.json")).Should().BeTrue();
-        File.Exists(Path.Combine(dataDirectory, "sample_retrieval_oracle.json")).Should().BeTrue();
-        File.Exists(Path.Combine(dataDirectory, "lightragnet_retrieval_oracle.json")).Should().BeTrue();
+        var testCases = document.RootElement.GetProperty("test_cases").EnumerateArray().ToArray();
+
+        testCases.Should().HaveCount(10);
+        testCases.Count(testCase => testCase.GetProperty("project").GetString() == "lightrag_evaluation_sample").Should().Be(6);
+        testCases.Count(testCase => testCase.GetProperty("project").GetString() == "lightragnet_evaluation_extended").Should().Be(4);
+    }
+
+    [Fact]
+    public void EvaluationDataFiles_AreCopiedAndInternallyConsistent()
+    {
+        // Use System.Text.Json directly in Task 1. The formal loader is introduced in Task 2.
     }
 }
 ```
+
+The structure smoke test must validate all three JSON files parse, all five sample documents exist,
+dataset questions match `sample_retrieval_oracle` questions, extended oracle case questions exist in
+both files, expected document names and corpus chunk document names exist under `sample_documents`,
+dataset questions, oracle questions, case names, chunk ids, and entity ids are unique, entity source
+ids reference known chunks, relationship endpoints reference known entities, relationship
+`sourceIdList` values reference known chunks, each case's expected relationship pairs exist in the
+corpus relationships, each case's expected documents match the document oracle for the same question,
+case chunk references point at known chunks, vector score keys reference known chunks, rerank score
+keys match known chunk content, and non-empty `expectedChunkOrder` contains every expected chunk id.
+It should also assert `05_evaluation_and_deployment.md` does not contain `cache management`, keeping
+deployment readiness distinct from the operations oracle in `03_lightrag_improvements.md`.
 
 - [ ] **Step 7: Run the smoke test to verify it fails**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~DefaultDataDirectory_IsCopiedToTestOutput" --no-restore --verbosity minimal
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~RetrievalEvaluationDataLoaderTests" --verbosity minimal
 ```
 
-Expected: build fails because `RetrievalEvaluationDataLoader` does not exist.
+Expected: fail because the data files and/or copy rule do not exist yet.
 
-- [ ] **Step 8: Add minimal loader path helper**
-
-Create `tests/LightRAGNet.Tests/Evaluation/RetrievalEvaluationDataLoader.cs`:
-
-```csharp
-namespace LightRAGNet.Tests.Evaluation;
-
-public static class RetrievalEvaluationDataLoader
-{
-    public static string GetDefaultDataDirectory()
-    {
-        return Path.Combine(AppContext.BaseDirectory, "Evaluation", "Data");
-    }
-}
-```
-
-- [ ] **Step 9: Run the smoke test to verify it passes**
+- [ ] **Step 8: Run the smoke test to verify it passes**
 
 Run:
 
 ```powershell
-dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~DefaultDataDirectory_IsCopiedToTestOutput" --verbosity minimal
+dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~RetrievalEvaluationDataLoaderTests" --verbosity minimal
 ```
 
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```powershell
-git add tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj tests\LightRAGNet.Tests\Evaluation\Data tests\LightRAGNet.Tests\Evaluation\RetrievalEvaluationDataLoader.cs tests\LightRAGNet.Tests\Evaluation\RetrievalEvaluationDataLoaderTests.cs
-git commit -m "test: add retrieval evaluation JSON data files"
+git add tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj tests\LightRAGNet.Tests\Evaluation\Data tests\LightRAGNet.Tests\Evaluation\RetrievalEvaluationDataLoaderTests.cs
+git commit -m "test: add JSON retrieval evaluation data"
 ```
 
 ## Task 2: Add JSON Loader Models and Validation
@@ -556,7 +576,9 @@ public void LoadDefault_LoadsPythonCompatibleDatasetAndExtendedCases()
 {
     var dataSet = RetrievalEvaluationDataLoader.LoadDefault();
 
-    dataSet.TestCases.Should().HaveCount(9);
+    dataSet.TestCases.Should().HaveCount(10);
+    dataSet.TestCases.Count(testCase => testCase.Project == "lightrag_evaluation_sample").Should().Be(6);
+    dataSet.TestCases.Count(testCase => testCase.Project == "lightragnet_evaluation_extended").Should().Be(4);
     dataSet.DocumentOracleByQuestion.Should().ContainKey("What are the three main components required in a RAG system?");
     dataSet.Cases.Select(testCase => testCase.Name).Should().BeEquivalentTo(
         [
