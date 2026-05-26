@@ -27,12 +27,13 @@
 
 ## Verification Snapshot
 
-- `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~Evaluation" --verbosity minimal` passed (`14/14`).
+- `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~RetrievalEvaluationDataLoaderTests" --verbosity minimal` passed (`13/13`).
+- `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~Evaluation" --verbosity minimal` passed (`16/16`).
 - `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --filter "FullyQualifiedName~NaiveQueryService|FullyQualifiedName~RetrievalContext|FullyQualifiedName~RerankCoordinator|FullyQualifiedName~ReferenceListBuilder" --verbosity minimal` passed (`50/50`).
-- `dotnet test .\LightRAGNet.slnx --verbosity minimal` passed on rerun: `LightRAGNet.Tests` (`443/443`), `LightRAGNet.Web.Tests` (`36/36`), `LightRAGNet.Server.Tests` (`222/222`).
+- `dotnet test .\LightRAGNet.slnx --verbosity minimal` passed on rerun: `LightRAGNet.Tests` (`445/445`), `LightRAGNet.Web.Tests` (`36/36`), `LightRAGNet.Server.Tests` (`222/222`).
 - One first full-solution run hit a transient `DocumentConversionProcessorTests.ProcessNextBatchAsync_WhenConcurrentProcessorsRace_ClaimsDocumentOnce` failure; the failed test passed when rerun alone, and the full solution passed on the next sequential run.
 - Scope check from `5848497..HEAD` showed changes limited to `docs/superpowers/plans/...`, `tests/LightRAGNet.Tests/Evaluation/...`, and `tests/LightRAGNet.Tests/LightRAGNet.Tests.csproj`.
-- Per-task implementer, spec-review, and code-quality subagent gates passed after fixes for oracle consistency, required-field validation, duplicate relationship pairs, graph/KG vector seeding assertions, query-call coverage regression, and per-case routing-call isolation.
+- Per-task implementer, spec-review, and code-quality subagent gates passed after fixes for oracle consistency, required-field validation, duplicate relationship pairs, graph/KG vector seeding assertions, query-call coverage regression, per-case routing-call isolation, and final loader consistency between expected chunks, expected documents, and reference file paths.
 
 ## Source Documents
 
