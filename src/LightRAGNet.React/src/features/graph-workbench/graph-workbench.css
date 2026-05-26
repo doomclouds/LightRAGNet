@@ -46,8 +46,7 @@
 }
 
 .graph-workbench__sigma {
-  background:
-    radial-gradient(circle at 50% 50%, rgba(21, 27, 35, .96) 0, rgba(13, 17, 23, .98) 58%, #090d12 100%);
+  background: var(--app-bg);
 }
 
 .graph-workbench__sigma.react-sigma,
@@ -236,13 +235,13 @@
 .graph-workbench__icon-button--primary {
   border-color: var(--accent-border);
   background: var(--accent-soft);
-  color: #c7f3ff;
+  color: var(--accent-strong);
 }
 
 .graph-workbench__icon-button--primary:hover,
 .graph-workbench__icon-button--primary:focus-visible {
-  background: rgba(76, 201, 240, .2);
-  color: #c7f3ff;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .graph-workbench__legend-icon {
@@ -593,14 +592,14 @@
 .graph-workbench .graph-workbench__primary-button {
   border-color: var(--accent-border);
   background: var(--accent-soft);
-  color: #c7f3ff;
+  color: var(--accent-strong);
   font-weight: 800;
 }
 
 .graph-workbench .graph-workbench__danger-button {
-  border-color: rgba(255, 107, 107, .45);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--panel-border));
   background: var(--danger-soft);
-  color: #ffd5d5;
+  color: var(--danger);
   font-weight: 800;
 }
 
@@ -615,7 +614,7 @@
   z-index: 40;
   display: grid;
   place-items: center;
-  background: rgb(15 23 42 / 38%);
+  background: var(--scrim);
   padding: 24px;
 }
 
@@ -669,10 +668,10 @@
 
 .graph-workbench__dialog-error {
   margin: 0;
-  border: 1px solid rgba(255, 107, 107, .45);
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--panel-border));
   border-radius: var(--radius-control);
   background: var(--danger-soft);
-  color: #ffd5d5;
+  color: var(--danger);
   padding: 10px;
 }
 

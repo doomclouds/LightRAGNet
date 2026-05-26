@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 const themeCss = readCss('../../../../src/shared/styles/theme.css');
 const appCss = readCss('../../../../src/shared/styles/app.css');
 const cacheCss = readCss('../../../../src/features/cache-management/cache-management.css');
+const graphCss = readCss('../../../../src/features/graph-workbench/graph-workbench.css');
+const systemStatusCss = readCss('../../../../src/features/system-status/system-status.css');
 
 describe('light workbench theme tokens', () => {
   it('carries the approved light shell token set with compatibility aliases', () => {
@@ -114,6 +116,54 @@ describe('light workbench theme tokens', () => {
       'background: var(--accent-soft)'
     ].forEach((lightDeclaration) => {
       expect(cacheCss).toContain(lightDeclaration);
+    });
+  });
+
+  it('keeps system status controls and states on light theme-safe colors', () => {
+    [
+      '#c7f3ff',
+      '#ffd5d5',
+      '#dff7e5',
+      '#ffe6ad',
+      'rgba(76, 201, 240',
+      'rgba(255, 107, 107',
+      'rgba(123, 216, 143',
+      'rgba(246, 200, 95'
+    ].forEach((darkLiteral) => {
+      expect(systemStatusCss).not.toContain(darkLiteral);
+    });
+
+    [
+      'color: var(--accent-strong)',
+      'color: var(--danger)',
+      'color: var(--success)',
+      'color: var(--warning)'
+    ].forEach((lightDeclaration) => {
+      expect(systemStatusCss).toContain(lightDeclaration);
+    });
+  });
+
+  it('keeps graph workbench canvas, controls, and dialogs on light theme-safe colors', () => {
+    [
+      '#090d12',
+      '#c7f3ff',
+      '#ffd5d5',
+      'rgba(21, 27, 35',
+      'rgba(13, 17, 23',
+      'rgba(76, 201, 240',
+      'rgba(255, 107, 107',
+      'rgb(15 23 42'
+    ].forEach((darkLiteral) => {
+      expect(graphCss).not.toContain(darkLiteral);
+    });
+
+    [
+      'background: var(--app-bg)',
+      'color: var(--accent-strong)',
+      'color: var(--danger)',
+      'background: var(--scrim)'
+    ].forEach((lightDeclaration) => {
+      expect(graphCss).toContain(lightDeclaration);
     });
   });
 });

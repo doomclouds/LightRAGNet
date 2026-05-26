@@ -81,13 +81,13 @@
 .system-status__button--primary {
   border-color: var(--accent-border);
   background: var(--accent-soft);
-  color: #c7f3ff;
+  color: var(--accent-strong);
 }
 
 .system-status__button--primary:hover,
 .system-status__button--primary:focus-visible {
   border-color: var(--accent-border);
-  background: rgba(76, 201, 240, .2);
+  background: var(--accent-soft);
 }
 
 .system-status__button:disabled {
@@ -104,10 +104,10 @@
 .system-status__loading {
   max-width: 1320px;
   margin: 0 auto 12px;
-  border: 1px solid rgba(255, 107, 107, .45);
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--panel-border));
   border-radius: var(--radius-control);
   background: var(--danger-soft);
-  color: #ffd5d5;
+  color: var(--danger);
   padding: 10px 12px;
 }
 
@@ -179,21 +179,21 @@
 }
 
 .system-status__status--healthy {
-  border-color: rgba(123, 216, 143, .36);
+  border-color: color-mix(in srgb, var(--success) 38%, var(--panel-border));
   background: var(--success-soft);
-  color: #dff7e5;
+  color: var(--success);
 }
 
 .system-status__status--degraded {
-  border-color: rgba(246, 200, 95, .38);
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--panel-border));
   background: var(--warning-soft);
-  color: #ffe6ad;
+  color: var(--warning);
 }
 
 .system-status__status--unhealthy {
-  border-color: rgba(255, 107, 107, .42);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--panel-border));
   background: var(--danger-soft);
-  color: #ffd5d5;
+  color: var(--danger);
 }
 
 .system-status__status--notmeasured {
@@ -342,7 +342,7 @@
 .system-status__links a {
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-control);
-  color: #c7f3ff;
+  color: var(--accent-strong);
   padding: 6px 9px;
   text-decoration: none;
 }
