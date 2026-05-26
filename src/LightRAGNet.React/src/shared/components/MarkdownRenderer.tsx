@@ -10,7 +10,7 @@ type MarkdownRendererProps = {
 type MermaidState =
   | { status: 'loading' }
   | { status: 'rendered'; svg: string }
-  | { status: 'error' };
+  | { status: 'error'; message: string };
 
 let mermaidId = 0;
 
@@ -38,6 +38,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
 
 function MermaidBlock({ chart }: { chart: string }) {
   const diagramId = useMemo(() => `lrn-mermaid-${++mermaidId}`, [chart]);
+  const renderChart = useMemo(() => normalizeMermaidChart(chart), [chart]);
   const [state, setState] = useState<MermaidState>({ status: 'loading' });
 
   useEffect(() => {
@@ -54,23 +55,23 @@ function MermaidBlock({ chart }: { chart: string }) {
           theme: 'default'
         });
 
-        return mermaid.render(diagramId, chart);
+        return mermaid.render(diagramId, renderChart);
       })
       .then((result) => {
         if (isActive) {
           setState({ status: 'rendered', svg: result.svg });
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (isActive) {
-          setState({ status: 'error' });
+          setState({ status: 'error', message: getErrorMessage(error) });
         }
       });
 
     return () => {
       isActive = false;
     };
-  }, [chart, diagramId]);
+  }, [diagramId, renderChart]);
 
   return (
     <figure className="lrn-mermaid" aria-label="Mermaid diagram">
@@ -81,6 +82,7 @@ function MermaidBlock({ chart }: { chart: string }) {
       {state.status === 'error' ? (
         <div className="lrn-mermaid__fallback">
           <p role="alert">Unable to render Mermaid diagram.</p>
+          <p className="lrn-mermaid__error-detail">{state.message}</p>
           <pre>
             <code>{chart}</code>
           </pre>
@@ -104,4 +106,26 @@ function getMermaidChart(children: ReactNode): string | null {
   }
 
   return Children.toArray(props.children).join('').replace(/\n$/, '');
+}
+
+function normalizeMermaidChart(chart: string): string {
+  const normalizedChart = chart.trim();
+
+  if (!/^sequenceDiagram\b/i.test(normalizedChart)) {
+    return normalizedChart;
+  }
+
+  return normalizedChart.replace(/;/g, '#59;');
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error;
+  }
+
+  return 'Mermaid parser reported an unknown error.';
 }

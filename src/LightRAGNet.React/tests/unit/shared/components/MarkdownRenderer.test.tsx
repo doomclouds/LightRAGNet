@@ -59,8 +59,33 @@ describe('MarkdownRenderer', () => {
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to render Mermaid diagram.');
+    expect(screen.getByText('Parse failed')).toBeInTheDocument();
     expect(screen.getByText(/graph TD/)).toBeInTheDocument();
     expect(screen.getByText(/A -->/)).toBeInTheDocument();
+  });
+
+  it('escapes sequence diagram semicolons before rendering while keeping the original fallback source', async () => {
+    mermaidMock.render.mockResolvedValue({
+      svg: '<svg role="img"><text>Sequence diagram</text></svg>'
+    });
+
+    render(
+      <MarkdownRenderer
+        content={[
+          '```mermaid',
+          'sequenceDiagram',
+          '    participant DC as CCUV3500DeviceController',
+          '    DC->>DC: _dataManager.Reset(); _UploadData=false',
+          '```'
+        ].join('\n')}
+      />
+    );
+
+    expect(await screen.findByText('Sequence diagram')).toBeInTheDocument();
+    expect(mermaidMock.render).toHaveBeenCalledWith(
+      expect.stringMatching(/^lrn-mermaid-/),
+      'sequenceDiagram\n    participant DC as CCUV3500DeviceController\n    DC->>DC: _dataManager.Reset()#59; _UploadData=false'
+    );
   });
 
   it('keeps non-Mermaid code blocks as code', async () => {

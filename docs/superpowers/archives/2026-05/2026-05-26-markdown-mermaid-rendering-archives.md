@@ -25,9 +25,10 @@
 
 ## Verification Snapshot
 
-- `npm test --prefix src/LightRAGNet.React` -> `32` files / `235` tests passed.
+- `npm test --prefix src/LightRAGNet.React` -> `32` files / `236` tests passed.
 - `npm run build --prefix src/LightRAGNet.React` passed; Vite reported existing-style large chunk warnings, including async Mermaid parser chunks.
 - Browser QA with local mock API rendered `/document-preview/42` Mermaid Markdown as an SVG diagram.
+- Regression QA covered a real `sequenceDiagram` where message text contains `;`; the renderer escapes sequence diagram semicolons before calling Mermaid while preserving the original source in fallback output.
 
 ## Source Documents
 
@@ -42,3 +43,4 @@
 ## Notes
 
 - Browser QA exposed a PowerShell-specific mock-data trap: literal Markdown backticks in `node -e` were interpreted by PowerShell. The final QA mock generated the fence with `String.fromCharCode(96).repeat(3)` to verify the real Markdown path.
+- Mermaid sequence diagrams can fail on bare semicolons inside message text. The renderer normalizes only `sequenceDiagram` input by replacing `;` with `#59;` before `mermaid.render`, which keeps the displayed label equivalent and avoids changing normal Markdown/code fallback text.
