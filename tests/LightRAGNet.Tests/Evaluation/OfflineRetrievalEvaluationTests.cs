@@ -6,6 +6,9 @@ namespace LightRAGNet.Tests.Evaluation;
 
 public sealed class OfflineRetrievalEvaluationTests
 {
+    private const string ArchitecturePath = "docs/eval/02_rag_architecture.md";
+    private const string OperationsPath = "docs/eval/03_lightrag_improvements.md";
+
     [Fact]
     public async Task Naive_ReturnsExpectedArchitectureChunk()
     {
@@ -19,7 +22,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 3,
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedReferenceFilePaths: [ArchitecturePath],
             ExpectedEntityIds: [],
             ExpectedRelationshipPairs: [],
             ForbiddenChunkIds: ["chunk-operations-health-cache"],
@@ -50,7 +53,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 3,
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedReferenceFilePaths: [ArchitecturePath],
             ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
             ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
             ForbiddenChunkIds: [],
@@ -79,7 +82,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 3,
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedReferenceFilePaths: [ArchitecturePath],
             ExpectedEntityIds: ["RETRIEVAL_SYSTEM", "EMBEDDING_MODEL"],
             ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
             ForbiddenChunkIds: [],
@@ -108,7 +111,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 3,
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.ArchitecturePath],
+            ExpectedReferenceFilePaths: [ArchitecturePath],
             ExpectedEntityIds: ["RETRIEVAL_SYSTEM"],
             ExpectedRelationshipPairs: [new ExpectedRelationshipPair("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")],
             ForbiddenChunkIds: [],
@@ -144,7 +147,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 5,
             ChunkTopK: 3,
             ExpectedChunkIds: ["chunk-operations-health-cache"],
-            ExpectedReferenceFilePaths: [RetrievalEvaluationCorpus.OperationsPath],
+            ExpectedReferenceFilePaths: [OperationsPath],
             ExpectedEntityIds: [],
             ExpectedRelationshipPairs: [],
             ForbiddenChunkIds: ["chunk-overview-hallucination"],
@@ -180,7 +183,7 @@ public sealed class OfflineRetrievalEvaluationTests
             TopK: 3,
             ChunkTopK: 2,
             ExpectedChunkIds: ["chunk-architecture-rag-components"],
-            ExpectedReferenceFilePaths: ["docs/eval/02-rag-architecture.md"],
+            ExpectedReferenceFilePaths: [ArchitecturePath],
             ExpectedEntityIds: [],
             ExpectedRelationshipPairs: [],
             ForbiddenChunkIds: ["chunk-storage-vector-databases"],
@@ -195,25 +198,12 @@ public sealed class OfflineRetrievalEvaluationTests
     [Fact]
     public async Task RetrievalEvaluationCorpus_SeedsExpectedDocumentsGraphAndChunks()
     {
-        var fixture = await RetrievalEvaluationFixture.CreateAsync();
-        var expectedChunks = new Dictionary<string, (string FilePath, string Content)>
-        {
-            ["chunk-overview-hallucination"] = (
-                RetrievalEvaluationCorpus.OverviewPath,
-                "LightRAG reduces hallucinations by grounding generated answers in retrieved documents and references."),
-            ["chunk-architecture-rag-components"] = (
-                RetrievalEvaluationCorpus.ArchitecturePath,
-                "A RAG system requires a retrieval system, an embedding model, and a generation model."),
-            ["chunk-operations-health-cache"] = (
-                RetrievalEvaluationCorpus.OperationsPath,
-                "Operations include health checks, cache management, deployment readiness, and safe maintenance workflows."),
-            ["chunk-storage-vector-databases"] = (
-                RetrievalEvaluationCorpus.StoragePath,
-                "LightRAG can use vector databases, graph stores, and key value stores for retrieval infrastructure."),
-            ["chunk-evaluation-quality-metrics"] = (
-                RetrievalEvaluationCorpus.EvaluationPath,
-                "Evaluation tracks faithfulness, answer relevance, context recall, and context precision.")
-        };
+        var dataSet = RetrievalEvaluationDataLoader.LoadDefault();
+        var fixture = await RetrievalEvaluationFixture.CreateFromDataSetAsync(dataSet);
+        var expectedChunks = dataSet.Chunks.ToDictionary(
+            chunk => chunk.Id,
+            chunk => (chunk.FilePath, chunk.Content),
+            StringComparer.Ordinal);
         var seededVectors = new Dictionary<string, VectorDocument>();
         var seededTextChunks = new Dictionary<string, Dictionary<string, object>>();
 
@@ -247,13 +237,7 @@ public sealed class OfflineRetrievalEvaluationTests
         architectureVector.Should().NotBeNull();
         architectureVector.Metadata[RetrievalEvaluationCorpus.FilePathKey]
             .Should()
-            .Be(RetrievalEvaluationCorpus.ArchitecturePath);
-        fixture.GraphStore.GetSeededNode("RETRIEVAL_SYSTEM")
-            .Should()
-            .NotBeNull();
-        fixture.GraphStore.GetSeededEdge("RETRIEVAL_SYSTEM", "EMBEDDING_MODEL")
-            .Should()
-            .NotBeNull();
+            .Be(expectedChunks["chunk-architecture-rag-components"].FilePath);
 
         var architectureChunk = seededTextChunks["chunk-architecture-rag-components"];
         architectureChunk.Should().NotBeNull();
@@ -264,8 +248,8 @@ public sealed class OfflineRetrievalEvaluationTests
         var textChunkItems = fixture.TextChunks.Items;
         vectorChunks.Should().HaveCount(5);
         textChunkItems.Should().HaveCount(5);
-        vectorChunks.Keys.Should().BeEquivalentTo(expectedChunks.Keys);
-        textChunkItems.Keys.Should().BeEquivalentTo(expectedChunks.Keys);
+        vectorChunks.Keys.Should().BeEquivalentTo(dataSet.Chunks.Select(chunk => chunk.Id));
+        textChunkItems.Keys.Should().BeEquivalentTo(dataSet.Chunks.Select(chunk => chunk.Id));
         vectorChunks.Keys.Should().BeEquivalentTo(textChunkItems.Keys);
 
         foreach (var (chunkId, document) in vectorChunks)
@@ -298,15 +282,50 @@ public sealed class OfflineRetrievalEvaluationTests
                 .NotBeNullOrWhiteSpace();
         }
 
-        fixture.GraphStore.GetSeededNode("EMBEDDING_MODEL")
-            .Should()
-            .NotBeNull();
-        fixture.GraphStore.GetSeededNode("CACHE_MANAGEMENT")
-            .Should()
-            .NotBeNull();
-        fixture.GraphStore.GetSeededEdge("CACHE_MANAGEMENT", "RETRIEVAL_SYSTEM")
-            .Should()
-            .NotBeNull();
+        foreach (var entity in dataSet.Entities)
+        {
+            var node = fixture.GraphStore.GetSeededNode(entity.Id);
+            node.Should().NotBeNull();
+            node!.Properties["source_id"].Should().Be(entity.SourceId);
+            node.Properties[RetrievalEvaluationCorpus.FilePathKey].Should().Be(entity.FilePath);
+            node.Properties["entity_type"].Should().Be(entity.Type);
+        }
+
+        foreach (var relationship in dataSet.Relationships)
+        {
+            var edge = fixture.GraphStore.GetSeededEdge(relationship.SourceId, relationship.TargetId);
+            edge.Should().NotBeNull();
+            edge!.Properties["source_id"].Should().Be(relationship.SourceIdList);
+            edge.Properties["keywords"].Should().Be(relationship.Keywords);
+            edge.Properties["description"].Should().Be(relationship.Description);
+            edge.Properties["weight"].Should().Be(relationship.Weight);
+        }
+
+        var entityVectors = fixture.VectorStore.Collections["entities"];
+        entityVectors.Keys.Should().BeEquivalentTo(dataSet.Entities.Select(entity => $"entity-{entity.Id}"));
+        foreach (var entity in dataSet.Entities)
+        {
+            var vector = entityVectors[$"entity-{entity.Id}"];
+            vector.Metadata["entity_name"].Should().Be(entity.Id);
+            vector.Metadata["entity_type"].Should().Be(entity.Type);
+            vector.Metadata["description"].Should().Be(entity.Description);
+            vector.Metadata["source_id"].Should().Be(entity.SourceId);
+            vector.Metadata["file_path"].Should().Be(entity.FilePath);
+        }
+
+        var relationshipVectors = fixture.VectorStore.Collections["relationships"];
+        relationshipVectors.Keys.Should().BeEquivalentTo(
+            dataSet.Relationships.Select(relationship => $"relationship-{relationship.SourceId}-{relationship.TargetId}"));
+        foreach (var relationship in dataSet.Relationships)
+        {
+            var vector = relationshipVectors[$"relationship-{relationship.SourceId}-{relationship.TargetId}"];
+            vector.Metadata["src_id"].Should().Be(relationship.SourceId);
+            vector.Metadata["tgt_id"].Should().Be(relationship.TargetId);
+            vector.Metadata["keywords"].Should().Be(relationship.Keywords);
+            vector.Metadata["description"].Should().Be(relationship.Description);
+            vector.Metadata["source_id"].Should().Be(relationship.SourceIdList);
+            vector.Metadata["weight"].Should().Be(relationship.Weight);
+        }
     }
 
     private sealed class DeterministicEvaluationRerankService(

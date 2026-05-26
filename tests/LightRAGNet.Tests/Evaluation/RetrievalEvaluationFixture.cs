@@ -38,9 +38,31 @@ public sealed class RetrievalEvaluationFixture
 
     public InMemoryKvStore TextChunks { get; }
 
-    public static async Task<RetrievalEvaluationFixture> CreateAsync(
+    public static Task<RetrievalEvaluationFixture> CreateAsync()
+    {
+        return CreateCoreAsync(dataSet: null, rerankService: null);
+    }
+
+    public static Task<RetrievalEvaluationFixture> CreateAsync(IRerankService? rerankService)
+    {
+        return CreateCoreAsync(dataSet: null, rerankService: rerankService);
+    }
+
+    public static Task<RetrievalEvaluationFixture> CreateFromDataSetAsync(
+        RetrievalEvaluationDataSet dataSet,
         IRerankService? rerankService = null)
     {
+        ArgumentNullException.ThrowIfNull(dataSet);
+
+        return CreateCoreAsync(dataSet, rerankService);
+    }
+
+    private static async Task<RetrievalEvaluationFixture> CreateCoreAsync(
+        RetrievalEvaluationDataSet? dataSet,
+        IRerankService? rerankService)
+    {
+        dataSet ??= RetrievalEvaluationDataLoader.LoadDefault();
+
         var vectorStore = new InMemoryVectorStore();
         var graphStore = new InMemoryGraphStore();
         var textChunks = new InMemoryKvStore();
@@ -54,8 +76,8 @@ public sealed class RetrievalEvaluationFixture
         embeddingService.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([0.1f, 0.2f, 0.3f]);
 
-        await RetrievalEvaluationCorpus.SeedAsync(vectorStore, graphStore, textChunks);
-        SeedKnowledgeGraphVectors(vectorStore);
+        await RetrievalEvaluationCorpus.SeedAsync(dataSet, vectorStore, graphStore, textChunks);
+        SeedKnowledgeGraphVectors(dataSet, vectorStore);
 
         var retrievalContextService = new RetrievalContextService(
             embeddingService,
@@ -75,35 +97,44 @@ public sealed class RetrievalEvaluationFixture
             retrievalContextService);
     }
 
-    private static void SeedKnowledgeGraphVectors(InMemoryVectorStore vectorStore)
+    private static void SeedKnowledgeGraphVectors(
+        RetrievalEvaluationDataSet dataSet,
+        InMemoryVectorStore vectorStore)
     {
-        vectorStore.Seed("entities", new VectorDocument
+        foreach (var entity in dataSet.Entities)
         {
-            Id = "entity-RETRIEVAL_SYSTEM",
-            Content = "Retrieves relevant documents for a query.",
-            Metadata = new Dictionary<string, object>
+            vectorStore.Seed("entities", new VectorDocument
             {
-                ["entity_name"] = "RETRIEVAL_SYSTEM",
-                ["entity_type"] = "Component",
-                ["description"] = "Retrieves relevant documents for a query.",
-                ["source_id"] = "chunk-architecture-rag-components",
-                ["file_path"] = RetrievalEvaluationCorpus.ArchitecturePath
-            }
-        });
+                Id = $"entity-{entity.Id}",
+                Content = entity.Description,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["entity_name"] = entity.Id,
+                    ["entity_type"] = entity.Type,
+                    ["description"] = entity.Description,
+                    ["source_id"] = entity.SourceId,
+                    ["file_path"] = entity.FilePath
+                }
+            });
+        }
 
-        vectorStore.Seed("relationships", new VectorDocument
+        foreach (var relationship in dataSet.Relationships)
         {
-            Id = "relationship-RETRIEVAL_SYSTEM-EMBEDDING_MODEL",
-            Content = "Retrieval systems depend on embedding models for vector search.",
-            Metadata = new Dictionary<string, object>
+            vectorStore.Seed("relationships", new VectorDocument
             {
-                ["src_id"] = "RETRIEVAL_SYSTEM",
-                ["tgt_id"] = "EMBEDDING_MODEL",
-                ["keywords"] = "rag architecture",
-                ["description"] = "Retrieval systems depend on embedding models for vector search.",
-                ["source_id"] = "chunk-architecture-rag-components"
-            }
-        });
+                Id = $"relationship-{relationship.SourceId}-{relationship.TargetId}",
+                Content = relationship.Description,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["src_id"] = relationship.SourceId,
+                    ["tgt_id"] = relationship.TargetId,
+                    ["keywords"] = relationship.Keywords,
+                    ["description"] = relationship.Description,
+                    ["weight"] = relationship.Weight,
+                    ["source_id"] = relationship.SourceIdList
+                }
+            });
+        }
     }
 
     public async Task<RetrievalEvaluationResult> RunAsync(RetrievalEvaluationCase evaluationCase)
