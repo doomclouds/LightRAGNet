@@ -230,7 +230,9 @@ describe('AppLayout', () => {
       });
     });
 
-    expect(await screen.findByText('Processing / MergingEntities')).toBeInTheDocument();
+    const row = await screen.findByRole('row', { name: /app-route\.pdf/i });
+    expect(within(row).getByText('Processing')).toBeInTheDocument();
+    expect(within(row).getByText('MergingEntities')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Progress 60%' })).toBeInTheDocument();
   });
 

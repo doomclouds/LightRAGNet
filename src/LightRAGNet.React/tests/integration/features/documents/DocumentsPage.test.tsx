@@ -96,44 +96,91 @@ describe('DocumentsPage', () => {
     expect(screen.getByRole('heading', { name: 'Documents' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Upload Document' })).toHaveAttribute('href', '/documents/upload');
     expect(screen.getByRole('columnheader', { name: 'File Name' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'File Size' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Upload Time' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Size' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Uploaded Time' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'RAG Status' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Progress' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Actions' })).toBeInTheDocument();
 
     const row = screen.getByRole('row', { name: /handbook\.md/i });
     expect(within(row).getByText('2.0 KB')).toBeInTheDocument();
-    expect(within(row).getByText('Completed')).toBeInTheDocument();
+    expect(within(row).getByText('Indexed')).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'View handbook.md' })).toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Add handbook.md to RAG' })).not.toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'More actions for handbook.md' })).toBeInTheDocument();
   });
 
   it('renders the light document workbench visual contract', async () => {
     const loadDocuments = vi.fn().mockResolvedValue(
-      paged([makeDocument({ fileName: 'system-architecture.md', fileUrl: '/uploads/system-architecture.md' })])
+      paged([
+        makeDocument({
+          fileName: 'LightRAGNet_Architecture_Overview.pdf',
+          fileSize: 12_400_000,
+          fileUrl: '/uploads/LightRAGNet_Architecture_Overview.pdf',
+          originalContentType: 'application/pdf',
+          ragStatus: 'Completed',
+          ragProgress: 100
+        }),
+        makeDocument({
+          id: 2,
+          fileName: 'Product_Requirements.docx',
+          fileSize: 2_100_000,
+          originalContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          ragStatus: 'Processing',
+          ragCurrentStage: 'Embedding',
+          ragProgress: 65
+        }),
+        makeDocument({
+          id: 3,
+          fileName: 'API_Reference_Guide.pdf',
+          fileSize: 5_300_000,
+          originalContentType: 'application/pdf',
+          ragStatus: 'Failed',
+          ragProgress: 0,
+          ragErrorMessage: 'Parsing failed'
+        })
+      ], { totalCount: 1248, totalPages: 63 })
     );
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
 
     expect(await screen.findByRole('heading', { name: 'Documents' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Upload Document/i })).toHaveClass('document-list__upload-link');
 
     const statusViews = screen.getByRole('navigation', { name: 'Document status views' });
-    expect(within(statusViews).getByRole('link', { name: 'All Documents' })).toBeInTheDocument();
+    expect(within(statusViews).getByRole('link', { name: /All/i })).toBeInTheDocument();
+    expect(within(statusViews).getByRole('link', { name: /Indexed/i })).toBeInTheDocument();
     expect(within(statusViews).getByRole('link', { name: 'Processing' })).toBeInTheDocument();
+    expect(within(statusViews).getByRole('link', { name: 'Failed' })).toBeInTheDocument();
     const summary = screen.getByRole('region', { name: 'Document summary' });
     expect(summary).toHaveClass('document-list__summary-grid');
-    expect(within(summary).getByText('Total in result')).toBeInTheDocument();
-    expect(within(summary).getByText('Active on this page')).toBeInTheDocument();
-    expect(within(summary).getByText('Failed on this page')).toBeInTheDocument();
-    expect(within(summary).getByText('Completed on this page')).toBeInTheDocument();
+    expect(within(summary).getByText('Total Documents')).toBeInTheDocument();
+    expect(within(summary).getByText('Indexed')).toBeInTheDocument();
+    expect(within(summary).getByText('Processing')).toBeInTheDocument();
+    expect(within(summary).getByText('Failed')).toBeInTheDocument();
+    expect(within(summary).getByText('Total Size')).toBeInTheDocument();
+
+    const toolbar = screen.getByRole('toolbar', { name: 'Document table tools' });
+    expect(within(toolbar).getByRole('searchbox', { name: 'Search documents' })).toBeInTheDocument();
+    expect(within(toolbar).getByLabelText('File type filter')).toBeInTheDocument();
+    expect(within(toolbar).getByLabelText('RAG status filter')).toBeInTheDocument();
+    expect(within(toolbar).getByLabelText('Tag filter')).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'More filters' })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Refresh documents' })).toBeInTheDocument();
 
     const table = await screen.findByRole('table', { name: 'Document lifecycle' });
     expect(table).toHaveClass('lrn-data-table');
-    const row = within(table).getByRole('row', { name: /system-architecture\.md/i });
-    expect(within(row).getByText('Completed')).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'View system-architecture.md' })).toHaveClass('lrn-icon-button');
-    expect(within(row).getByRole('link', { name: 'Download system-architecture.md' })).toHaveClass('lrn-icon-link');
+    expect(screen.getByRole('columnheader', { name: 'Size' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Uploaded Time' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Progress' })).toBeInTheDocument();
+    const row = within(table).getByRole('row', { name: /LightRAGNet_Architecture_Overview\.pdf/i });
+    expect(within(row).getByText('Indexed')).toBeInTheDocument();
+    expect(within(row).getAllByText('PDF').length).toBeGreaterThan(0);
+    expect(within(row).getByRole('progressbar', { name: 'Progress 100%' })).toHaveClass('lrn-progress');
+    expect(within(row).getByRole('button', { name: 'View LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-icon-button');
+    expect(within(row).getByRole('link', { name: 'Download LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-icon-link');
+    expect(within(row).getByRole('button', { name: 'More actions for LightRAGNet_Architecture_Overview.pdf' })).toHaveClass('lrn-action-menu__trigger');
+    expect(screen.getByText('Showing 1 to 3 of 1,248 results')).toBeInTheDocument();
   });
 
   it('opens document previews in a same-page drawer without leaving the list route', async () => {
@@ -206,14 +253,14 @@ describe('DocumentsPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
     const closeButton = within(dialog).getByRole('button', { name: 'Close preview' });
-    const fullPreviewLink = within(dialog).getByRole('link', { name: 'Open full preview' });
+    const previewTab = within(dialog).getByRole('tab', { name: 'Preview' });
     const previousPageButton = screen.getByRole('button', { name: 'Previous' });
 
     await waitFor(() => expect(closeButton).toHaveFocus());
 
     await user.tab();
 
-    expect(fullPreviewLink).toHaveFocus();
+    expect(previewTab).toHaveFocus();
     expect(previousPageButton).not.toHaveFocus();
 
     await user.tab({ shift: true });
@@ -370,7 +417,9 @@ describe('DocumentsPage', () => {
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} />);
 
-    expect(await screen.findByText('Processing / Embedding')).toBeInTheDocument();
+    const row = await screen.findByRole('row', { name: /pipeline\.md/i });
+    expect(within(row).getByText('Processing')).toBeInTheDocument();
+    expect(within(row).getByText('Embedding')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Progress 60%' })).toHaveAttribute('aria-valuenow', '60');
   });
 
@@ -401,7 +450,7 @@ describe('DocumentsPage', () => {
     expect(within(failedRow).getByText(/Added Time:/)).toBeInTheDocument();
 
     const deleteFailedRow = await findRowByText('delete-failed.md');
-    expect(within(deleteFailedRow).getByText('DeletionFailed')).toBeInTheDocument();
+    expect(within(deleteFailedRow).getByText('Failed')).toBeInTheDocument();
     expect(within(deleteFailedRow).getByText('Error: Vector store delete failed')).toBeInTheDocument();
   });
 

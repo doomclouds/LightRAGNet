@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentsPage } from '@/features/documents/DocumentsPage';
@@ -98,7 +98,9 @@ describe('Document task refresh', () => {
       });
     });
 
-    expect(await screen.findByText(/Processing \/ MergingEntities/i)).toBeInTheDocument();
+    const row = await screen.findByRole('row', { name: /pipeline\.pdf/i });
+    expect(within(row).getByText('Processing')).toBeInTheDocument();
+    expect(within(row).getByText('MergingEntities')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Progress 60%' })).toBeInTheDocument();
   });
 

@@ -2,6 +2,7 @@ export type PageTabItem = {
   id: string;
   label: string;
   href: string;
+  badge?: string | number;
 };
 
 type PageTabsProps = {
@@ -20,7 +21,8 @@ export function PageTabs({ tabs, currentId, label = 'Page sections' }: PageTabsP
           href={tab.href}
           aria-current={tab.id === currentId ? 'page' : undefined}
         >
-          {tab.label}
+          <span>{tab.label}</span>
+          {tab.badge !== undefined ? <span className="lrn-page-tabs__badge" aria-hidden="true">{tab.badge}</span> : null}
         </a>
       ))}
     </nav>

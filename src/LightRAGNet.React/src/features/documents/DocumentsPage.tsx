@@ -1,5 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Eye, Play, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BarChart3,
+  ChevronDown,
+  Database,
+  Download,
+  Eye,
+  File,
+  Filter,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+  XCircle
+} from 'lucide-react';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { getApiBase } from '@/api/http';
 import {
@@ -10,13 +25,19 @@ import {
   retryDocument
 } from '@/api/documentsApi';
 import { Button, ButtonLink } from '@/shared/components/Button';
+import { ActionMenu } from '@/shared/components/ActionMenu';
+import { DataTableSurface } from '@/shared/components/DataTable';
 import { EmptyState } from '@/shared/components/EmptyState';
 import { ErrorState } from '@/shared/components/ErrorState';
+import { FileTypeIcon } from '@/shared/components/FileTypeIcon';
 import { IconButton } from '@/shared/components/IconButton';
+import { MetricCard } from '@/shared/components/MetricCard';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { PageTabs, type PageTabItem } from '@/shared/components/PageTabs';
-import { Panel } from '@/shared/components/Panel';
+import { ProgressBar } from '@/shared/components/ProgressBar';
 import { StatusPill } from '@/shared/components/StatusPill';
+import { Toolbar } from '@/shared/components/Toolbar';
+import { DocumentStatusBadge } from './DocumentStatusBadge';
 import { DocumentPreviewPanel, getDownloadHref } from './DocumentPreviewPanel';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import {
@@ -60,15 +81,8 @@ type DocumentsPageProps = {
 
 const pageSize = 10;
 const statusOptions = ['Queued', 'Processing', 'Completed', 'Failed', 'Cancelled'];
-const statusTabs: PageTabItem[] = [
-  { id: 'all', label: 'All Documents', href: '/documents' },
-  ...statusOptions.map((option) => ({
-    id: option.toLowerCase(),
-    label: option,
-    href: `/documents?status=${encodeURIComponent(option)}`
-  }))
-];
 const statusOptionSet = new Set(statusOptions);
+const fileTypeOptions = ['PDF', 'Markdown', 'DOCX', 'PPTX', 'TXT'];
 
 export function DocumentsPage({
   apiBase = getApiBase(),
@@ -86,6 +100,9 @@ export function DocumentsPage({
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [status, setStatus] = useState<string>(() => getStatusFromLocation());
+  const [searchText, setSearchText] = useState('');
+  const [fileType, setFileType] = useState('');
+  const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MarkdownDocumentDto | null>(null);
@@ -498,16 +515,31 @@ export function DocumentsPage({
     setPreviewDocument((current) => (current?.id === id ? applyPipelinePatch(current, result, action) : current));
   }
 
+  const visibleDocuments = useMemo(
+    () => documents.filter((document) => matchesLocalFilters(document, searchText, fileType)),
+    [documents, fileType, searchText]
+  );
   const activeCount = documents.filter((document) => isBusy(document)).length;
   const failedCount = documents.filter((document) => document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed').length;
   const completedCount = documents.filter((document) => document.ragStatus === 'Completed').length;
+  const skippedCount = documents.filter((document) => document.ragStatus === 'Cancelled').length;
+  const totalSize = documents.reduce((sum, document) => sum + document.fileSize, 0);
+  const shownStart = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const shownEnd = Math.min((page - 1) * pageSize + visibleDocuments.length, totalCount);
+  const statusTabs: PageTabItem[] = [
+    { id: 'all', label: 'All Documents', href: '/documents', badge: formatCount(totalCount) },
+    { id: 'completed', label: 'Indexed', href: '/documents?status=Completed', badge: completedCount },
+    { id: 'processing', label: 'Processing', href: '/documents?status=Processing', badge: activeCount },
+    { id: 'failed', label: 'Failed', href: '/documents?status=Failed', badge: failedCount },
+    { id: 'cancelled', label: 'Skipped', href: '/documents?status=Cancelled', badge: skippedCount }
+  ];
 
   return (
     <section className="document-list" aria-label="Documents">
       <article className="document-list__page-header">
         <PageHeader
           title="Documents"
-          description="Review uploaded documents and their current RAG ingestion state."
+          description="Manage and monitor your knowledge base documents."
           meta={
             <>
               <StatusPill tone="accent">{totalCount} total</StatusPill>
@@ -517,39 +549,89 @@ export function DocumentsPage({
           }
           actions={
             <ButtonLink tone="primary" className="document-list__upload-link" href="/documents/upload">
+              <Plus size={16} aria-hidden="true" />
               Upload Document
+              <ChevronDown size={15} aria-hidden="true" />
             </ButtonLink>
           }
         />
       </article>
 
-      <div className="document-list__toolbar">
-        <div onClickCapture={handleStatusTabClick}>
-          <PageTabs
-            tabs={statusTabs}
-            currentId={status.length > 0 ? status.toLowerCase() : 'all'}
-            label="Document status views"
+      <section className="document-list__summary-grid" aria-label="Document summary">
+        <MetricCard icon={File} label="Total Documents" value={formatCount(totalCount)} detail={status ? `${status} filter active` : 'All statuses'} tone="neutral" badge="+12%" />
+        <MetricCard icon={Database} label="Indexed" value={formatCount(completedCount)} detail="Ready in the RAG system" tone="success" badge={`${getPercent(completedCount, Math.max(1, documents.length))}%`} />
+        <MetricCard icon={RefreshCw} label="Processing" value={formatCount(activeCount)} detail="Queued, pending, or running" tone="warning" />
+        <MetricCard icon={BarChart3} label="Failed" value={formatCount(failedCount)} detail="Needs attention" tone={failedCount > 0 ? 'danger' : 'neutral'} />
+        <MetricCard icon={File} label="Total Size" value={formatFileSize(totalSize)} detail="Current page payload" tone="neutral" />
+      </section>
+
+      <div className="document-list__status-tabs" onClickCapture={handleStatusTabClick}>
+        <PageTabs
+          tabs={statusTabs}
+          currentId={status.length > 0 ? status.toLowerCase() : 'all'}
+          label="Document status views"
+        />
+      </div>
+
+      <Toolbar label="Document table tools" className="document-list__toolbar">
+        <label className="document-list__search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search documents"
+            placeholder="Search documents..."
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
           />
-        </div>
+        </label>
         <label className="document-list__filter">
-          <span>Status</span>
-          <select aria-label="RAG status filter" value={status} onChange={handleStatusChange}>
-            <option value="">All</option>
-            {statusOptions.map((option) => (
+          <span>File Type</span>
+          <select aria-label="File type filter" value={fileType} onChange={(event) => setFileType(event.target.value)}>
+            <option value="">All Types</option>
+            {fileTypeOptions.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>
             ))}
           </select>
         </label>
-      </div>
-
-      <section className="document-list__summary-grid" aria-label="Document summary">
-        <SummaryCard label="Total in result" value={totalCount} detail={status ? `${status} filter active` : 'All statuses'} />
-        <SummaryCard label="Active on this page" value={activeCount} detail="Queued, processing, pending, or deleting" />
-        <SummaryCard label="Failed on this page" value={failedCount} detail="Failed ingestion or deletion" />
-        <SummaryCard label="Completed on this page" value={completedCount} detail="Ready in the RAG system" />
-      </section>
+        <label className="document-list__filter">
+          <span>RAG Status</span>
+          <select aria-label="RAG status filter" value={status} onChange={handleStatusChange}>
+            <option value="">All</option>
+            {statusOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'Completed' ? 'Indexed' : option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="document-list__filter">
+          <span>Tag</span>
+          <select aria-label="Tag filter" defaultValue="">
+            <option value="">All Tags</option>
+          </select>
+        </label>
+        <div className="document-list__more-filters">
+          <Button
+            className="document-list__more-filter-button"
+            aria-expanded={isMoreFiltersOpen}
+            onClick={() => setIsMoreFiltersOpen((current) => !current)}
+          >
+            <Filter size={15} aria-hidden="true" />
+            More filters
+          </Button>
+          {isMoreFiltersOpen ? (
+            <div className="document-list__filter-popover" role="group" aria-label="More document filters">
+              <span>Current page filters are applied locally.</span>
+              <button type="button" onClick={() => { setSearchText(''); setFileType(''); setIsMoreFiltersOpen(false); }}>
+                Clear local filters
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <IconButton icon={RefreshCw} label="Refresh documents" onClick={refreshNow} />
+      </Toolbar>
 
       {isLoading ? <p className="document-list__state">Loading documents...</p> : null}
 
@@ -557,27 +639,31 @@ export function DocumentsPage({
         <ErrorState message={errorMessage} />
       ) : null}
 
-      {!isLoading && !errorMessage && documents.length === 0 ? (
+      {!isLoading && !errorMessage && visibleDocuments.length === 0 ? (
         <EmptyState
           title="No documents found"
           description="Upload a document or adjust the status filter to see matching files."
         />
       ) : null}
 
-      {!isLoading && documents.length > 0 ? (
-        <Panel className="document-list__table-panel">
+      {!isLoading && visibleDocuments.length > 0 ? (
+        <DataTableSurface className="document-list__table-panel">
           <table className="lrn-data-table document-list__table" aria-label="Document lifecycle">
             <thead>
               <tr>
+                <th scope="col" className="document-list__select-column">
+                  <input type="checkbox" aria-label="Select all documents on this page" />
+                </th>
                 <th scope="col">File Name</th>
-                <th scope="col">File Size</th>
-                <th scope="col">Upload Time</th>
+                <th scope="col">Size</th>
+                <th scope="col">Uploaded Time</th>
                 <th scope="col">RAG Status</th>
+                <th scope="col">Progress</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {documents.map((document) => (
+              {visibleDocuments.map((document) => (
                 <DocumentRow
                   key={document.id}
                   apiBase={apiBase}
@@ -592,7 +678,7 @@ export function DocumentsPage({
               ))}
             </tbody>
           </table>
-        </Panel>
+        </DataTableSurface>
       ) : null}
 
       {previewDocument ? (
@@ -605,6 +691,9 @@ export function DocumentsPage({
       ) : null}
 
       <footer className="document-list__footer">
+        <span className="document-list__result-count">
+          Showing {shownStart} to {shownEnd} of {formatCount(totalCount)} results
+        </span>
         <Button disabled={page <= 1 || isLoading} onClick={() => setPage((current) => Math.max(1, current - 1))}>
           Previous
         </Button>
@@ -616,16 +705,6 @@ export function DocumentsPage({
         </Button>
       </footer>
     </section>
-  );
-}
-
-function SummaryCard({ label, value, detail }: { label: string; value: number; detail: string }) {
-  return (
-    <article className="document-list__summary-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </article>
   );
 }
 
@@ -651,14 +730,66 @@ function DocumentRow({
   onDelete
 }: DocumentRowProps) {
   const downloadHref = getDownloadHref(apiBase, document.fileUrl);
+  const progress = Math.max(0, Math.min(100, Math.round(document.ragProgress)));
+  const fileType = getDocumentFileType(document);
+  const actionItems = [
+    ...(canAddToRag(document)
+      ? [{
+          label: `Add ${document.fileName} to RAG`,
+          icon: <Play size={15} />,
+          disabled: isActionPending,
+          onSelect: () => void onAddToRag(document)
+        }]
+      : []),
+    ...(canRetry(document)
+      ? [{
+          label: `Retry ${document.fileName}`,
+          icon: <RotateCcw size={15} />,
+          disabled: isActionPending,
+          onSelect: () => void onRetry(document)
+        }]
+      : []),
+    ...(canCancel(document)
+      ? [{
+          label: `Cancel ${document.fileName}`,
+          icon: <XCircle size={15} />,
+          disabled: isActionPending,
+          onSelect: () => void onCancel(document)
+        }]
+      : []),
+    {
+      label: `Delete ${document.fileName}`,
+      icon: <Trash2 size={15} />,
+      tone: 'danger' as const,
+      disabled: isActionPending || isBusy(document),
+      onSelect: () => void onDelete(document)
+    }
+  ];
 
   return (
     <tr>
-      <td>{document.fileName}</td>
+      <td className="document-list__select-column">
+        <input type="checkbox" aria-label={`Select ${document.fileName}`} />
+      </td>
+      <td>
+        <div className="document-list__file">
+          <FileTypeIcon type={fileType} />
+          <div>
+            <span className="document-list__file-name">{document.fileName}</span>
+            <span className="document-list__file-meta">
+              <span className="document-list__file-type">{fileType}</span>
+              {document.ragDocumentId ? <span>ID {document.ragDocumentId}</span> : null}
+            </span>
+          </div>
+        </div>
+      </td>
       <td>{formatFileSize(document.fileSize)}</td>
       <td>{formatDateTime(document.uploadTime)}</td>
       <td>
         <DocumentStatus document={document} />
+      </td>
+      <td>
+        <ProgressBar value={progress} tone={getProgressTone(document)} label={`Progress ${progress}%`} />
       </td>
       <td>
         <div className="document-list__actions">
@@ -679,40 +810,7 @@ function DocumentRow({
               <Download aria-hidden="true" size={16} />
             </a>
           ) : null}
-          {canAddToRag(document) ? (
-            <IconButton
-              icon={Play}
-              label={`Add ${document.fileName} to RAG`}
-              tone="primary"
-              disabled={isActionPending}
-              onClick={() => void onAddToRag(document)}
-            />
-          ) : null}
-          {canRetry(document) ? (
-            <IconButton
-              icon={RotateCcw}
-              label={`Retry ${document.fileName}`}
-              tone="warning"
-              disabled={isActionPending}
-              onClick={() => void onRetry(document)}
-            />
-          ) : null}
-          {canCancel(document) ? (
-            <IconButton
-              icon={XCircle}
-              label={`Cancel ${document.fileName}`}
-              tone="warning"
-              disabled={isActionPending}
-              onClick={() => void onCancel(document)}
-            />
-          ) : null}
-          <IconButton
-            icon={Trash2}
-            label={`Delete ${document.fileName}`}
-            tone="danger"
-            disabled={isActionPending || isBusy(document)}
-            onClick={() => void onDelete(document)}
-          />
+          <ActionMenu label={`More actions for ${document.fileName}`} items={actionItems} />
         </div>
       </td>
     </tr>
@@ -720,18 +818,14 @@ function DocumentRow({
 }
 
 function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
-  const statusText = getStatusText(document);
-  const progress = Math.max(0, Math.min(100, Math.round(document.ragProgress)));
   const shouldShowError = (document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed') &&
     Boolean(document.ragErrorMessage?.trim());
 
   return (
     <div className="document-list__status">
-      <StatusPill tone={getStatusTone(document.ragStatus)}>{statusText}</StatusPill>
-      {document.ragStatus === 'Processing' ? (
-        <div className="document-list__progress" role="progressbar" aria-label={`Progress ${progress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-          <span style={{ width: `${progress}%` }} />
-        </div>
+      <DocumentStatusBadge status={document.ragStatus} />
+      {document.ragCurrentStage ? (
+        <p className="document-list__status-stage">{document.ragCurrentStage}</p>
       ) : null}
       {shouldShowError ? (
         <p className="document-list__status-error">
@@ -747,32 +841,86 @@ function DocumentStatus({ document }: { document: MarkdownDocumentDto }) {
   );
 }
 
-function getStatusTone(status: MarkdownDocumentDto['ragStatus']): React.ComponentProps<typeof StatusPill>['tone'] {
-  if (status === 'Completed') {
+function matchesLocalFilters(document: MarkdownDocumentDto, searchText: string, fileType: string): boolean {
+  const normalizedSearch = searchText.trim().toLowerCase();
+
+  if (normalizedSearch.length > 0) {
+    const haystack = [
+      document.fileName,
+      document.originalFileName,
+      document.originalContentType,
+      document.ragStatus,
+      document.ragCurrentStage
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    if (!haystack.includes(normalizedSearch)) {
+      return false;
+    }
+  }
+
+  if (fileType.length > 0 && getDocumentFileType(document) !== fileType) {
+    return false;
+  }
+
+  return true;
+}
+
+function getDocumentFileType(document: MarkdownDocumentDto): string {
+  const contentType = document.originalContentType?.toLowerCase() ?? '';
+  const extension = (document.originalFileName ?? document.fileName).split('.').pop()?.toLowerCase() ?? '';
+
+  if (contentType.includes('pdf') || extension === 'pdf') {
+    return 'PDF';
+  }
+
+  if (contentType.includes('word') || extension === 'docx' || extension === 'doc') {
+    return 'DOCX';
+  }
+
+  if (contentType.includes('presentation') || extension === 'pptx' || extension === 'ppt') {
+    return 'PPTX';
+  }
+
+  if (contentType.includes('markdown') || extension === 'md' || extension === 'markdown') {
+    return 'Markdown';
+  }
+
+  if (contentType.includes('text') || extension === 'txt') {
+    return 'TXT';
+  }
+
+  return extension.length > 0 ? extension.toUpperCase() : 'File';
+}
+
+function getProgressTone(document: MarkdownDocumentDto): React.ComponentProps<typeof ProgressBar>['tone'] {
+  if (document.ragStatus === 'Completed') {
     return 'success';
   }
 
-  if (status === 'Failed' || status === 'DeletionFailed') {
+  if (document.ragStatus === 'Failed' || document.ragStatus === 'DeletionFailed') {
     return 'danger';
   }
 
-  if (status === 'Queued' || status === 'Processing' || status === 'Pending' || status === 'Deleting') {
+  if (isBusy(document)) {
     return 'warning';
   }
 
   return 'neutral';
 }
 
-function getStatusText(document: MarkdownDocumentDto): string {
-  if (!document.ragStatus) {
-    return 'Not Added';
+function formatCount(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function getPercent(value: number, total: number): number {
+  if (total <= 0) {
+    return 0;
   }
 
-  if (document.ragCurrentStage) {
-    return `${document.ragStatus} / ${document.ragCurrentStage}`;
-  }
-
-  return document.ragStatus;
+  return Math.round((value / total) * 100);
 }
 
 function canAddToRag(document: MarkdownDocumentDto): boolean {

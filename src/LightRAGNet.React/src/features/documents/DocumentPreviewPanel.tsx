@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Download, ExternalLink, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
+import { FileTypeIcon } from '@/shared/components/FileTypeIcon';
+import { IconButton } from '@/shared/components/IconButton';
+import { DocumentStatusBadge } from './DocumentStatusBadge';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import type { MarkdownDocumentDto } from './documentTypes';
 
@@ -24,9 +28,11 @@ export function DocumentPreviewPanel({
   const [preview, setPreview] = useState<DocumentPreviewContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'preview' | 'metadata'>('preview');
   const downloadHref = getDownloadHref(apiBase, document.fileUrl);
   const hasContent = Boolean(preview?.content?.trim());
   const fullPreviewHref = `/document-preview/${document.id}`;
+  const fileType = getDocumentFileType(document, preview?.contentType);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -83,55 +89,165 @@ export function DocumentPreviewPanel({
         onKeyDown={handleKeyDown}
       >
         <header className="document-preview__header">
-          <div>
-            <h2>{preview?.fileName || document.fileName}</h2>
-            <dl className="document-preview__meta">
-              <div>
-                <dt>File Size</dt>
-                <dd>{formatFileSize(document.fileSize)}</dd>
-              </div>
-              <div>
-                <dt>Upload Time</dt>
-                <dd>{formatDateTime(document.uploadTime)}</dd>
-              </div>
-              {preview?.contentType ? (
-                <div>
-                  <dt>Content Type</dt>
-                  <dd>{preview.contentType}</dd>
-                </div>
-              ) : null}
-            </dl>
+          <div className="document-preview__file-summary">
+            <FileTypeIcon type={fileType} size="lg" className="document-preview__file-icon" />
+            <div>
+              <h2>{preview?.fileName || document.fileName}</h2>
+              <p>{fileType} · {formatFileSize(document.fileSize)}</p>
+            </div>
           </div>
-          <div className="document-preview__tools">
-            <a href={fullPreviewHref}>Open full preview</a>
-            {downloadHref ? (
-              <a href={downloadHref} download aria-label={`Download ${document.fileName}`}>
-                Download
-              </a>
-            ) : null}
-            <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close preview">
-              Close
-            </button>
-          </div>
+          <IconButton ref={closeButtonRef} icon={X} label="Close preview" onClick={onClose} />
         </header>
 
-        <div className="document-preview__content">
-          {isLoading ? <p className="document-preview__empty">Loading preview...</p> : null}
-          {errorMessage ? (
-            <p className="document-preview__empty" role="alert">
-              {errorMessage}
-            </p>
-          ) : null}
-          {!isLoading && !errorMessage && hasContent ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
-          ) : null}
-          {!isLoading && !errorMessage && !hasContent ? (
-            <p className="document-preview__empty">No preview content available.</p>
-          ) : null}
+        <div className="document-preview__tabs" role="tablist" aria-label="Document preview views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'preview'}
+            onClick={() => setActiveTab('preview')}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'metadata'}
+            onClick={() => setActiveTab('metadata')}
+          >
+            Metadata
+          </button>
         </div>
+
+        <div className="document-preview__body">
+          {activeTab === 'preview' ? (
+            <>
+              <MetadataCard document={document} contentType={preview?.contentType} fileType={fileType} />
+              <section className="document-preview__content-card" aria-label="Content Preview">
+                <header>
+                  <h3>Content Preview</h3>
+                  <span>{preview?.fileName || document.fileName}</span>
+                </header>
+                <div className="document-preview__content">
+                  {isLoading ? <p className="document-preview__empty">Loading preview...</p> : null}
+                  {errorMessage ? (
+                    <p className="document-preview__empty" role="alert">
+                      {errorMessage}
+                    </p>
+                  ) : null}
+                  {!isLoading && !errorMessage && hasContent ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
+                  ) : null}
+                  {!isLoading && !errorMessage && !hasContent ? (
+                    <p className="document-preview__empty">No preview content available.</p>
+                  ) : null}
+                </div>
+              </section>
+            </>
+          ) : (
+            <MetadataCard document={document} contentType={preview?.contentType} fileType={fileType} expanded />
+          )}
+        </div>
+
+        <footer className="document-preview__footer">
+          <a className="lrn-button lrn-button--secondary" href={fullPreviewHref} aria-label="Open full preview">
+            <ExternalLink size={15} aria-hidden="true" />
+            Open Full Preview
+          </a>
+          {downloadHref ? (
+            <a className="lrn-button lrn-button--primary" href={downloadHref} download aria-label={`Download ${document.fileName}`}>
+              <Download size={15} aria-hidden="true" />
+              Download
+            </a>
+          ) : null}
+        </footer>
       </aside>
     </>
   );
+}
+
+function MetadataCard({
+  document,
+  contentType,
+  fileType,
+  expanded = false
+}: {
+  document: MarkdownDocumentDto;
+  contentType?: string | null;
+  fileType: string;
+  expanded?: boolean;
+}) {
+  return (
+    <section className="document-preview__metadata-card" aria-label="Document metadata">
+      <header>
+        <h3>Metadata</h3>
+      </header>
+      <dl className="document-preview__meta-grid">
+        <div>
+          <dt>Uploaded Time</dt>
+          <dd>{formatDateTime(document.uploadTime)}</dd>
+        </div>
+        <div>
+          <dt>RAG Status</dt>
+          <dd><DocumentStatusBadge status={document.ragStatus} /></dd>
+        </div>
+        <div>
+          <dt>Chunks</dt>
+          <dd>{document.ragDocumentId ? 'Available' : '—'}</dd>
+        </div>
+        <div>
+          <dt>File Type</dt>
+          <dd>{fileType}</dd>
+        </div>
+        {expanded ? (
+          <>
+            <div>
+              <dt>File Size</dt>
+              <dd>{formatFileSize(document.fileSize)}</dd>
+            </div>
+            <div>
+              <dt>Content Type</dt>
+              <dd>{contentType || document.originalContentType || '—'}</dd>
+            </div>
+            <div>
+              <dt>RAG Document ID</dt>
+              <dd>{document.ragDocumentId || '—'}</dd>
+            </div>
+            <div>
+              <dt>Track ID</dt>
+              <dd>{document.trackId || '—'}</dd>
+            </div>
+          </>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+function getDocumentFileType(document: MarkdownDocumentDto, contentType?: string | null): string {
+  const normalizedContentType = (contentType || document.originalContentType || '').toLowerCase();
+  const extension = (document.originalFileName ?? document.fileName).split('.').pop()?.toLowerCase() ?? '';
+
+  if (normalizedContentType.includes('pdf') || extension === 'pdf') {
+    return 'PDF';
+  }
+
+  if (normalizedContentType.includes('word') || extension === 'docx' || extension === 'doc') {
+    return 'DOCX';
+  }
+
+  if (normalizedContentType.includes('presentation') || extension === 'pptx' || extension === 'ppt') {
+    return 'PPTX';
+  }
+
+  if (normalizedContentType.includes('markdown') || extension === 'md' || extension === 'markdown') {
+    return 'Markdown';
+  }
+
+  if (normalizedContentType.includes('text') || extension === 'txt') {
+    return 'TXT';
+  }
+
+  return extension.length > 0 ? extension.toUpperCase() : 'File';
 }
 
 function trapTabFocus(event: KeyboardEvent<HTMLElement>) {

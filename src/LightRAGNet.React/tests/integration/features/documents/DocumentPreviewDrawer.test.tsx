@@ -57,6 +57,12 @@ describe('DocumentPreviewDrawer', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Preview system-architecture.md' });
     expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('tab', { name: 'Preview' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(dialog).getByRole('tab', { name: 'Metadata' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Uploaded Time')).toBeInTheDocument();
+    expect(within(dialog).getByText('RAG Status')).toBeInTheDocument();
+    expect(within(dialog).getByText('Chunks')).toBeInTheDocument();
+    expect(within(dialog).getByRole('region', { name: 'Content Preview' })).toBeInTheDocument();
     expect(await within(dialog).findByRole('heading', { name: 'Architecture' })).toBeInTheDocument();
     expect(within(dialog).queryByText('Stale row content')).not.toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: 'Open full preview' })).toHaveAttribute(

@@ -65,6 +65,11 @@ describe('light workbench theme tokens', () => {
       '.lrn-page-tabs',
       '.lrn-data-table',
       '.lrn-status-pill',
+      '.lrn-toolbar',
+      '.lrn-metric-card',
+      '.lrn-progress',
+      '.lrn-action-menu',
+      '.lrn-data-table-surface',
       '.lrn-scrim',
       '.lrn-drawer',
       '.lrn-modal'

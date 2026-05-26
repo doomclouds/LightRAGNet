@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentType } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ComponentType } from 'react';
 import type { LucideProps } from 'lucide-react';
 
 type IconButtonTone = 'neutral' | 'primary' | 'danger' | 'warning';
@@ -9,10 +9,14 @@ type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type' | 'a
   tone?: IconButtonTone;
 };
 
-export function IconButton({ icon: Icon, label, tone = 'neutral', className, ...props }: IconButtonProps) {
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { icon: Icon, label, tone = 'neutral', className, ...props },
+  ref
+) {
   return (
     <button
       {...props}
+      ref={ref}
       className={['lrn-icon-button', `lrn-icon-button--${tone}`, className].filter(Boolean).join(' ')}
       type="button"
       aria-label={label}
@@ -21,4 +25,4 @@ export function IconButton({ icon: Icon, label, tone = 'neutral', className, ...
       <Icon size={16} aria-hidden="true" />
     </button>
   );
-}
+});

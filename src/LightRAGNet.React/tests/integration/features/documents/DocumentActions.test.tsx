@@ -58,6 +58,13 @@ function renderDocuments(
   return { loadDocuments };
 }
 
+async function openRowActions(user: ReturnType<typeof userEvent.setup>, fileName: string) {
+  const row = await screen.findByRole('row', { name: new RegExp(fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') });
+  await user.click(within(row).getByRole('button', { name: `More actions for ${fileName}` }));
+
+  return row;
+}
+
 describe('Document actions', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -76,11 +83,13 @@ describe('Document actions', () => {
 
     renderDocuments([makeDocument()], { addToRag });
 
-    const row = await screen.findByRole('row', { name: /handbook\.md/i });
-    await user.click(within(row).getByRole('button', { name: 'Add handbook.md to RAG' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Add handbook.md to RAG' }));
 
     await waitFor(() => expect(addToRag).toHaveBeenCalledWith(apiBase, 1));
-    expect(await screen.findByText('Pending / Queued')).toBeInTheDocument();
+    expect(await screen.findByText('Pending')).toBeInTheDocument();
+    const pendingRow = screen.getByRole('row', { name: /handbook\.md/i });
+    expect(within(pendingRow).getByText('Queued')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add handbook.md to RAG' })).not.toBeInTheDocument();
   });
 
@@ -92,12 +101,13 @@ describe('Document actions', () => {
 
     renderDocuments([makeDocument()], { addToRag, removeDocument });
 
-    const row = await screen.findByRole('row', { name: /handbook\.md/i });
-    await user.dblClick(within(row).getByRole('button', { name: 'Add handbook.md to RAG' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Add handbook.md to RAG' }));
 
     expect(addToRag).toHaveBeenCalledTimes(1);
-    expect(within(row).getByRole('button', { name: 'Add handbook.md to RAG' })).toBeDisabled();
-    expect(within(row).getByRole('button', { name: 'Delete handbook.md' })).toBeDisabled();
+    await openRowActions(user, 'handbook.md');
+    expect(screen.getByRole('menuitem', { name: 'Add handbook.md to RAG' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Delete handbook.md' })).toBeDisabled();
 
     addRequest.resolve(makeDocument({ isInRagSystem: true, ragStatus: 'Pending' }));
 
@@ -210,7 +220,8 @@ describe('Document actions', () => {
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Delete handbook.md' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete handbook.md' }));
 
     await waitFor(() => expect(removeDocument).toHaveBeenCalledWith(apiBase, 1));
     await waitFor(() => expect(screen.queryByText('handbook.md')).not.toBeInTheDocument());
@@ -233,7 +244,8 @@ describe('Document actions', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 2, pageSize: 10, status: undefined }));
 
-    await user.click(await screen.findByRole('button', { name: 'Delete last-on-page.md' }));
+    await openRowActions(user, 'last-on-page.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete last-on-page.md' }));
 
     await waitFor(() => expect(loadDocuments).toHaveBeenLastCalledWith(apiBase, { page: 1, pageSize: 10, status: undefined }));
     expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
@@ -251,12 +263,14 @@ describe('Document actions', () => {
 
     renderDocuments([makeDocument()], { removeDocument });
 
-    await user.click(await screen.findByRole('button', { name: 'Delete handbook.md' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete handbook.md' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Document has an active pipeline');
     expect(screen.getByRole('row', { name: /handbook\.md/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Delete handbook.md' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete handbook.md' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Delete request failed');
     expect(screen.getByRole('row', { name: /handbook\.md/i })).toBeInTheDocument();
@@ -274,15 +288,19 @@ describe('Document actions', () => {
 
     render(<DocumentsPage apiBase={apiBase} loadDocuments={loadDocuments} removeDocument={removeDocument} />);
 
-    await user.click(await screen.findByRole('button', { name: 'Delete handbook.md' }));
+    await openRowActions(user, 'handbook.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete handbook.md' }));
     await user.selectOptions(screen.getByLabelText('RAG status filter'), 'Processing');
 
-    expect(await screen.findByText('Processing / Embedding')).toBeInTheDocument();
+    const processingRow = await screen.findByRole('row', { name: /handbook\.md/i });
+    expect(within(processingRow).getByText('Processing')).toBeInTheDocument();
+    expect(within(processingRow).getByText('Embedding')).toBeInTheDocument();
 
     deleteRequest.resolve({ conflict: true, errorMessage: 'Document has an active pipeline' });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Document has an active pipeline');
-    expect(screen.getByText('Processing / Embedding')).toBeInTheDocument();
+    expect(within(processingRow).getByText('Processing')).toBeInTheDocument();
+    expect(within(processingRow).getByText('Embedding')).toBeInTheDocument();
   });
 
   it('shows retry and cancel for eligible statuses and updates action state', async () => {
@@ -308,27 +326,32 @@ describe('Document actions', () => {
       cancelPipeline
     });
 
-    await user.click(await screen.findByRole('button', { name: 'Retry failed.md' }));
+    await openRowActions(user, 'failed.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Retry failed.md' }));
 
     expect(await screen.findByText('Pending')).toBeInTheDocument();
     expect(screen.queryByText('Retry queued')).not.toBeInTheDocument();
     expect(screen.queryByText('Boom')).not.toBeInTheDocument();
     expect(retry).toHaveBeenCalledWith(apiBase, 1);
 
-    await user.click(screen.getByRole('button', { name: 'Cancel processing.md' }));
+    await openRowActions(user, 'processing.md');
+    await user.click(screen.getByRole('menuitem', { name: 'Cancel processing.md' }));
 
     const cancelledRow = await screen.findByRole('row', { name: /processing\.md/i });
-    expect(within(cancelledRow).getByText('Cancelled')).toBeInTheDocument();
-    expect(within(cancelledRow).getByRole('button', { name: 'Delete processing.md' })).toBeEnabled();
+    expect(within(cancelledRow).getByText('Skipped')).toBeInTheDocument();
+    await openRowActions(user, 'processing.md');
+    expect(screen.getByRole('menuitem', { name: 'Delete processing.md' })).toBeEnabled();
     expect(screen.queryByText('Cancel accepted')).not.toBeInTheDocument();
     expect(cancelPipeline).toHaveBeenCalledWith(apiBase, 2);
   });
 
   it('disables delete for busy documents', async () => {
+    const user = userEvent.setup();
     renderDocuments([makeDocument({ fileName: 'busy.md', isInRagSystem: true, ragStatus: 'Processing' })]);
 
     const row = await screen.findByRole('row', { name: /busy\.md/i });
 
-    expect(within(row).getByRole('button', { name: 'Delete busy.md' })).toBeDisabled();
+    await user.click(within(row).getByRole('button', { name: 'More actions for busy.md' }));
+    expect(screen.getByRole('menuitem', { name: 'Delete busy.md' })).toBeDisabled();
   });
 });
