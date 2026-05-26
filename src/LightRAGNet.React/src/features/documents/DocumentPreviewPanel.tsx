@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Download, ExternalLink, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { FileTypeIcon } from '@/shared/components/FileTypeIcon';
 import { IconButton } from '@/shared/components/IconButton';
+import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer';
 import { DocumentStatusBadge } from './DocumentStatusBadge';
 import { formatDateTime, formatFileSize } from './documentFormatters';
 import type { MarkdownDocumentDto } from './documentTypes';
@@ -135,7 +134,7 @@ export function DocumentPreviewPanel({
                     </p>
                   ) : null}
                   {!isLoading && !errorMessage && hasContent ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
+                    <MarkdownRenderer content={preview?.content ?? ''} />
                   ) : null}
                   {!isLoading && !errorMessage && !hasContent ? (
                     <p className="document-preview__empty">No preview content available.</p>

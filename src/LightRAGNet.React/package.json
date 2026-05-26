@@ -22,6 +22,7 @@
     "@sigma/node-border": "^3.0.0",
     "graphology": "^0.26.0",
     "lucide-react": "^1.16.0",
+    "mermaid": "^11.15.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",

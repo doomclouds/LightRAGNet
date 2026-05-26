@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { getDocumentPreviewContent, type DocumentPreviewContent } from '@/api/documentPreviewApi';
 import { EmptyState } from '@/shared/components/EmptyState';
 import { ErrorState } from '@/shared/components/ErrorState';
+import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { Panel } from '@/shared/components/Panel';
 import { StatusPill } from '@/shared/components/StatusPill';
@@ -96,7 +95,7 @@ export function DocumentPreviewPage({
       {documentId && preview && !isLoading && !errorMessage ? (
         <Panel as="article" className="document-preview-page__content" aria-label="Document preview content">
           {hasContent ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview?.content}</ReactMarkdown>
+            <MarkdownRenderer content={preview?.content ?? ''} />
           ) : (
             <p className="document-preview-page__empty">No preview content available.</p>
           )}

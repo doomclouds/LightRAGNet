@@ -1,6 +1,4 @@
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-
+import { MarkdownRenderer } from "@/shared/components/MarkdownRenderer";
 import type { ChatMessage, RagQueryReference } from "@/types/ragChat";
 
 type Props = {
@@ -14,11 +12,7 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
 
   return (
     <article className="rag-chat__message rag-chat__message--assistant">
-      <div className="rag-chat__markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {message.text || (message.isComplete ? "No content returned." : "")}
-        </ReactMarkdown>
-      </div>
+      <MarkdownRenderer className="rag-chat__markdown" content={message.text || (message.isComplete ? "No content returned." : "")} />
 
       {!message.isComplete ? <div className="rag-chat__loading">Generating...</div> : null}
       {message.errorMessage ? <div className="rag-chat__error">{message.errorMessage}</div> : null}

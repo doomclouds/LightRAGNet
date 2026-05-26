@@ -2083,6 +2083,54 @@ select {
   font-weight: 680;
 }
 
+.lrn-markdown > :first-child {
+  margin-top: 0;
+}
+
+.lrn-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.lrn-mermaid {
+  margin: 14px 0;
+  overflow-x: auto;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg-raised);
+}
+
+.lrn-mermaid__state,
+.lrn-mermaid__fallback p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.lrn-mermaid__svg {
+  min-width: min-content;
+}
+
+.lrn-mermaid__svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.lrn-mermaid__fallback {
+  display: grid;
+  gap: 10px;
+}
+
+.lrn-mermaid__fallback pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 12px;
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-control);
+}
+
 .document-preview {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0;

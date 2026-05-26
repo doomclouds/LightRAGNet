@@ -1,6 +1,15 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentPreviewPage } from '@/features/document-preview/DocumentPreviewPage';
+
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn()
+}));
+
+vi.mock('mermaid', () => ({
+  default: mermaidMock
+}));
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -14,6 +23,10 @@ function deferred<T>() {
 }
 
 describe('DocumentPreviewPage', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('renders a safe empty state when no document id is selected', () => {
     render(<DocumentPreviewPage apiBase="http://localhost:5261" />);
 
@@ -53,6 +66,22 @@ describe('DocumentPreviewPage', () => {
     expect(screen.getByText(/Rendered/)).toBeInTheDocument();
     expect(screen.getByText('markdown')).toBeInTheDocument();
     expect(loadPreview).toHaveBeenCalledWith('http://localhost:5261', 42);
+  });
+
+  it('renders Mermaid diagrams in markdown preview content', async () => {
+    mermaidMock.render.mockResolvedValue({
+      svg: '<svg role="img" aria-label="Preview Mermaid"><text>Preview diagram</text></svg>'
+    });
+    const loadPreview = vi.fn().mockResolvedValue({
+      contentType: 'text/markdown',
+      content: '```mermaid\ngraph TD\n  A --> B\n```',
+      fileName: 'diagram.md'
+    });
+
+    render(<DocumentPreviewPage apiBase="http://localhost:5261" documentId={42} loadPreview={loadPreview} />);
+
+    expect(await screen.findByText('Preview diagram')).toBeInTheDocument();
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(/^lrn-mermaid-/), 'graph TD\n  A --> B');
   });
 
   it('renders a readable placeholder when preview content is empty', async () => {
