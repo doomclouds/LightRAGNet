@@ -1,4 +1,5 @@
 using LightRAGNet.Share.Models;
+using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Services.Evaluation;
 
@@ -7,6 +8,7 @@ internal sealed class RagasEvaluationRunner(
     IRagasRagQueryClient queryClient,
     IRagasEvaluator evaluator,
     RagasEvaluationTextSnapshotter snapshotter,
+    IOptions<RagasEvaluationOptions> options,
     ILogger<RagasEvaluationRunner> logger)
 {
     public async Task ExecuteAsync(
@@ -61,13 +63,16 @@ internal sealed class RagasEvaluationRunner(
                         dataSetCase,
                         queryResult.Answer,
                         queryResult.Contexts,
-                        [
-                            new RagasEvaluationDiagnosticDto
-                            {
-                                Code = evaluatorResult.ParseResult.ErrorCode ?? "parser_failed",
-                                Message = evaluatorResult.ParseResult.ErrorMessage ?? "Judge response could not be parsed."
-                            }
-                        ],
+                        AppendJudgeDiagnostics(
+                            [
+                                new RagasEvaluationDiagnosticDto
+                                {
+                                    Code = evaluatorResult.ParseResult.ErrorCode ?? "parser_failed",
+                                    Message = evaluatorResult.ParseResult.ErrorMessage ?? "Judge response could not be parsed."
+                                }
+                            ],
+                            evaluatorResult,
+                            run.Request.IncludeFullText),
                         run.Request.IncludeFullText));
                     run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
                     await store.UpsertAsync(run, CancellationToken.None);
@@ -79,6 +84,7 @@ internal sealed class RagasEvaluationRunner(
                     queryResult.Answer,
                     queryResult.Contexts,
                     evaluatorResult.ParseResult.Metrics,
+                    AppendJudgeDiagnostics([], evaluatorResult, run.Request.IncludeFullText),
                     run.Request.IncludeFullText));
                 run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
                 await store.UpsertAsync(run, CancellationToken.None);
@@ -107,11 +113,79 @@ internal sealed class RagasEvaluationRunner(
         }
     }
 
+    private List<RagasEvaluationDiagnosticDto> AppendJudgeDiagnostics(
+        List<RagasEvaluationDiagnosticDto> diagnostics,
+        RagasEvaluatorResult evaluatorResult,
+        bool includeFullText)
+    {
+        var value = options.Value;
+        if (value.PersistJudgePrompts)
+        {
+            diagnostics.Add(CreateJudgeSnapshotDiagnostic(
+                "judge_prompt",
+                "Judge prompt snapshot.",
+                evaluatorResult.Prompt,
+                includeFullText));
+        }
+
+        if (value.PersistJudgeResponses)
+        {
+            diagnostics.Add(CreateJudgeSnapshotDiagnostic(
+                "judge_response",
+                "Judge raw response snapshot.",
+                evaluatorResult.RawResponse,
+                includeFullText));
+        }
+
+        return diagnostics;
+    }
+
+    private RagasEvaluationDiagnosticDto CreateJudgeSnapshotDiagnostic(
+        string code,
+        string message,
+        string value,
+        bool includeFullText)
+    {
+        var snapshot = snapshotter.Snapshot(SanitizeJudgeText(value), includeFullText);
+        var details = new Dictionary<string, string>
+        {
+            ["preview"] = snapshot.Preview,
+            ["hash"] = snapshot.Hash
+        };
+
+        if (snapshot.Text is not null)
+        {
+            details["text"] = snapshot.Text;
+        }
+
+        return new RagasEvaluationDiagnosticDto
+        {
+            Code = code,
+            Message = message,
+            Details = details
+        };
+    }
+
+    private string SanitizeJudgeText(string value)
+    {
+        var sanitized = value;
+        foreach (var secret in new[] { options.Value.ApiKey, options.Value.AdminToken })
+        {
+            if (!string.IsNullOrWhiteSpace(secret))
+            {
+                sanitized = sanitized.Replace(secret, "[redacted]", StringComparison.Ordinal);
+            }
+        }
+
+        return sanitized;
+    }
+
     private RagasEvaluationCaseResultDto CreateSucceededCaseResult(
         RagasDatasetCase dataSetCase,
         string answer,
         IReadOnlyList<RagasRetrievedContext> contexts,
         RagasMetricSet metrics,
+        IReadOnlyList<RagasEvaluationDiagnosticDto> diagnostics,
         bool includeFullText)
     {
         var result = CreateBaseCaseResult(
@@ -144,6 +218,7 @@ internal sealed class RagasEvaluationRunner(
                 Reason = metrics.ContextPrecision.Reason
             }
         ];
+        result.Diagnostics = diagnostics.ToList();
 
         return result;
     }

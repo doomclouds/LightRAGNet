@@ -117,10 +117,95 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
         run.Summary.Failed.Should().Be(1);
         run.Cases.Should().ContainSingle();
         run.Cases[0].Status.Should().Be(RagasEvaluationCaseStatus.Failed.ToString());
-        run.Cases[0].Diagnostics.Should().ContainSingle(diagnostic =>
+        run.Cases[0].Diagnostics.Should().Contain(diagnostic =>
             diagnostic.Code == "invalid_json" &&
             diagnostic.Message == "Judge response was not valid JSON.");
         evaluator.Inputs.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenEvaluatorParserFails_PersistsSanitizedJudgePromptAndResponseSnapshots()
+    {
+        const string apiKey = "sk-test-secret";
+        const string adminToken = "admin-test-secret";
+        var prompt = $"judge prompt with {apiKey} and useful context";
+        var rawResponse = $"raw judge response with {adminToken} and malformed json";
+        var queryClient = new FakeRagasRagQueryClient();
+        queryClient.Enqueue(new RagasQueryExecutionResult(
+            "answer",
+            [new RagasRetrievedContext("context", "chunk-1", "docs/one.md", "ref-1")],
+            QueryMode.Mix));
+        var evaluator = new FakeRagasEvaluator();
+        evaluator.EnqueueFailure("invalid_json", "Judge response was not valid JSON.", rawResponse, prompt);
+        var run = CreateRun(includeFullText: true);
+        var runner = CreateRunner(
+            CreateStore(),
+            queryClient,
+            evaluator,
+            new RagasEvaluationOptions
+            {
+                AllowPersistFullText = true,
+                PreviewMaxChars = 128,
+                PersistJudgePrompts = true,
+                PersistJudgeResponses = true,
+                ApiKey = apiKey,
+                AdminToken = adminToken
+            });
+
+        await runner.ExecuteAsync(run, CreateCases(1), CancellationToken.None);
+
+        var promptDiagnostic = run.Cases[0].Diagnostics.Should()
+            .ContainSingle(diagnostic => diagnostic.Code == "judge_prompt")
+            .Subject;
+        var responseDiagnostic = run.Cases[0].Diagnostics.Should()
+            .ContainSingle(diagnostic => diagnostic.Code == "judge_response")
+            .Subject;
+
+        promptDiagnostic.Details["preview"].Should().Contain("judge prompt");
+        promptDiagnostic.Details["hash"].Should().NotBeNullOrWhiteSpace();
+        promptDiagnostic.Details["text"].Should().Contain("useful context");
+        responseDiagnostic.Details["preview"].Should().Contain("raw judge response");
+        responseDiagnostic.Details["hash"].Should().NotBeNullOrWhiteSpace();
+        responseDiagnostic.Details["text"].Should().Contain("malformed json");
+
+        var serializedDiagnostics = string.Join(
+            Environment.NewLine,
+            run.Cases[0].Diagnostics.SelectMany(diagnostic =>
+                diagnostic.Details.Select(detail => $"{detail.Key}:{detail.Value}")));
+        serializedDiagnostics.Should().NotContain(apiKey);
+        serializedDiagnostics.Should().NotContain(adminToken);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenJudgePersistenceIsDisabled_DoesNotPersistJudgeDiagnostics()
+    {
+        var queryClient = new FakeRagasRagQueryClient();
+        queryClient.Enqueue(new RagasQueryExecutionResult(
+            "answer",
+            [new RagasRetrievedContext("context", "chunk-1", "docs/one.md", "ref-1")],
+            QueryMode.Mix));
+        var evaluator = new FakeRagasEvaluator();
+        evaluator.EnqueueFailure(
+            "invalid_json",
+            "Judge response was not valid JSON.",
+            "raw response",
+            "judge prompt");
+        var run = CreateRun(includeFullText: true);
+        var runner = CreateRunner(
+            CreateStore(),
+            queryClient,
+            evaluator,
+            new RagasEvaluationOptions
+            {
+                AllowPersistFullText = true,
+                PersistJudgePrompts = false,
+                PersistJudgeResponses = false
+            });
+
+        await runner.ExecuteAsync(run, CreateCases(1), CancellationToken.None);
+
+        run.Cases[0].Diagnostics.Should().NotContain(diagnostic =>
+            diagnostic.Code == "judge_prompt" || diagnostic.Code == "judge_response");
     }
 
     [Fact]
@@ -167,17 +252,21 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
     private RagasEvaluationRunner CreateRunner(
         RagasEvaluationRunStore store,
         IRagasRagQueryClient queryClient,
-        IRagasEvaluator evaluator)
+        IRagasEvaluator evaluator,
+        RagasEvaluationOptions? options = null)
     {
+        options ??= new RagasEvaluationOptions
+        {
+            AllowPersistFullText = true,
+            PreviewMaxChars = 64
+        };
+
         return new RagasEvaluationRunner(
             store,
             queryClient,
             evaluator,
-            new RagasEvaluationTextSnapshotter(Options.Create(new RagasEvaluationOptions
-            {
-                AllowPersistFullText = true,
-                PreviewMaxChars = 64
-            })),
+            new RagasEvaluationTextSnapshotter(Options.Create(options)),
+            Options.Create(options),
             NullLogger<RagasEvaluationRunner>.Instance);
     }
 
@@ -274,12 +363,16 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
                 "prompt"));
         }
 
-        public void EnqueueFailure(string code, string message)
+        public void EnqueueFailure(
+            string code,
+            string message,
+            string rawResponse = "{}",
+            string prompt = "prompt")
         {
             results.Enqueue(new RagasEvaluatorResult(
-                "{}",
+                rawResponse,
                 RagasJudgeParseResult.Failed(code, message),
-                "prompt"));
+                prompt));
         }
 
         public Task<RagasEvaluatorResult> EvaluateAsync(
