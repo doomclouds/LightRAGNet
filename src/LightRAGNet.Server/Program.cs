@@ -11,6 +11,7 @@ using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Server.Services.DocumentConversion;
 using LightRAGNet.Server.Services.DocumentPreview;
+using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Server.Services.SystemHealth;
 using LightRAGNet.Server.Services.SystemHealth.Checks;
 using LightRAGNet.Core.Interfaces;
@@ -129,6 +130,8 @@ builder.Services.AddSignalR()
 
 // Register LightRAG services (including task queue services)
 builder.Services.AddLightRAG(builder.Configuration);
+builder.Services.Configure<RagasEvaluationOptions>(
+    builder.Configuration.GetSection("Evaluation:Ragas"));
 builder.Services.AddSingleton(sp => new CacheEntryInspector(
     sp.GetRequiredKeyedService<IKVStore>(KVContracts.LLMCache)));
 builder.Services.AddSingleton<CacheClearPlanner>();
