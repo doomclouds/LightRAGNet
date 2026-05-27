@@ -5,6 +5,8 @@ using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Share.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -16,6 +18,7 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         Path.GetTempPath(),
         "LightRAGNet.Server.Tests",
         Guid.NewGuid().ToString("N"));
+    private readonly List<IDisposable> disposables = [];
 
     [Fact]
     public async Task CreateAsync_WhenEnabledAndConfigured_ReturnsQueuedRunAndStoresIt()
@@ -102,6 +105,47 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateAsync_WhenBackgroundRuns_ResolvesRunnerFromServiceScopeAndDisposesScope()
+    {
+        var probe = new ScopedProbe();
+        var evaluator = new BlockingRagasEvaluator();
+        var coordinator = CreateCoordinator(evaluator: evaluator, scopedProbe: probe);
+        var created = await coordinator.CreateAsync(CreateRequest(maxCases: 1), CancellationToken.None);
+        await evaluator.WaitUntilCalledAsync();
+
+        await coordinator.CancelAsync(created.Value!.RunId, CancellationToken.None);
+        await evaluator.WaitUntilCancelledAsync();
+        await probe.WaitUntilDisposedAsync();
+
+        probe.WasResolved.Should().BeTrue();
+        probe.WasDisposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenBackgroundRunnerCannotBeResolved_MarksRunFailedAndAllowsNextCreate()
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store, scopeFactory: new ThrowingServiceScopeFactory());
+        var first = await coordinator.CreateAsync(CreateRequest(maxCases: 1), CancellationToken.None);
+
+        await WaitUntilAsync(async () =>
+        {
+            var run = await store.GetAsync(first.Value!.RunId, CancellationToken.None);
+            return run?.Status == RagasEvaluationRunStatus.Failed;
+        });
+
+        var evaluator = new BlockingRagasEvaluator();
+        var secondCoordinator = CreateCoordinator(store: store, evaluator: evaluator);
+        var second = await secondCoordinator.CreateAsync(CreateRequest(maxCases: 1), CancellationToken.None);
+
+        second.Success.Should().BeTrue();
+        second.Value!.RunId.Should().NotBe(first.Value!.RunId);
+        await evaluator.WaitUntilCalledAsync();
+        await secondCoordinator.CancelAsync(second.Value.RunId, CancellationToken.None);
+        await evaluator.WaitUntilCancelledAsync();
+    }
+
+    [Fact]
     public async Task GetAsync_WhenRunIsMissing_ReturnsNotFound()
     {
         var coordinator = CreateCoordinator();
@@ -177,6 +221,11 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var disposable in disposables)
+        {
+            disposable.Dispose();
+        }
+
         if (Directory.Exists(tempDirectory))
         {
             Directory.Delete(tempDirectory, recursive: true);
@@ -186,30 +235,52 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
     private RagasEvaluationRunCoordinator CreateCoordinator(
         RagasEvaluationOptions? options = null,
         RagasEvaluationRunStore? store = null,
-        IRagasEvaluator? evaluator = null)
+        IRagasEvaluator? evaluator = null,
+        ScopedProbe? scopedProbe = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
         options ??= CreateOptions();
         store ??= CreateStore();
         evaluator ??= new SuccessfulRagasEvaluator();
 
         var optionsMonitor = Options.Create(options);
-        var queryClient = new SuccessfulRagasRagQueryClient();
         var snapshotter = new RagasEvaluationTextSnapshotter(optionsMonitor);
-        var runner = new RagasEvaluationRunner(
-            store,
-            queryClient,
-            evaluator,
-            snapshotter,
-            optionsMonitor,
-            NullLogger<RagasEvaluationRunner>.Instance);
+        scopeFactory ??= CreateScopeFactory(store, evaluator, snapshotter, optionsMonitor, scopedProbe);
 
         return new RagasEvaluationRunCoordinator(
             optionsMonitor,
             new RagasEvaluationDataLoader(optionsMonitor),
             store,
-            runner,
+            scopeFactory,
             snapshotter,
             NullLogger<RagasEvaluationRunCoordinator>.Instance);
+    }
+
+    private IServiceScopeFactory CreateScopeFactory(
+        RagasEvaluationRunStore store,
+        IRagasEvaluator evaluator,
+        RagasEvaluationTextSnapshotter snapshotter,
+        IOptions<RagasEvaluationOptions> options,
+        ScopedProbe? scopedProbe)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(store);
+        services.AddSingleton(options);
+        services.AddSingleton(snapshotter);
+        services.AddScoped<IRagasRagQueryClient, SuccessfulRagasRagQueryClient>();
+        services.AddScoped(_ => scopedProbe ?? new ScopedProbe());
+        services.AddScoped<IRagasEvaluator>(serviceProvider =>
+        {
+            serviceProvider.GetRequiredService<ScopedProbe>().MarkResolved();
+            return evaluator;
+        });
+        services.AddScoped<RagasEvaluationRunner>();
+        services.AddSingleton<ILogger<RagasEvaluationRunner>>(NullLogger<RagasEvaluationRunner>.Instance);
+
+        var provider = services.BuildServiceProvider();
+        disposables.Add(provider);
+
+        return provider.GetRequiredService<IServiceScopeFactory>();
     }
 
     private RagasEvaluationRunStore CreateStore()
@@ -319,5 +390,56 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
             var completed = await Task.WhenAny(cancelled.Task, Task.Delay(TimeSpan.FromSeconds(5)));
             completed.Should().Be(cancelled.Task);
         }
+    }
+
+    private sealed class ScopedProbe : IDisposable
+    {
+        private readonly TaskCompletionSource disposed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool WasResolved { get; private set; }
+
+        public bool WasDisposed { get; private set; }
+
+        public void MarkResolved()
+        {
+            WasResolved = true;
+        }
+
+        public void Dispose()
+        {
+            WasDisposed = true;
+            disposed.TrySetResult();
+        }
+
+        public async Task WaitUntilDisposedAsync()
+        {
+            var completed = await Task.WhenAny(disposed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+            completed.Should().Be(disposed.Task);
+        }
+    }
+
+    private sealed class ThrowingServiceScopeFactory : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope()
+        {
+            throw new InvalidOperationException("Could not resolve RAGAS runner scope.");
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> predicate)
+    {
+        var timeout = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (DateTimeOffset.UtcNow < timeout)
+        {
+            if (await predicate())
+            {
+                return;
+            }
+
+            await Task.Delay(20);
+        }
+
+        throw new TimeoutException("Condition was not met before timeout.");
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using LightRAGNet.Share.Models;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Services.Evaluation;
@@ -8,7 +9,7 @@ internal sealed class RagasEvaluationRunCoordinator(
     IOptions<RagasEvaluationOptions> options,
     RagasEvaluationDataLoader dataLoader,
     RagasEvaluationRunStore store,
-    RagasEvaluationRunner runner,
+    IServiceScopeFactory scopeFactory,
     RagasEvaluationTextSnapshotter snapshotter,
     ILogger<RagasEvaluationRunCoordinator> logger)
 {
@@ -52,11 +53,11 @@ internal sealed class RagasEvaluationRunCoordinator(
         }
 
         var cases = casesResult.Value ?? [];
+        RagasEvaluationRunRecord run;
         await createGate.WaitAsync(cancellationToken);
         try
         {
-            var activeRun = await store.GetActiveAsync(cancellationToken);
-            if (activeRun is not null)
+            if (!activeRuns.IsEmpty || await store.GetActiveAsync(cancellationToken) is not null)
             {
                 return RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>.Fail(
                     "active_run_exists",
@@ -64,26 +65,46 @@ internal sealed class RagasEvaluationRunCoordinator(
                     StatusCodes.Status409Conflict);
             }
 
-            var run = CreateRunRecord(request, cases.Count);
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-            activeRuns[run.RunId] = cts;
-
+            run = CreateRunRecord(request, cases.Count);
             await store.UpsertAsync(run, cancellationToken);
-            StartBackgroundRun(run, cases, cts);
-
-            return RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>.Ok(
-                new CreateRagasEvaluationRunResponse
-                {
-                    RunId = run.RunId,
-                    Status = run.Status.ToString(),
-                    CreatedAt = run.CreatedAt,
-                    Message = "RAGAS evaluation run queued."
-                });
         }
         finally
         {
             createGate.Release();
         }
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
+        try
+        {
+            if (!activeRuns.TryAdd(run.RunId, cts))
+            {
+                cts.Dispose();
+                await MarkRunFailedAsync(
+                    run,
+                    new InvalidOperationException("Could not register the RAGAS evaluation run as active."));
+                return RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>.Fail(
+                    "active_run_exists",
+                    "Another RAGAS evaluation run is already queued or running.",
+                    StatusCodes.Status409Conflict);
+            }
+
+            StartBackgroundRun(run, cases, cts);
+        }
+        catch
+        {
+            activeRuns.TryRemove(run.RunId, out _);
+            cts.Dispose();
+            throw;
+        }
+
+        return RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>.Ok(
+            new CreateRagasEvaluationRunResponse
+            {
+                RunId = run.RunId,
+                Status = run.Status.ToString(),
+                CreatedAt = run.CreatedAt,
+                Message = "RAGAS evaluation run queued."
+            });
     }
 
     public async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> GetAsync(
@@ -184,11 +205,14 @@ internal sealed class RagasEvaluationRunCoordinator(
         {
             try
             {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var runner = scope.ServiceProvider.GetRequiredService<RagasEvaluationRunner>();
                 await runner.ExecuteAsync(run, cases, cts.Token);
             }
             catch (Exception exception)
             {
                 logger.LogError(exception, "RAGAS evaluation run {RunId} background task failed.", run.RunId);
+                await MarkRunFailedAsync(run, exception);
             }
             finally
             {
@@ -196,6 +220,25 @@ internal sealed class RagasEvaluationRunCoordinator(
                 cts.Dispose();
             }
         });
+    }
+
+    private async Task MarkRunFailedAsync(RagasEvaluationRunRecord run, Exception exception)
+    {
+        run.Status = RagasEvaluationRunStatus.Failed;
+        run.Error = exception.Message;
+        run.CompletedAt = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await store.UpsertAsync(run, CancellationToken.None);
+        }
+        catch (Exception storeException)
+        {
+            logger.LogError(
+                storeException,
+                "Could not persist failed RAGAS evaluation run {RunId}.",
+                run.RunId);
+        }
     }
 
     private static RagasEvaluationRunResponse ToResponse(RagasEvaluationRunRecord run) =>
