@@ -200,22 +200,22 @@ internal sealed class RagasEvaluationRunner(
             new RagasEvaluationMetricReasonDto
             {
                 Metric = "faithfulness",
-                Reason = metrics.Faithfulness.Reason
+                Reason = SanitizeJudgeText(metrics.Faithfulness.Reason)
             },
             new RagasEvaluationMetricReasonDto
             {
                 Metric = "answer_relevance",
-                Reason = metrics.AnswerRelevance.Reason
+                Reason = SanitizeJudgeText(metrics.AnswerRelevance.Reason)
             },
             new RagasEvaluationMetricReasonDto
             {
                 Metric = "context_recall",
-                Reason = metrics.ContextRecall.Reason
+                Reason = SanitizeJudgeText(metrics.ContextRecall.Reason)
             },
             new RagasEvaluationMetricReasonDto
             {
                 Metric = "context_precision",
-                Reason = metrics.ContextPrecision.Reason
+                Reason = SanitizeJudgeText(metrics.ContextPrecision.Reason)
             }
         ];
         result.Diagnostics = diagnostics.ToList();

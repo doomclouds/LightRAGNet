@@ -209,6 +209,54 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenJudgeMetricReasonsContainSecrets_RedactsReasonsBeforePersisting()
+    {
+        const string apiKey = "sk-test-secret";
+        const string adminToken = "admin-test-secret";
+        var queryClient = new FakeRagasRagQueryClient();
+        queryClient.Enqueue(new RagasQueryExecutionResult(
+            "answer",
+            [new RagasRetrievedContext("context", "chunk-1", "docs/one.md", "ref-1")],
+            QueryMode.Mix));
+        var evaluator = new FakeRagasEvaluator();
+        evaluator.EnqueueSuccess(new RagasMetricSet(
+            new RagasMetricScore(1, $"uses {apiKey}"),
+            new RagasMetricScore(1, $"uses {adminToken}"),
+            new RagasMetricScore(1, "safe recall reason"),
+            new RagasMetricScore(1, "safe precision reason")));
+        var run = CreateRun();
+        var store = CreateStore();
+        var runner = CreateRunner(
+            store,
+            queryClient,
+            evaluator,
+            new RagasEvaluationOptions
+            {
+                ApiKey = apiKey,
+                AdminToken = adminToken,
+                PreviewMaxChars = 128
+            });
+
+        await runner.ExecuteAsync(run, CreateCases(1), CancellationToken.None);
+
+        var serializedRun = System.Text.Json.JsonSerializer.Serialize(run);
+        serializedRun.Should().NotContain(apiKey);
+        serializedRun.Should().NotContain(adminToken);
+        serializedRun.Should().Contain("[redacted]");
+        run.Cases[0].Reasons.Should().Contain(reason =>
+            reason.Metric == "faithfulness" &&
+            reason.Reason == "uses [redacted]");
+        run.Cases[0].Reasons.Should().Contain(reason =>
+            reason.Metric == "answer_relevance" &&
+            reason.Reason == "uses [redacted]");
+
+        var saved = await store.GetAsync(run.RunId, CancellationToken.None);
+        var serializedSaved = System.Text.Json.JsonSerializer.Serialize(saved);
+        serializedSaved.Should().NotContain(apiKey);
+        serializedSaved.Should().NotContain(adminToken);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenCancellationIsRequested_MarksRunCancelled()
     {
         using var cancellation = new CancellationTokenSource();

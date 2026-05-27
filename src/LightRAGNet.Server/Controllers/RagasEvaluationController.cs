@@ -20,9 +20,9 @@ public sealed class RagasEvaluationController(
         [FromBody] CreateRagasEvaluationRunRequest? request,
         CancellationToken cancellationToken)
     {
-        if (!IsAuthorized())
+        if (ValidateRequestAccess() is { } failure)
         {
-            return Unauthorized();
+            return failure;
         }
 
         var result = await coordinator.CreateAsync(request ?? new CreateRagasEvaluationRunRequest(), cancellationToken);
@@ -35,9 +35,9 @@ public sealed class RagasEvaluationController(
         string runId,
         CancellationToken cancellationToken)
     {
-        if (!IsAuthorized())
+        if (ValidateRequestAccess() is { } failure)
         {
-            return Unauthorized();
+            return failure;
         }
 
         var result = await coordinator.GetAsync(runId, cancellationToken);
@@ -50,9 +50,9 @@ public sealed class RagasEvaluationController(
         string runId,
         CancellationToken cancellationToken)
     {
-        if (!IsAuthorized())
+        if (ValidateRequestAccess() is { } failure)
         {
-            return Unauthorized();
+            return failure;
         }
 
         var result = await coordinator.CancelAsync(runId, cancellationToken);
@@ -74,21 +74,27 @@ public sealed class RagasEvaluationController(
         });
     }
 
-    private bool IsAuthorized()
+    private ActionResult? ValidateRequestAccess()
     {
         var expectedToken = options.Value.AdminToken;
         if (string.IsNullOrWhiteSpace(expectedToken))
         {
-            return false;
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                code = "missing_admin_token",
+                message = "RAGAS evaluation requires Evaluation:Ragas:AdminToken."
+            });
         }
 
         if (!Request.Headers.TryGetValue(TokenHeaderName, out var headerValues))
         {
-            return false;
+            return Unauthorized();
         }
 
         var actualToken = headerValues.Count == 1 ? headerValues[0] : null;
-        return TokenEquals(actualToken, expectedToken);
+        return TokenEquals(actualToken, expectedToken)
+            ? null
+            : Unauthorized();
     }
 
     private static bool TokenEquals(string? actualToken, string expectedToken)

@@ -136,7 +136,7 @@ public sealed class RagasEvaluationControllerTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenAdminTokenIsNotConfigured_ReturnsUnauthorizedBeforeCoordinator()
+    public async Task CreateAsync_WhenAdminTokenIsNotConfigured_ReturnsServiceUnavailable()
     {
         using var factory = CreateFactory(configurationOverrides: new Dictionary<string, string?>
         {
@@ -147,7 +147,10 @@ public sealed class RagasEvaluationControllerTests
 
         var response = await client.PostAsJsonAsync(Endpoint, CreateRequest());
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("missing_admin_token");
+        body.Should().NotContain(AdminToken);
     }
 
     private static HttpClient CreateAuthorizedClient(LightRagServerFactory factory)

@@ -13,9 +13,9 @@
 ## Delivered Scope
 
 - 增加 `POST /api/evaluation/ragas/runs`、`GET /api/evaluation/ragas/runs/{runId}`、`POST /api/evaluation/ragas/runs/{runId}/cancel` 三个 Server controller endpoint。
-- 使用 `X-Evaluation-Token` 做 endpoint 级鉴权；缺失、错误或未配置 admin token 时在进入 coordinator 前返回 `401`。
+- 使用 `X-Evaluation-Token` 做 endpoint 级鉴权；缺失或错误 token 返回 `401`，服务端未配置 admin token 返回 `503 missing_admin_token`。
 - 在 `Program.cs` 注册 RAGAS options、parser、snapshotter、run store、data loader、scoped query/evaluator runner 以及 singleton coordinator，避免 singleton 捕获 scoped runner。
-- API 测试覆盖 missing/wrong/valid token、create/get/cancel、active run conflict、disabled endpoint、misconfigured evaluator API key，并保持 fake evaluator/query client 隔离外部存储和真实模型。
+- API 测试覆盖 missing/wrong/valid token、create/get/cancel、active run conflict、disabled endpoint、misconfigured admin token/evaluator API key，并保持 fake evaluator/query client 隔离外部存储和真实模型。
 
 ## Out of Scope
 
@@ -27,9 +27,9 @@
 
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluationControllerTests" --no-restore --verbosity minimal`：8 passed。
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~Evaluation" --no-restore --verbosity minimal`：74 passed。
-- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluation" --no-restore --verbosity minimal`：49 passed。
-- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal`：296 passed。
-- `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`：296 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluation" --no-restore --verbosity minimal`：50 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal`：297 passed。
+- `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`：297 passed。
 - Controller RED 验证先出现 8 个 `404` 失败，再实现 controller/DI 后转 GREEN。
 
 ## Manual Real-Evaluator Smoke Note
@@ -84,5 +84,5 @@ Real evaluator smoke calls external model APIs and may cost money. It is opt-in 
 
 ## Notes
 
-- Controller 使用 coordinator operation result 的 `StatusCode(result.StatusCode, result.Value)` / `{ code, message }` 映射；401 响应不返回 secret。
+- Controller 使用 coordinator operation result 的 `StatusCode(result.StatusCode, result.Value)` / `{ code, message }` 映射；401/503 误配置响应不返回 secret。
 - 完整 Server/solution 测试已在最终验证快照中声明。
