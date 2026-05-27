@@ -79,6 +79,22 @@ public sealed class RagasJudgeResponseParserTests
     }
 
     [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("\"not object\"")]
+    public void Parse_WhenRootIsNotAnObject_ReturnsMissingMetricFailureWithoutThrowing(string json)
+    {
+        var parser = new RagasJudgeResponseParser();
+
+        var act = () => parser.Parse(json);
+
+        var result = act.Should().NotThrow().Subject;
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("missing_metric");
+        result.Metrics.Should().BeNull();
+    }
+
+    [Theory]
     [InlineData("""{ "faithfulness": null }""")]
     [InlineData("""{ "faithfulness": 0.8 }""")]
     public void Parse_WhenMetricIsNotAnObject_ReturnsMissingMetricFailure(string faithfulnessJson)

@@ -24,6 +24,13 @@ internal sealed class RagasJudgeResponseParser
         using (document)
         {
             var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return RagasJudgeParseResult.Failed(
+                    "missing_metric",
+                    "Judge response root was missing metric objects.");
+            }
+
             if (!TryReadMetric(root, "faithfulness", out var faithfulness, out var failure) ||
                 !TryReadMetric(root, "answer_relevance", out var answerRelevance, out failure) ||
                 !TryReadMetric(root, "context_recall", out var contextRecall, out failure) ||
