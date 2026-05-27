@@ -163,33 +163,57 @@ Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif
 - 通用按钮阴影
 - 替代 body 字体栈
 
+## 设计系统护栏
+
+React 页面新增通用 UI 时，应优先使用共享组件，而不是继续扩展页面局部按钮、面板、pill、表格或 dialog 体系。
+
+护栏规则：
+
+- 页面 CSS 默认不定义根级 `font-family`，应继承 `theme.css` 的全局字体栈。
+- 页面 CSS 不新增非白名单硬编码 hex；通用颜色应提升为 token 或使用已有 token。
+- 命中 `*__button`、`*__panel`、`*__pill`、`*__table`、`*__dialog`、`*__toolbar`、`*__banner` 等通用 UI 概念时，先检查是否应使用 `Button`、`Panel`、`StatusPill`、`DataTableSurface`、`ConfirmDialog`、`Toolbar` 或 `Banner`。
+- 图谱 canvas、文档类型图标、Markdown/code 内容渲染和缓存趋势条等数据可视化颜色可以保留局部实现，但必须在测试白名单里登记。
+- 现有页面局部 UI 债务必须有迁移入口，不能静默扩散。
+
 ## 组件标准
 
 共享组件是统一 UI 的主要约束方式。页面应优先组合共享组件，再补页面局部结构。
 
-### 基础组件
+### 已实现共享组件
 
-这些组件定义通用产品语言：
+这些组件当前已经有共享实现，定义通用产品语言：
 
 - `AppLayout`
 - `PageHeader`
 - `PageTabs`
 - `Panel`
+- `MetricCard`
+- `Banner`
 - `Toolbar`
 - `Button`
 - `ButtonLink`
 - `IconButton`
+- `SegmentedControl`
+- `Field`
 - `StatusPill`
 - `DataTableSurface`
+- `DiagnosticTable`
 - `Pagination`
 - `EmptyState`
 - `ErrorState`
 - `ConfirmDialog`
-- `Drawer`
 - `ActionMenu`
 - `FileTypeIcon`
 - `ProgressBar`
 - `MarkdownRenderer`
+
+### 目标/待补齐共享原语
+
+这些组件属于设计系统目标，但当前不能写成已实现。页面需要时可以先保留局部实现，并把迁移入口留给后续切片：
+
+- `Drawer`
+- 通用 `TextField` / `SelectField`
+- 通用 `DataTable`
 
 规则：
 
@@ -198,7 +222,8 @@ Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif
 - 单行超过三个操作时使用 `ActionMenu`。
 - 状态、模式、健康度和任务状态使用 `StatusPill`。
 - 密集操作表格使用 `DataTableSurface` 包裹。
-- 当前页面工作流的侧边详情使用 `Drawer`。
+- 共享 `Drawer` 补齐后，当前页面工作流的侧边详情应迁向共享 `Drawer`。
+- 共享 `Drawer` 补齐前，可以保留页面局部抽屉实现，但必须对齐 token、遮罩、焦点管理和响应式规则，且不能视为页面迁移已完成。
 - 破坏性操作使用 `ConfirmDialog`。
 - 空状态和错误状态使用 `EmptyState`、`ErrorState`。
 
@@ -253,7 +278,7 @@ PageTabs for status or category
 Toolbar for search, filters, refresh, and primary action
 DataTableSurface
 Pagination
-Drawer or Dialog for row details
+Shared Drawer after primitive exists, page-local drawer during transition, or Dialog for row details
 ```
 
 规则：

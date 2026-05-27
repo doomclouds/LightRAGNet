@@ -55,7 +55,7 @@ describe('light workbench theme tokens', () => {
   });
 
   it('defines shared shell and reusable surface classes', () => {
-    [
+    const expectedClasses = [
       '.app-frame',
       '.app-topbar',
       '.app-sidebar',
@@ -72,9 +72,31 @@ describe('light workbench theme tokens', () => {
       '.lrn-data-table-surface',
       '.lrn-scrim',
       '.lrn-drawer',
-      '.lrn-modal'
-    ].forEach((className) => {
-      expect(appCss).toContain(className);
+      '.lrn-modal',
+      '.lrn-banner',
+      '.lrn-segmented-control',
+      '.lrn-field',
+      '.lrn-diagnostic-table',
+      '.lrn-confirm-dialog'
+    ];
+
+    const missingClasses = expectedClasses.filter((className) => !appCss.includes(className));
+
+    expect(missingClasses).toEqual([]);
+  });
+
+  it('keeps new shared primitive styles on tokens instead of hard-coded state colors', () => {
+    [
+      '.lrn-banner',
+      '.lrn-segmented-control',
+      '.lrn-field',
+      '.lrn-diagnostic-table',
+      '.lrn-confirm-dialog'
+    ].forEach((selector) => {
+      const styles = getRuleBlocksForSelectorPrefix(appCss, selector);
+
+      expect(styles).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+      expect(styles).not.toContain('rgba(');
     });
   });
 
@@ -220,4 +242,13 @@ function getRuleBlockContaining(css: string, selector: string, expectedDeclarati
   expect(match, `Expected CSS rule for ${selector} containing ${expectedDeclaration}`).not.toBeUndefined();
 
   return match?.groups?.block ?? '';
+}
+
+function getRuleBlocksForSelectorPrefix(css: string, selectorPrefix: string): string {
+  const escapedSelector = selectorPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?<selector>[^{}]*${escapedSelector}[^{}]*)\\{(?<block>[^}]+)\\}`, 'gm');
+
+  return Array.from(css.matchAll(pattern))
+    .map((match) => `${match.groups?.selector ?? ''}{${match.groups?.block ?? ''}}`)
+    .join('\n');
 }
