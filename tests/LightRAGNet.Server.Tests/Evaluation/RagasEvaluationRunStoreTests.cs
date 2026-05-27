@@ -2,7 +2,6 @@ using FluentAssertions;
 using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Share.Models;
 using Microsoft.Extensions.Configuration;
-using System.Runtime.CompilerServices;
 
 namespace LightRAGNet.Server.Tests.Evaluation;
 
@@ -65,12 +64,47 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
     }
 
     [Fact]
-    public void StoreSource_UpsertUsesOverwriteMoveWithoutDeletingExistingFile()
+    public async Task UpsertAsync_WhenRunIdIsDifferent_AppendsRun()
     {
-        var source = File.ReadAllText(GetStoreSourcePath());
+        var store = CreateStore();
+        await store.UpsertAsync(CreateRun("run-1", RagasEvaluationRunStatus.Queued), CancellationToken.None);
+        await store.UpsertAsync(CreateRun("run-2", RagasEvaluationRunStatus.Running), CancellationToken.None);
 
-        source.Should().NotContain("File.Delete(filePath)");
-        source.Should().Contain("File.Move(tempPath, filePath, overwrite: true)");
+        var runs = await store.LoadAllAsync(CancellationToken.None);
+
+        runs.Select(run => run.RunId).Should().BeEquivalentTo("run-1", "run-2");
+    }
+
+    [Fact]
+    public async Task UpsertAsync_WhenRunIdAlreadyExists_ReplacesRunWithoutDuplicate()
+    {
+        var store = CreateStore();
+        await store.UpsertAsync(CreateRun("run-1", RagasEvaluationRunStatus.Queued, maxCases: 1), CancellationToken.None);
+        await store.UpsertAsync(CreateRun("run-1", RagasEvaluationRunStatus.Completed, maxCases: 7), CancellationToken.None);
+
+        var runs = await store.LoadAllAsync(CancellationToken.None);
+
+        runs.Should().ContainSingle();
+        runs[0].Status.Should().Be(RagasEvaluationRunStatus.Completed);
+        runs[0].Request.MaxCases.Should().Be(7);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_WhenDifferentRunsAreSavedConcurrently_PreservesAllRuns()
+    {
+        var store = CreateStore();
+        var tasks = Enumerable.Range(0, 20)
+            .Select(index => store.UpsertAsync(
+                CreateRun($"run-{index}", RagasEvaluationRunStatus.Completed, maxCases: index),
+                CancellationToken.None));
+
+        await Task.WhenAll(tasks);
+
+        var runs = await store.LoadAllAsync(CancellationToken.None);
+
+        runs.Should().HaveCount(20);
+        runs.Select(run => run.RunId).Should().BeEquivalentTo(
+            Enumerable.Range(0, 20).Select(index => $"run-{index}"));
     }
 
     public void Dispose()
@@ -123,17 +157,4 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
         active.Status.Should().Be(status);
     }
 
-    private static string GetStoreSourcePath([CallerFilePath] string testSourcePath = "")
-    {
-        return Path.GetFullPath(Path.Combine(
-            Path.GetDirectoryName(testSourcePath)!,
-            "..",
-            "..",
-            "..",
-            "src",
-            "LightRAGNet.Server",
-            "Services",
-            "Evaluation",
-            "RagasEvaluationRunStore.cs"));
-    }
 }
