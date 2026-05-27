@@ -27,7 +27,50 @@
 
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluationControllerTests" --no-restore --verbosity minimal`：8 passed。
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~Evaluation" --no-restore --verbosity minimal`：74 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluation" --no-restore --verbosity minimal`：49 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal`：296 passed。
+- `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`：296 passed。
 - Controller RED 验证先出现 8 个 `404` 失败，再实现 controller/DI 后转 GREEN。
+
+## Manual Real-Evaluator Smoke Note
+
+真实 evaluator smoke 需要本地显式配置，不属于默认测试套件：
+
+```json
+{
+  "Evaluation": {
+    "Ragas": {
+      "Enabled": true,
+      "AdminToken": "<local secret>",
+      "EvaluatorModel": "gpt-4o-mini",
+      "ApiKey": "<local secret>",
+      "BaseUrl": "https://api.openai.com/v1"
+    }
+  }
+}
+```
+
+Sample request:
+
+```http
+POST /api/evaluation/ragas/runs
+X-Evaluation-Token: <local secret>
+Content-Type: application/json
+
+{
+  "caseNames": [],
+  "maxCases": 1,
+  "includeFullText": false,
+  "query": {
+    "mode": "Mix",
+    "topK": 40,
+    "chunkTopK": 20,
+    "enableRerank": true
+  }
+}
+```
+
+Real evaluator smoke calls external model APIs and may cost money. It is opt-in and is not part of the default test suite.
 
 ## Source Documents
 
@@ -42,4 +85,4 @@
 ## Notes
 
 - Controller 使用 coordinator operation result 的 `StatusCode(result.StatusCode, result.Value)` / `{ code, message }` 映射；401 响应不返回 secret。
-- 完整 Server/solution 测试未在本归档验证快照中声明。
+- 完整 Server/solution 测试已在最终验证快照中声明。
