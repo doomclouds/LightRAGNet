@@ -21,14 +21,15 @@ type SummaryTile = {
   label: string;
   value: string | number;
   icon: LucideIcon;
+  tone: 'healthy' | 'degraded' | 'unhealthy' | 'not-measured';
 };
 
 export function SystemStatusSummaryTiles({ health }: SystemStatusSummaryTilesProps) {
   const summaryTiles: SummaryTile[] = [
-    { label: 'Healthy', value: health.summary.healthy, icon: CircleCheck },
-    { label: 'Degraded', value: health.summary.degraded, icon: TriangleAlert },
-    { label: 'Unhealthy', value: health.summary.unhealthy, icon: CircleX },
-    { label: 'Not measured', value: health.summary.notMeasured, icon: CircleDashed }
+    { label: 'Healthy', value: health.summary.healthy, icon: CircleCheck, tone: 'healthy' },
+    { label: 'Degraded', value: health.summary.degraded, icon: TriangleAlert, tone: 'degraded' },
+    { label: 'Unhealthy', value: health.summary.unhealthy, icon: CircleX, tone: 'unhealthy' },
+    { label: 'Not measured', value: health.summary.notMeasured, icon: CircleDashed, tone: 'not-measured' }
   ];
 
   return (
@@ -46,7 +47,7 @@ export function SystemStatusSummaryTiles({ health }: SystemStatusSummaryTilesPro
           const Icon = tile.icon;
 
           return (
-            <div className="system-status__summary-metric" key={tile.label}>
+            <div className={`system-status__summary-metric system-status__summary-metric--${tile.tone}`} key={tile.label}>
               <dt>
                 <Icon aria-hidden="true" size={16} />
                 {tile.label}

@@ -179,6 +179,18 @@
   color: var(--text-muted);
 }
 
+.system-status__summary-metric--healthy dt svg {
+  color: var(--success);
+}
+
+.system-status__summary-metric--degraded dt svg {
+  color: var(--warning);
+}
+
+.system-status__summary-metric--unhealthy dt svg {
+  color: var(--danger);
+}
+
 .system-status__summary-metric dd {
   margin: 0;
   color: var(--text-primary);
