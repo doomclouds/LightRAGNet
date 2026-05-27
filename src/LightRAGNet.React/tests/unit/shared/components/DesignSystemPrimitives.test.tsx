@@ -22,6 +22,13 @@ describe('design system primitives', () => {
     expect(screen.getByText('Check the server connection and try again.')).toBeInTheDocument();
   });
 
+  it('allows banners to override alert semantics with note role', () => {
+    render(<Banner tone="warning" role="note">The queue is paused.</Banner>);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveClass('lrn-banner', 'lrn-banner--warning');
+  });
+
   it('renders segmented controls with stable pressed state and change callback', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -59,6 +66,40 @@ describe('design system primitives', () => {
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAccessibleDescription('Use _ for the default workspace Workspace is required');
     expect(screen.getByText('Workspace is required')).toHaveClass('lrn-field__error');
+  });
+
+  it('preserves existing field descriptions and generates distinct control ids', () => {
+    render(
+      <>
+        <span id="existing-description">Existing description</span>
+        <Field label="Workspace" hint="Hint text" error="Error text">
+          <input aria-describedby="existing-description" />
+        </Field>
+        <Field label="Namespace">
+          <input />
+        </Field>
+      </>
+    );
+
+    const workspace = screen.getByLabelText('Workspace');
+    const namespace = screen.getByLabelText('Namespace');
+
+    expect(workspace).toHaveAccessibleDescription('Existing description Hint text Error text');
+    expect(workspace).toHaveAttribute('aria-describedby', expect.stringContaining('existing-description'));
+    expect(workspace.id).not.toBe(namespace.id);
+  });
+
+  it('supports field render props with generated control props', () => {
+    render(
+      <Field label="Workspace" hint="Use _ for default">
+        {(controlProps) => <input {...controlProps} data-control-id={controlProps.id} />}
+      </Field>
+    );
+
+    const input = screen.getByLabelText('Workspace');
+
+    expect(input).toHaveAttribute('data-control-id', input.id);
+    expect(input).toHaveAccessibleDescription('Use _ for default');
   });
 
   it('renders diagnostic rows with wrapped values and optional monospace values', () => {
@@ -108,7 +149,97 @@ describe('design system primitives', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('uses unique dialog title and description ids for concurrent confirm dialogs', () => {
+    render(
+      <>
+        <ConfirmDialog
+          open
+          title="Clear cache entries?"
+          confirmLabel="Clear"
+          cancelLabel="Cancel"
+          onCancel={() => undefined}
+          onConfirm={() => undefined}
+        >
+          Cache entries will be removed.
+        </ConfirmDialog>
+        <ConfirmDialog
+          open
+          title="Delete document?"
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          onCancel={() => undefined}
+          onConfirm={() => undefined}
+        >
+          The document will be removed.
+        </ConfirmDialog>
+      </>
+    );
+
+    const dialogs = screen.getAllByRole('dialog');
+    const titleIds = dialogs.map((dialog) => dialog.getAttribute('aria-labelledby'));
+    const descriptionIds = dialogs.map((dialog) => dialog.getAttribute('aria-describedby'));
+
+    expect(new Set(titleIds).size).toBe(2);
+    expect(new Set(descriptionIds).size).toBe(2);
+    titleIds.forEach((id) => expect(document.getElementById(id ?? '')).toBeInTheDocument());
+    descriptionIds.forEach((id) => expect(document.getElementById(id ?? '')).toBeInTheDocument());
+  });
+
+  it('moves focus into confirm dialogs, traps tabbing, and restores focus on close', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
+    const launcher = document.createElement('button');
+    launcher.textContent = 'Open dialog';
+    document.body.append(launcher);
+    launcher.focus();
+
+    const { rerender } = render(
+      <ConfirmDialog
+        open
+        title="Clear cache entries?"
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+      >
+        This action cannot be undone.
+      </ConfirmDialog>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Clear cache entries?' });
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    const confirm = screen.getByRole('button', { name: 'Clear' });
+
+    expect(cancel).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(confirm).toHaveFocus();
+
+    await user.tab();
+    expect(cancel).toHaveFocus();
+
+    rerender(
+      <ConfirmDialog
+        open={false}
+        title="Clear cache entries?"
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+      >
+        This action cannot be undone.
+      </ConfirmDialog>
+    );
+
+    expect(launcher).toHaveFocus();
+    expect(dialog).not.toBeInTheDocument();
+    launcher.remove();
+  });
+
   it('keeps pending confirm dialogs open and disables both actions', () => {
+    const onCancel = vi.fn();
+
     render(
       <ConfirmDialog
         open
@@ -117,14 +248,41 @@ describe('design system primitives', () => {
         confirmLabel="Delete"
         cancelLabel="Cancel"
         pending
-        onCancel={() => undefined}
+        onCancel={onCancel}
         onConfirm={() => undefined}
       >
         The document will be removed from the list.
       </ConfirmDialog>
     );
 
+    const dialog = screen.getByRole('dialog', { name: 'Delete document?' });
+
+    expect(dialog).toHaveFocus();
+    expect(dialog).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  });
+
+  it('does not cancel pending confirm dialogs with Escape', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+
+    render(
+      <ConfirmDialog
+        open
+        title="Delete document?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        pending
+        onCancel={onCancel}
+        onConfirm={() => undefined}
+      >
+        The document will be removed from the list.
+      </ConfirmDialog>
+    );
+
+    await user.keyboard('{Escape}');
+
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });

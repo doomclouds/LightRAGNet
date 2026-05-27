@@ -7,6 +7,7 @@ type BannerProps = {
   title?: string;
   children: ReactNode;
   tone?: BannerTone;
+  role?: 'alert' | 'status' | 'note' | 'none';
 };
 
 const toneIcons: Record<BannerTone, LucideIcon> = {
@@ -16,12 +17,13 @@ const toneIcons: Record<BannerTone, LucideIcon> = {
   danger: AlertCircle
 };
 
-export function Banner({ title, children, tone = 'info' }: BannerProps) {
+export function Banner({ title, children, tone = 'info', role }: BannerProps) {
   const Icon = toneIcons[tone];
-  const role = tone === 'danger' || tone === 'warning' ? 'alert' : 'status';
+  const resolvedRole = role ?? (tone === 'danger' || tone === 'warning' ? 'alert' : 'status');
+  const roleProps = resolvedRole === 'none' ? {} : { role: resolvedRole };
 
   return (
-    <div className={`lrn-banner lrn-banner--${tone}`} role={role}>
+    <div className={`lrn-banner lrn-banner--${tone}`} {...roleProps}>
       <Icon className="lrn-banner__icon" size={18} aria-hidden="true" />
       <div className="lrn-banner__body">
         {title ? <strong>{title}</strong> : null}

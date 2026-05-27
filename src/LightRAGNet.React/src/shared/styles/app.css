@@ -915,21 +915,21 @@ select {
 }
 
 .lrn-banner--success {
-  color: #3c6f45;
+  color: var(--success);
   background: var(--success-soft);
-  border-color: #bcd5b6;
+  border-color: color-mix(in srgb, var(--success) 35%, var(--panel-border));
 }
 
 .lrn-banner--warning {
-  color: #8a5d12;
+  color: var(--warning);
   background: var(--warning-soft);
-  border-color: #e5c780;
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--panel-border));
 }
 
 .lrn-banner--danger {
-  color: #a63a28;
+  color: var(--danger);
   background: var(--danger-soft);
-  border-color: #e4afa3;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--panel-border));
 }
 
 .lrn-banner--info .lrn-banner__content,
@@ -968,7 +968,7 @@ select {
 }
 
 .lrn-segmented-control__item:focus-visible {
-  outline: 2px solid rgba(200, 85, 45, .45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
 }
 
@@ -1010,13 +1010,13 @@ select {
 }
 
 .lrn-field :where(input, select, textarea):focus {
-  outline: 2px solid rgba(200, 85, 45, .45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
   border-color: var(--accent-border);
 }
 
 .lrn-field :where(input, select, textarea)[aria-invalid="true"] {
-  border-color: #e4afa3;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--panel-border));
 }
 
 .lrn-field__hint {
@@ -1025,7 +1025,7 @@ select {
 }
 
 .lrn-field__error {
-  color: #a63a28;
+  color: var(--danger);
   line-height: 1.45;
   font-weight: 700;
 }

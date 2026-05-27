@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react';
 
-type FieldControlProps = {
+export type FieldControlProps = {
   id?: string;
   'aria-describedby'?: string;
   'aria-invalid'?: boolean | 'true' | 'false';
@@ -8,7 +8,7 @@ type FieldControlProps = {
 
 type FieldProps = {
   label: string;
-  children: ReactElement<FieldControlProps>;
+  children: ReactElement<FieldControlProps> | ((controlProps: FieldControlProps) => ReactNode);
   hint?: ReactNode;
   error?: ReactNode;
   className?: string;
@@ -16,20 +16,17 @@ type FieldProps = {
 
 export function Field({ label, children, hint, error, className }: FieldProps) {
   const generatedId = useId();
-
-  if (!isValidElement<FieldControlProps>(children)) {
-    return null;
-  }
-
-  const inputId = children.props.id ?? `${generatedId}-control`;
+  const elementChild = isValidElement<FieldControlProps>(children) ? children : undefined;
+  const inputId = elementChild?.props.id ?? `${generatedId}-control`;
   const hintId = hint ? `${generatedId}-hint` : undefined;
   const errorId = error ? `${generatedId}-error` : undefined;
-  const describedBy = [children.props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined;
-  const control = cloneElement(children, {
+  const describedBy = [elementChild?.props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined;
+  const controlProps: FieldControlProps = {
     id: inputId,
     'aria-describedby': describedBy,
-    'aria-invalid': error ? true : children.props['aria-invalid']
-  });
+    'aria-invalid': error ? true : elementChild?.props['aria-invalid']
+  };
+  const control = renderControl(children, controlProps);
 
   return (
     <div className={['lrn-field', className].filter(Boolean).join(' ')}>
@@ -49,4 +46,19 @@ export function Field({ label, children, hint, error, className }: FieldProps) {
       ) : null}
     </div>
   );
+}
+
+function renderControl(
+  children: FieldProps['children'],
+  controlProps: FieldControlProps
+): ReactNode {
+  if (typeof children === 'function') {
+    return children(controlProps);
+  }
+
+  if (isValidElement<FieldControlProps>(children)) {
+    return cloneElement(children, controlProps);
+  }
+
+  throw new Error('Field children must be a render function or a valid React element.');
 }
