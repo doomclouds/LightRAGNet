@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SystemHealthResponse } from '@/api/systemStatusApi';
 import {
   formatDurationMs,
+  formatEvidenceValue,
   formatGeneratedAt,
   formatHealthJson,
   getStatusIconName,
@@ -83,6 +84,22 @@ describe('system status presentation helpers', () => {
 
     expect(summary).toContain('"self":"[Circular]"');
     expect(summary).not.toContain('[object Object]');
+  });
+
+  it('formats nested evidence values with bounded length and circular guards', () => {
+    const circular: Record<string, unknown> = { provider: 'neo4j' };
+    circular.self = circular;
+
+    const circularFormatted = formatEvidenceValue(circular);
+    const boundedFormatted = formatEvidenceValue({
+      endpoints: ['qdrant', 'neo4j', 'sqlite'],
+      message: 'x'.repeat(120)
+    });
+
+    expect(circularFormatted).toContain('"self":"[Circular]"');
+    expect(circularFormatted).not.toContain('[object Object]');
+    expect(boundedFormatted).not.toContain('[object Object]');
+    expect(boundedFormatted.length).toBeLessThanOrEqual(80);
   });
 
   it('formats the full health response as pretty JSON', () => {

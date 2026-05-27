@@ -78,7 +78,7 @@ function padDatePart(value: number): string {
   return value.toString().padStart(2, '0');
 }
 
-function formatEvidenceValue(value: unknown): string {
+export function formatEvidenceValue(value: unknown): string {
   if (value == null) {
     return 'null';
   }

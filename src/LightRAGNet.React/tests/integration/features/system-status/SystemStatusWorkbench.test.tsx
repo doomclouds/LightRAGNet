@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { getSystemHealth } = vi.hoisted(() => ({
@@ -91,6 +91,34 @@ const degradedHealth: SystemHealthResponse = {
   ]
 };
 
+const healthyHealth: SystemHealthResponse = {
+  ...degradedHealth,
+  status: "Healthy",
+  summary: {
+    healthy: 1,
+    degraded: 0,
+    unhealthy: 0,
+    notMeasured: 0
+  },
+  checks: [
+    {
+      id: "sqlite-metadata",
+      name: "SQLite metadata",
+      category: "Document metadata",
+      status: "Healthy",
+      message: "Metadata store is reachable.",
+      evidence: {
+        database: "metadata.db"
+      },
+      remediation: "",
+      affects: ["Document library"],
+      durationMs: 7
+    }
+  ],
+  fixFirst: [],
+  featureImpacts: []
+};
+
 afterEach(() => {
   getSystemHealth.mockReset();
   vi.restoreAllMocks();
@@ -107,6 +135,8 @@ describe("SystemStatusWorkbench source guard", () => {
     expect(source).toContain("health.checks");
     expect(source).toContain("health.fixFirst");
     expect(source).toContain("health.featureImpacts");
+    expect(source).toContain("currentApiBaseRef");
+    expect(source).toContain("requestApiBase");
     expect(source).not.toMatch(/\b(?:const|let|var)\s+fixFirst\s*=/);
     expect(source).not.toMatch(/\b(?:const|let|var)\s+overallStatus\s*=/);
   });
@@ -172,10 +202,11 @@ describe("SystemStatusWorkbench compact diagnostics workbench", () => {
     render(<SystemStatusWorkbench apiBase="/api-root" />);
 
     await screen.findByText("Stabilize graph storage");
+    expect(screen.getByRole("status")).toHaveTextContent("");
     await userEvent.click(screen.getByRole("button", { name: "Copy JSON" }));
 
     expect(writeText).toHaveBeenCalledWith(JSON.stringify(degradedHealth, null, 2));
-    expect(await screen.findByText("Copied.")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied.");
   });
 });
 
@@ -195,4 +226,43 @@ describe("SystemStatusWorkbench request states", () => {
 
     expect(await screen.findByText("System health endpoint failed.")).toBeInTheDocument();
   });
+
+  test("ignores stale health responses and keeps loading state owned by the latest request", async () => {
+    const firstRequest = createDeferred<SystemHealthResponse>();
+    const secondRequest = createDeferred<SystemHealthResponse>();
+    getSystemHealth
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+
+    const { rerender } = render(<SystemStatusWorkbench apiBase="/old-api" />);
+    rerender(<SystemStatusWorkbench apiBase="/new-api" />);
+
+    await act(async () => {
+      firstRequest.resolve(degradedHealth);
+      await firstRequest.promise;
+    });
+
+    expect(screen.getByText("Loading system status...")).toBeInTheDocument();
+    expect(screen.queryByText("Stabilize graph storage")).not.toBeInTheDocument();
+
+    await act(async () => {
+      secondRequest.resolve(healthyHealth);
+      await secondRequest.promise;
+    });
+
+    expect(await screen.findByText("SQLite metadata")).toBeInTheDocument();
+    expect(screen.queryByText("Loading system status...")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stabilize graph storage")).not.toBeInTheDocument();
+  });
 });
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}

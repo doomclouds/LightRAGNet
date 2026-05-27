@@ -10,7 +10,7 @@ import {
 import type { SystemHealthCheckResult, SystemHealthStatus } from '@/api/systemStatusApi';
 import { DataTableSurface } from '@/shared/components/DataTable';
 import { StatusPill } from '@/shared/components/StatusPill';
-import { formatDurationMs, getStatusTone, summarizeEvidence } from './systemStatusPresentation';
+import { formatDurationMs, formatEvidenceValue, getStatusTone } from './systemStatusPresentation';
 
 type SystemStatusEvidenceTableProps = {
   checks: SystemHealthCheckResult[];
@@ -65,7 +65,9 @@ export function SystemStatusEvidenceTable({ checks }: SystemStatusEvidenceTableP
                     </td>
                     <td>{check.message}</td>
                     <td>{formatDurationMs(check.durationMs)}</td>
-                    <td>{summarizeEvidence(check.evidence)}</td>
+                    <td>
+                      <EvidenceSummary evidence={check.evidence} />
+                    </td>
                     <td>{check.remediation || 'None'}</td>
                   </tr>
                 );
@@ -75,5 +77,24 @@ export function SystemStatusEvidenceTable({ checks }: SystemStatusEvidenceTableP
         </DataTableSurface>
       )}
     </section>
+  );
+}
+
+function EvidenceSummary({ evidence }: { evidence: Record<string, unknown> | null | undefined }) {
+  const entries = evidence == null ? [] : Object.entries(evidence);
+
+  if (entries.length === 0) {
+    return <>No evidence</>;
+  }
+
+  return (
+    <dl className="system-status__evidence-summary">
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          <dt>{key}</dt>
+          <dd>{formatEvidenceValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
