@@ -18,13 +18,12 @@ const cssFiles: CssFile[] = [
 
 const allowedRootFontDebt = new Set([
   'cache-management.css|.cache-workbench|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif',
-  'graph-workbench.css|.graph-workbench|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif',
-  'system-status.css|.system-status|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif'
+  'graph-workbench.css|.graph-workbench|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif'
 ]);
 
 const allowedMonospaceFontDebt = new Set([
   'cache-management.css|.cache-key-prefix|font-family: Consolas, "Cascadia Mono", monospace',
-  'system-status.css|.system-status__evidence td|font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace'
+  'system-status.css|.system-status__raw-code|font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace'
 ]);
 
 const allowedHexDebt = new Map<string, string[]>([
@@ -78,14 +77,7 @@ const allowedLocalUiDebt = new Map<string, string[]>([
       'rag-chat__table-wrap'
     ]
   ],
-  [
-    'system-status.css',
-    [
-      'system-status__button',
-      'system-status__panel',
-      'system-status__status'
-    ]
-  ]
+  ['system-status.css', []]
 ]);
 
 describe('React design system guardrails', () => {

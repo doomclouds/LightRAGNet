@@ -11,7 +11,7 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 推荐优先级：
 
 1. 先把 Documents 做成参考实现。
-2. 替换 System Status 和 Cache Management 中的页面局部组件体系。
+2. 继续迁移 Cache Management 这类 list/diagnostic workbench 页面。
 3. 围绕共享面板、按钮和渲染器行为规范 RAG Chat 与 Document Preview。
 4. Knowledge Graph 保留图谱专用视觉，但标准化周边控件。
 
@@ -24,7 +24,7 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 | Document Preview Drawer | `/documents` 内部 | Reading And Preview Workspace | 高 | 抽屉和焦点行为较好，后续可沉淀为共享 `Drawer` | P0 |
 | Document Preview Page | `/document-preview/:id` | Reading And Preview Workspace | 中 | 页面 CSS 有字面内容颜色；元数据较轻；完整阅读布局需要视觉验证 | P1 |
 | RAG Chat | `/`、`/rag-chat` | Conversation Workbench | 中 | 部分 raw `button` + class 组合；诊断表格和 dialog 仍需迁向共享 `DiagnosticTable` / `ConfirmDialog` | P1 |
-| System Status | `/system-status` | Diagnostic Workbench | 中 | 有局部 header、局部按钮、局部状态 pill、页面局部字体栈 | P1 |
+| System Status | `/system-status` | Compact Diagnostic Workbench | 高 | 已按 compact diagnostics workbench 迁移；后续观察局部诊断组件是否被 Cache/RAG Chat 复用，再决定是否提升共享 | 已迁移 |
 | Cache Management | `/cache-management` | List + Diagnostic Workbench | 中 | 布局强，但局部 button/panel/pill/table 系统重复了共享组件能力 | P1 |
 | Knowledge Graph | `/graph-view` | Graph Workspace | 中 | 专用 canvas 合理；周边控件和 dialog 大多仍是页面局部体系 | P2 |
 
@@ -68,11 +68,11 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 
 ## 标准化风险
 
-- `system-status.css`、`cache-management.css`、`graph-workbench.css` 重复定义了按钮、面板、pill 和表格概念。
+- `cache-management.css`、`graph-workbench.css` 仍重复定义了按钮、面板、pill 和表格概念；System Status 的旧 root font、局部 button/panel/status/table debt 已清理，raw JSON monospace 是保留项。
 - `document-preview.css` 在 Markdown 内容样式里使用字面颜色，部分应提升为 renderer token 或共享 Markdown 样式。
 - Graph 控件使用了正确 token，但仍是独立组件词汇。
-- Cache 和 System Status 定义了页面局部字体，应继承全局字体栈。
-- 页面局部状态 pill 会让语义状态难以保持一致。
+- Cache Management 仍需检查页面局部字体、按钮、panel、pill 和 table 是否继承共享体系。
+- RAG Chat、Graph 等页面仍有局部控件债务，不能把 System Status 的完成误读为全站完成。
 
 ## 推荐迁移切片
 
@@ -110,14 +110,15 @@ npm run build --prefix src/LightRAGNet.React
 
 交付：
 
-- 将 System Status 迁移到 `PageHeader`、`Button`、`StatusPill`、`Panel`、`ErrorState`
-- 将 Cache Management 中重复的 button、pill、panel 迁向共享组件
+- 保持 System Status 的 compact diagnostics workbench 作为诊断页参考样式
+- 将 Cache Management 中重复的 button、pill、panel、table 迁向共享组件
+- 观察 System Status 的 `SystemStatusSummaryTiles`、`SystemStatusEvidenceTable`、`SystemStatusRemediationPanel`、`SystemStatusFeatureImpactPanel`、`SystemStatusRawJsonPanel` 是否能被 Cache Management 或 RAG Chat 复用
 - 保留 copy、export、refresh、clear 等行为
 
 视觉检查：
 
-- `/system-status`
 - `/cache-management`
+- `/system-status` 作为回归参考，不再作为待迁移项
 
 ### 切片 4：对话和图谱打磨
 
