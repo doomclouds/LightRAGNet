@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>System Status Refined Dashboard With Lucide Icons</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+      :root {
+        --app-bg: #fbfaf6;
+        --surface: #fffefa;
+        --surface-muted: #f7f3ea;
+        --border: #e7ded2;
+        --border-strong: #d9cdbd;
+        --text-primary: #191817;
+        --text-secondary: #5f5a52;
+        --text-muted: #8f887d;
+        --accent: #c8552d;
+        --accent-strong: #a94221;
+        --accent-soft: #f4e4db;
+        --success: #4d8a58;
+        --warning: #c6871d;
+        --danger: #ce4c34;
+        --success-soft: #eaf4e8;
+        --warning-soft: #f8efd8;
+        --danger-soft: #f8e2dc;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--app-bg);
+        color: var(--text-primary);
+        font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        font-size: 13px;
+      }
+
+      button { font: inherit; }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 214px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, #fffefa 0%, #fbfaf6 100%);
+        padding: 14px 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 24px;
+        font-weight: 850;
+        font-size: 16px;
+      }
+
+      .logo {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: #7a3217;
+        color: #fffefa;
+        font-size: 12px;
+      }
+
+      .nav-section {
+        margin: 18px 0 8px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .nav-item {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        padding: 0 10px;
+      }
+
+      .nav-item.active {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-weight: 780;
+      }
+
+      .icon {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        stroke-width: 1.8;
+      }
+
+      .workspace {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 48px minmax(0, 1fr);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 254, 250, .78);
+        padding: 0 22px;
+      }
+
+      .crumbs {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+
+      .search {
+        width: min(380px, 42vw);
+        height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-muted);
+        padding: 0 12px;
+      }
+
+      .page {
+        min-width: 0;
+        padding: 18px 22px 22px;
+      }
+
+      .page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 24px;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      .subtle {
+        margin: 0;
+        color: var(--text-secondary);
+        line-height: 1.45;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .button,
+      .mini-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-primary);
+        font-weight: 760;
+      }
+
+      .button {
+        height: 32px;
+        padding: 0 12px;
+        font-size: 12px;
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fffefa;
+      }
+
+      .mini-button {
+        height: 26px;
+        color: var(--text-secondary);
+        padding: 0 9px;
+        font-size: 11px;
+      }
+
+      .status-strip {
+        display: grid;
+        grid-template-columns: 1.1fr repeat(4, minmax(128px, .72fr));
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .tile {
+        min-width: 0;
+        min-height: 88px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        padding: 14px;
+      }
+
+      .tile-icon {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border: 1.5px solid currentColor;
+        border-radius: 999px;
+        color: var(--success);
+      }
+
+      .tile-icon.neutral {
+        border-radius: 9px;
+        color: var(--text-secondary);
+      }
+
+      .tile-icon.warning { color: var(--warning); }
+
+      .tile-label {
+        margin: 0 0 3px;
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .tile-value {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 850;
+        line-height: 1.05;
+      }
+
+      .tile-note {
+        margin: 5px 0 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(280px, .75fr) minmax(300px, .72fr);
+        gap: 12px;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        height: 43px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 0 14px;
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .tabs {
+        display: flex;
+        align-items: stretch;
+        height: 100%;
+      }
+
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        padding: 0 12px;
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .tab.active {
+        border-color: var(--accent);
+        color: var(--accent-strong);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: middle;
+        font-size: 12px;
+      }
+
+      th {
+        background: var(--surface-muted);
+        color: var(--text-secondary);
+        font-weight: 780;
+      }
+
+      tr:last-child td { border-bottom: 0; }
+
+      .row-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .row-title .icon {
+        width: 15px;
+        height: 15px;
+        color: var(--text-muted);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 780;
+      }
+
+      .healthy { background: var(--success-soft); color: var(--success); }
+      .warning { background: var(--warning-soft); color: var(--warning); }
+      .critical { background: var(--danger-soft); color: var(--danger); }
+
+      .side-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+      }
+
+      .remediation {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .rank {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--accent);
+        color: #fffefa;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .rank.warning { background: #d8a43d; }
+
+      .remediation h3,
+      .impact h3 {
+        margin: 0 0 3px;
+        font-size: 12px;
+      }
+
+      .remediation p,
+      .impact p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.42;
+      }
+
+      .impact {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: start;
+      }
+
+      .impact-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .impact-title .icon {
+        color: var(--text-muted);
+      }
+
+      .raw-panel { min-height: 514px; }
+
+      .raw-toolbar {
+        display: flex;
+        gap: 7px;
+      }
+
+      pre {
+        height: 470px;
+        margin: 0;
+        overflow: auto;
+        color: #7a3217;
+        padding: 14px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      @media (max-width: 1180px) {
+        .app { grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+        .grid { grid-template-columns: 1fr; }
+        .raw-panel { min-height: 0; }
+      }
+
+      @media (max-width: 860px) {
+        .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .tile:first-child { grid-column: 1 / -1; }
+      }
+
+      @media (max-width: 560px) {
+        .page { padding: 14px; }
+        .topbar, .page-head, .actions { align-items: stretch; }
+        .page-head, .actions { flex-direction: column; }
+        .search, .button { width: 100%; }
+        .status-strip { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const rawJson = `{
+  "timestamp": "2026-05-27T12:01:44Z",
+  "overall": {
+    "status": "Healthy",
+    "score": 0.92
+  },
+  "services": [
+    {
+      "name": "api-server",
+      "status": "Healthy",
+      "latency_ms": 23,
+      "details": {
+        "version": "1.8.2",
+        "uptime": "2d 4h"
+      }
+    },
+    {
+      "name": "rag-worker",
+      "status": "Healthy",
+      "queue_depth": 3,
+      "processed": 1284,
+      "failed": 2
+    },
+    {
+      "name": "embedding-model",
+      "status": "Warning",
+      "latency_ms": 810,
+      "threshold_ms": 500
+    }
+  ]
+}`;
+
+      const checks = [
+        ["server", "API Server", "Core Service", "Healthy", "HTTP 200 OK", "1 min ago"],
+        ["workflow", "RAG Worker", "Background Service", "Healthy", "Queue depth: 3", "1 min ago"],
+        ["database", "Qdrant", "Vector Store", "Healthy", "Collections: 12, Points: 1.2M", "1 min ago"],
+        ["network", "Neo4j", "Graph Store", "Healthy", "Nodes: 482K, Relationships: 1.3M", "2 min ago"],
+        ["brain-circuit", "Embedding Model", "AI Service", "Warning", "Response time elevated", "2 min ago"],
+        ["scan-search", "ReRanker", "AI Service", "Healthy", "HTTP 200 OK", "2 min ago"],
+        ["hard-drive", "Document DB (SQLite)", "Storage", "Healthy", "Size: 156 MB, Connections: 2", "2 min ago"]
+      ];
+
+      function Icon({ name, className = "icon" }) {
+        return <i data-lucide={name} className={className} aria-hidden="true" />;
+      }
+
+      function NavItem({ icon, label, active }) {
+        return (
+          <div className={`nav-item ${active ? "active" : ""}`}>
+            <Icon name={icon} />
+            {label}
+          </div>
+        );
+      }
+
+      function StatusTile({ icon, label, value, note, tone }) {
+        return (
+          <section className="tile">
+            <div className={`tile-icon ${tone ?? "neutral"}`}>
+              <Icon name={icon} />
+            </div>
+            <div>
+              <p className="tile-label">{label}</p>
+              <p className="tile-value">{value}</p>
+              <p className="tile-note">{note}</p>
+            </div>
+          </section>
+        );
+      }
+
+      function Pill({ status }) {
+        const key = status === "Healthy" ? "healthy" : status === "Warning" ? "warning" : "critical";
+        return <span className={`pill ${key}`}>{status}</span>;
+      }
+
+      function App() {
+        React.useEffect(() => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        });
+
+        return (
+          <main className="app">
+            <aside className="sidebar">
+              <div className="brand"><span className="logo">LR</span>LightRAGNet</div>
+              <NavItem icon="home" label="Overview" />
+              <NavItem icon="file-text" label="Documents" />
+              <NavItem icon="message-square" label="RAG Chat" />
+              <NavItem icon="git-fork" label="Graph" />
+              <div className="nav-section">System</div>
+              <NavItem icon="activity" label="System Status" active />
+              <NavItem icon="database" label="Cache Management" />
+              <NavItem icon="settings" label="Configuration" />
+              <NavItem icon="scroll-text" label="Logs" />
+              <div className="nav-section">Administration</div>
+              <NavItem icon="users" label="Users" />
+              <NavItem icon="key-round" label="API Keys" />
+            </aside>
+
+            <section className="workspace">
+              <header className="topbar">
+                <div className="crumbs"><Icon name="menu" /> <span>System</span> / <strong>System Status</strong></div>
+                <input className="search" value="Search documents, conversations, entities..." readOnly />
+              </header>
+
+              <div className="page">
+                <header className="page-head">
+                  <div>
+                    <h1>System Status</h1>
+                    <p className="subtle">Real-time diagnostics and system operation overview</p>
+                  </div>
+                  <div className="actions">
+                    <button className="button"><Icon name="download" />Export Report</button>
+                    <button className="button primary"><Icon name="refresh-cw" />Refresh Now</button>
+                  </div>
+                </header>
+
+                <section className="status-strip">
+                  <StatusTile icon="check-circle-2" label="Overall Health" value="Healthy" note="All critical systems operational" tone="healthy" />
+                  <StatusTile icon="server" label="Services" value="7 / 7" note="All services normal" />
+                  <StatusTile icon="database" label="Vector Store" value="Qdrant" note="Connected" />
+                  <StatusTile icon="git-fork" label="Graph Store" value="Neo4j" note="Connected" />
+                  <StatusTile icon="clock-3" label="Last Checked" value="1 min ago" note="Auto-refresh: 30s" tone="warning" />
+                </section>
+
+                <section className="grid">
+                  <section className="panel">
+                    <div className="panel-head">
+                      <div className="tabs">
+                        <span className="tab active"><Icon name="clipboard-list" />Evidence</span>
+                        <span className="tab"><Icon name="wrench" />Remediation</span>
+                        <span className="tab"><Icon name="radio-tower" />Feature Impact</span>
+                        <span className="tab"><Icon name="braces" />Raw Data</span>
+                      </div>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Component</th>
+                          <th>Category</th>
+                          <th>Status</th>
+                          <th>Evidence</th>
+                          <th>Last Checked</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {checks.map(([icon, component, category, status, evidence, checked]) => (
+                          <tr key={component}>
+                            <td><span className="row-title"><Icon name={icon} /><strong>{component}</strong></span></td>
+                            <td>{category}</td>
+                            <td><Pill status={status} /></td>
+                            <td>{evidence}</td>
+                            <td>{checked}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <div className="side-stack">
+                    <section className="panel">
+                      <div className="panel-head"><h2>Remediation Priorities</h2></div>
+                      <div className="list">
+                        <article className="remediation">
+                          <span className="rank">1</span>
+                          <div><h3>Embedding Model latency is high</h3><p>Investigate provider or increase timeout</p></div>
+                          <button className="mini-button">View</button>
+                        </article>
+                        <article className="remediation">
+                          <span className="rank warning">2</span>
+                          <div><h3>RAG Worker queue depth elevated</h3><p>Consider scaling worker or check tasks</p></div>
+                          <button className="mini-button">View</button>
+                        </article>
+                        <article className="remediation">
+                          <span className="rank warning">3</span>
+                          <div><h3>Low cache hit rate detected</h3><p>Review cache configuration</p></div>
+                          <button className="mini-button">View</button>
+                        </article>
+                      </div>
+                    </section>
+
+                    <section className="panel">
+                      <div className="panel-head"><h2>Feature Impact</h2></div>
+                      <div className="list">
+                        <article className="impact"><div><h3 className="impact-title"><Icon name="file-up" />Document Ingestion</h3><p>No impact</p></div><Pill status="Healthy" /></article>
+                        <article className="impact"><div><h3 className="impact-title"><Icon name="message-circle" />RAG Chat</h3><p>No impact</p></div><Pill status="Healthy" /></article>
+                        <article className="impact"><div><h3 className="impact-title"><Icon name="share-2" />Graph Query</h3><p>No impact</p></div><Pill status="Healthy" /></article>
+                        <article className="impact"><div><h3 className="impact-title"><Icon name="search" />Advanced Search</h3><p>Minor impact</p></div><Pill status="Warning" /></article>
+                      </div>
+                    </section>
+                  </div>
+
+                  <section className="panel raw-panel">
+                    <div className="panel-head">
+                      <h2>Raw Data (JSON)</h2>
+                      <div className="raw-toolbar">
+                        <button className="mini-button"><Icon name="copy" />Copy</button>
+                        <button className="mini-button"><Icon name="download" />Download</button>
+                      </div>
+                    </div>
+                    <pre>{rawJson}</pre>
+                  </section>
+                </section>
+              </div>
+            </section>
+          </main>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
