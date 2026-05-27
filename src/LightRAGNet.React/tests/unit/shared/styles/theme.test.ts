@@ -72,7 +72,12 @@ describe('light workbench theme tokens', () => {
       '.lrn-data-table-surface',
       '.lrn-scrim',
       '.lrn-drawer',
-      '.lrn-modal'
+      '.lrn-modal',
+      '.lrn-banner',
+      '.lrn-segmented-control',
+      '.lrn-field',
+      '.lrn-diagnostic-table',
+      '.lrn-confirm-dialog'
     ].forEach((className) => {
       expect(appCss).toContain(className);
     });
