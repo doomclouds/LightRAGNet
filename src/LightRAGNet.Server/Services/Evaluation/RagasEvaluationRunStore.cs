@@ -61,12 +61,19 @@ internal sealed class RagasEvaluationRunStore(IConfiguration configuration)
         var json = JsonSerializer.Serialize(runs, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken);
-        if (File.Exists(filePath))
+        try
         {
-            File.Delete(filePath);
+            File.Move(tempPath, filePath, overwrite: true);
         }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
 
-        File.Move(tempPath, filePath);
+            throw;
+        }
     }
 
     private static string GetFilePath(IConfiguration configuration)

@@ -2,6 +2,7 @@ using FluentAssertions;
 using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Share.Models;
 using Microsoft.Extensions.Configuration;
+using System.Runtime.CompilerServices;
 
 namespace LightRAGNet.Server.Tests.Evaluation;
 
@@ -63,6 +64,15 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
         active.Should().BeNull();
     }
 
+    [Fact]
+    public void StoreSource_UpsertUsesOverwriteMoveWithoutDeletingExistingFile()
+    {
+        var source = File.ReadAllText(GetStoreSourcePath());
+
+        source.Should().NotContain("File.Delete(filePath)");
+        source.Should().Contain("File.Move(tempPath, filePath, overwrite: true)");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(tempDirectory))
@@ -111,5 +121,19 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
         active.Should().NotBeNull();
         active!.RunId.Should().Be(run.RunId);
         active.Status.Should().Be(status);
+    }
+
+    private static string GetStoreSourcePath([CallerFilePath] string testSourcePath = "")
+    {
+        return Path.GetFullPath(Path.Combine(
+            Path.GetDirectoryName(testSourcePath)!,
+            "..",
+            "..",
+            "..",
+            "src",
+            "LightRAGNet.Server",
+            "Services",
+            "Evaluation",
+            "RagasEvaluationRunStore.cs"));
     }
 }
