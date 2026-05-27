@@ -31,4 +31,10 @@
     <ProjectReference Include="..\..\src\LightRAGNet.Server\LightRAGNet.Server.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\LightRAGNet.Tests\Evaluation\Data\**\*.*"
+          Link="Evaluation\Data\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -2,6 +2,7 @@
 
 ## 2026-05
 
+- [2026-05-27-api-retrieval-evaluation-smoke-archives.md](./2026-05/2026-05-27-api-retrieval-evaluation-smoke-archives.md): 增加基于共享 retrieval JSON oracle 的 `/api/RagQuery/data` Server smoke 测试，覆盖 Naive 与 KG raw data API 边界且保持外部依赖隔离。
 - [2026-05-26-markdown-mermaid-rendering-archives.md](./2026-05/2026-05-26-markdown-mermaid-rendering-archives.md): 为 React Markdown 预览和 RAG Chat 增加共享 Mermaid 图表渲染器，并保留渲染失败源码兜底。
 - [2026-05-26-offline-retrieval-json-dataset-oracle-archives.md](./2026-05/2026-05-26-offline-retrieval-json-dataset-oracle-archives.md): 将离线检索评估迁移为 Python-compatible dataset 加 LightRAGNet extended oracle 的 JSON 数据驱动测试层。
 - [2026-05-25-offline-retrieval-evaluation-fixture-archives.md](./2026-05/2026-05-25-offline-retrieval-evaluation-fixture-archives.md): 增加离线检索评估 fixture，用固定语料和 raw data oracle 覆盖 Naive、Local、Global、Mix 与 rerank 回归。
