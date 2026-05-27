@@ -187,6 +187,7 @@ React 页面新增通用 UI 时，应优先使用共享组件，而不是继续�
 - `PageHeader`
 - `PageTabs`
 - `Panel`
+- `MetricCard`
 - `Banner`
 - `Toolbar`
 - `Button`
