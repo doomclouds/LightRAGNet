@@ -1,18 +1,19 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath, URL } from 'node:url';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 type CssFile = {
   name: string;
+  featurePath: string;
   css: string;
 };
 
 const cssFiles: CssFile[] = [
-  readCssFile('document-preview.css', '../../../../src/features/document-preview/document-preview.css'),
-  readCssFile('cache-management.css', '../../../../src/features/cache-management/cache-management.css'),
-  readCssFile('graph-workbench.css', '../../../../src/features/graph-workbench/graph-workbench.css'),
-  readCssFile('rag-chat.css', '../../../../src/features/rag-chat/rag-chat.css'),
-  readCssFile('system-status.css', '../../../../src/features/system-status/system-status.css')
+  readCssFile('src/features/document-preview/document-preview.css'),
+  readCssFile('src/features/cache-management/cache-management.css'),
+  readCssFile('src/features/graph-workbench/graph-workbench.css'),
+  readCssFile('src/features/rag-chat/rag-chat.css'),
+  readCssFile('src/features/system-status/system-status.css')
 ];
 
 const allowedRootFontDebt = new Set([
@@ -88,6 +89,16 @@ const allowedLocalUiDebt = new Map<string, string[]>([
 ]);
 
 describe('React design system guardrails', () => {
+  it('keeps configured feature CSS files synchronized with src/features CSS files', () => {
+    const configuredPaths = cssFiles.map((file) => file.featurePath).sort();
+    const discoveredPaths = discoverFeatureCssPaths();
+
+    expect(
+      configuredPaths,
+      `Configured feature CSS guardrails must match discovered src/features CSS files.\nConfigured paths:\n${formatPaths(configuredPaths)}\nDiscovered paths:\n${formatPaths(discoveredPaths)}`
+    ).toEqual(discoveredPaths);
+  });
+
   it('keeps page-level font-family debt explicit and prevents new page root font stacks', () => {
     const declarations = cssFiles.flatMap((file) =>
       collectDeclarations(file.css, 'font-family').map((declaration) => `${file.name}|${declaration.selector}|${declaration.value}`)
@@ -117,11 +128,45 @@ describe('React design system guardrails', () => {
   });
 });
 
-function readCssFile(name: string, relativePath: string): CssFile {
+function readCssFile(featurePath: string): CssFile {
   return {
-    name,
-    css: readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
+    name: featurePath.split('/').at(-1) ?? featurePath,
+    featurePath,
+    css: readFileSync(join(getProjectRoot(), featurePath), 'utf8')
   };
+}
+
+function discoverFeatureCssPaths(): string[] {
+  const projectRoot = getProjectRoot();
+  const featuresRoot = join(projectRoot, 'src/features');
+  const discoveredPaths: string[] = [];
+
+  collectCssFiles(featuresRoot, discoveredPaths, projectRoot);
+
+  return discoveredPaths.sort();
+}
+
+function collectCssFiles(directory: string, discoveredPaths: string[], projectRoot: string): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      collectCssFiles(entryPath, discoveredPaths, projectRoot);
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith('.css')) {
+      discoveredPaths.push(relative(projectRoot, entryPath).split(sep).join('/'));
+    }
+  }
+}
+
+function formatPaths(paths: string[]): string {
+  return paths.length ? paths.map((path) => `- ${path}`).join('\n') : '- <none>';
+}
+
+function getProjectRoot(): string {
+  return process.cwd();
 }
 
 function collectDeclarations(css: string, propertyName: string): Array<{ selector: string; value: string }> {
