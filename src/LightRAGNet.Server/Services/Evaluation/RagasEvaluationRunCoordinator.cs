@@ -5,18 +5,34 @@ using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Services.Evaluation;
 
-internal sealed class RagasEvaluationRunCoordinator(
-    IOptions<RagasEvaluationOptions> options,
-    RagasEvaluationDataLoader dataLoader,
-    RagasEvaluationRunStore store,
-    IServiceScopeFactory scopeFactory,
-    RagasEvaluationTextSnapshotter snapshotter,
-    ILogger<RagasEvaluationRunCoordinator> logger)
+public sealed class RagasEvaluationRunCoordinator
 {
     private readonly ConcurrentDictionary<string, CancellationTokenSource> activeRuns = new();
     private readonly SemaphoreSlim createGate = new(1, 1);
+    private readonly IOptions<RagasEvaluationOptions> options;
+    private readonly RagasEvaluationDataLoader dataLoader;
+    private readonly RagasEvaluationRunStore store;
+    private readonly IServiceScopeFactory scopeFactory;
+    private readonly RagasEvaluationTextSnapshotter snapshotter;
+    private readonly ILogger<RagasEvaluationRunCoordinator> logger;
 
-    public async Task<RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>> CreateAsync(
+    internal RagasEvaluationRunCoordinator(
+        IOptions<RagasEvaluationOptions> options,
+        RagasEvaluationDataLoader dataLoader,
+        RagasEvaluationRunStore store,
+        IServiceScopeFactory scopeFactory,
+        RagasEvaluationTextSnapshotter snapshotter,
+        ILogger<RagasEvaluationRunCoordinator> logger)
+    {
+        this.options = options;
+        this.dataLoader = dataLoader;
+        this.store = store;
+        this.scopeFactory = scopeFactory;
+        this.snapshotter = snapshotter;
+        this.logger = logger;
+    }
+
+    internal async Task<RagasEvaluationOperationResult<CreateRagasEvaluationRunResponse>> CreateAsync(
         CreateRagasEvaluationRunRequest request,
         CancellationToken cancellationToken)
     {
@@ -107,7 +123,7 @@ internal sealed class RagasEvaluationRunCoordinator(
             });
     }
 
-    public async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> GetAsync(
+    internal async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> GetAsync(
         string runId,
         CancellationToken cancellationToken)
     {
@@ -123,7 +139,7 @@ internal sealed class RagasEvaluationRunCoordinator(
         return RagasEvaluationOperationResult<RagasEvaluationRunResponse>.Ok(ToResponse(run));
     }
 
-    public async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> CancelAsync(
+    internal async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> CancelAsync(
         string runId,
         CancellationToken cancellationToken)
     {

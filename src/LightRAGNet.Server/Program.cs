@@ -132,6 +132,20 @@ builder.Services.AddSignalR()
 builder.Services.AddLightRAG(builder.Configuration);
 builder.Services.Configure<RagasEvaluationOptions>(
     builder.Configuration.GetSection("Evaluation:Ragas"));
+builder.Services.AddSingleton<RagasJudgeResponseParser>();
+builder.Services.AddSingleton<RagasEvaluationTextSnapshotter>();
+builder.Services.AddSingleton<RagasEvaluationRunStore>();
+builder.Services.AddSingleton<RagasEvaluationDataLoader>();
+builder.Services.AddSingleton(sp => new RagasEvaluationRunCoordinator(
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RagasEvaluationOptions>>(),
+    sp.GetRequiredService<RagasEvaluationDataLoader>(),
+    sp.GetRequiredService<RagasEvaluationRunStore>(),
+    sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetRequiredService<RagasEvaluationTextSnapshotter>(),
+    sp.GetRequiredService<ILogger<RagasEvaluationRunCoordinator>>()));
+builder.Services.AddScoped<IRagasRagQueryClient, LightRagRagasQueryClient>();
+builder.Services.AddScoped<RagasEvaluationRunner>();
+builder.Services.AddHttpClient<IRagasEvaluator, OpenAiCompatibleRagasEvaluator>();
 builder.Services.AddSingleton(sp => new CacheEntryInspector(
     sp.GetRequiredKeyedService<IKVStore>(KVContracts.LLMCache)));
 builder.Services.AddSingleton<CacheClearPlanner>();
