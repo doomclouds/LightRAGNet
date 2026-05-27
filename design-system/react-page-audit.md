@@ -23,7 +23,7 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 | Upload Document | `/documents/upload` | Workbench Form | 高 | dropzone 和已选文件列表是局部实现但可接受；需要移动端视觉验证 | P0 |
 | Document Preview Drawer | `/documents` 内部 | Reading And Preview Workspace | 高 | 抽屉和焦点行为较好，后续可沉淀为共享 `Drawer` | P0 |
 | Document Preview Page | `/document-preview/:id` | Reading And Preview Workspace | 中 | 页面 CSS 有字面内容颜色；元数据较轻；完整阅读布局需要视觉验证 | P1 |
-| RAG Chat | `/`、`/rag-chat` | Conversation Workbench | 中 | 部分 raw `button` + class 组合；诊断表格和 dialog 仍是页面局部实现 | P1 |
+| RAG Chat | `/`、`/rag-chat` | Conversation Workbench | 中 | 部分 raw `button` + class 组合；诊断表格和 dialog 仍需迁向共享 `DiagnosticTable` / `ConfirmDialog` | P1 |
 | System Status | `/system-status` | Diagnostic Workbench | 中 | 有局部 header、局部按钮、局部状态 pill、页面局部字体栈 | P1 |
 | Cache Management | `/cache-management` | List + Diagnostic Workbench | 中 | 布局强，但局部 button/panel/pill/table 系统重复了共享组件能力 | P1 |
 | Knowledge Graph | `/graph-view` | Graph Workspace | 中 | 专用 canvas 合理；周边控件和 dialog 大多仍是页面局部体系 | P2 |
@@ -50,15 +50,21 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 - `ErrorState`
 - `MarkdownRenderer`
 
+本轮已补齐的共享原语：
+
+- `Banner`
+- `SegmentedControl`
+- `Field`
+- `DiagnosticTable`
+- 共享 `ConfirmDialog`
+
 缺失或不完整的共享原语：
 
 - `Drawer`
-- graph 专用实现之外的 `ConfirmDialog`
-- 通用 `SegmentedControl`
-- 通用 `TextField` / `SelectField`
+- 通用 `TextField` / `SelectField` 控件（`Field` 包装已补齐）
 - 通用 `DataTable`
-- 通用诊断 key-value 表格
-- 通用 banner/alert 组件
+
+说明：共享原语状态已更新，但页面迁移仍按后续切片推进；现有页面里的局部表单、诊断表格、banner/alert 或 dialog 实现不因此视为已经完成迁移。
 
 ## 标准化风险
 
@@ -75,10 +81,8 @@ React 应用已经具备 `anthropic-light` 方向的基础：全局 token、共�
 交付：
 
 - 共享 `Drawer`
-- 共享 `ConfirmDialog`
-- 共享 `Banner`
-- 共享 `SegmentedControl`
-- 共享表单字段包装组件
+- 通用 `DataTable`
+- 将已补齐的 `ConfirmDialog`、`Banner`、`SegmentedControl`、`Field`、`DiagnosticTable` 接入需要迁移的页面
 
 验证：
 
