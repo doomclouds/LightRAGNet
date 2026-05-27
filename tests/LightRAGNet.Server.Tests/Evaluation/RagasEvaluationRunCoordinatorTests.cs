@@ -219,6 +219,22 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         result.ErrorCode.Should().Be(expectedCode);
     }
 
+    [Fact]
+    public async Task CreateAsync_WhenEvaluatorApiKeyComesFromDeepSeekEnvironment_QueuesRun()
+    {
+        var options = CreateOptions();
+        options.ApiKey = string.Empty;
+        var secretProvider = new RagasEvaluationSecretProvider(
+            Options.Create(options),
+            name => name == "DEEPSEEK_API_KEY" ? "environment-key" : null);
+        var coordinator = CreateCoordinator(options: options, secretProvider: secretProvider);
+
+        var result = await coordinator.CreateAsync(CreateRequest(maxCases: 1), CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Value!.Status.Should().Be(RagasEvaluationRunStatus.Queued.ToString());
+    }
+
     public void Dispose()
     {
         foreach (var disposable in disposables)
@@ -237,7 +253,8 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         RagasEvaluationRunStore? store = null,
         IRagasEvaluator? evaluator = null,
         ScopedProbe? scopedProbe = null,
-        IServiceScopeFactory? scopeFactory = null)
+        IServiceScopeFactory? scopeFactory = null,
+        RagasEvaluationSecretProvider? secretProvider = null)
     {
         options ??= CreateOptions();
         store ??= CreateStore();
@@ -253,6 +270,7 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
             store,
             scopeFactory,
             snapshotter,
+            secretProvider ?? new RagasEvaluationSecretProvider(optionsMonitor, _ => null),
             NullLogger<RagasEvaluationRunCoordinator>.Instance);
     }
 
@@ -267,6 +285,7 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         services.AddSingleton(store);
         services.AddSingleton(options);
         services.AddSingleton(snapshotter);
+        services.AddSingleton<RagasEvaluationSecretProvider>();
         services.AddScoped<IRagasRagQueryClient, SuccessfulRagasRagQueryClient>();
         services.AddScoped(_ => scopedProbe ?? new ScopedProbe());
         services.AddScoped<IRagasEvaluator>(serviceProvider =>

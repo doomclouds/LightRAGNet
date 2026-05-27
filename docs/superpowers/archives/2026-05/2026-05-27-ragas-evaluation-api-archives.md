@@ -27,9 +27,9 @@
 
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluationControllerTests" --no-restore --verbosity minimal`：8 passed。
 - `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~Evaluation" --no-restore --verbosity minimal`：74 passed。
-- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluation" --no-restore --verbosity minimal`：50 passed。
-- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal`：297 passed。
-- `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`：297 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --filter "FullyQualifiedName~RagasEvaluation" --no-restore --verbosity minimal`：54 passed。
+- `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-restore --verbosity minimal`：301 passed。
+- `dotnet test .\LightRAGNet.slnx --no-restore --verbosity minimal`：301 passed。
 - Controller RED 验证先出现 8 个 `404` 失败，再实现 controller/DI 后转 GREEN。
 
 ## Manual Real-Evaluator Smoke Note
@@ -42,9 +42,9 @@
     "Ragas": {
       "Enabled": true,
       "AdminToken": "<local secret>",
-      "EvaluatorModel": "gpt-4o-mini",
-      "ApiKey": "<local secret>",
-      "BaseUrl": "https://api.openai.com/v1"
+      "EvaluatorModel": "deepseek-v4-flash",
+      "ApiKey": "<local secret or DEEPSEEK_API_KEY>",
+      "BaseUrl": "https://api.deepseek.com"
     }
   }
 }

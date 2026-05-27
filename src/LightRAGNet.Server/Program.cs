@@ -136,12 +136,14 @@ builder.Services.AddSingleton<RagasJudgeResponseParser>();
 builder.Services.AddSingleton<RagasEvaluationTextSnapshotter>();
 builder.Services.AddSingleton<RagasEvaluationRunStore>();
 builder.Services.AddSingleton<RagasEvaluationDataLoader>();
+builder.Services.AddSingleton<RagasEvaluationSecretProvider>();
 builder.Services.AddSingleton(sp => new RagasEvaluationRunCoordinator(
     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RagasEvaluationOptions>>(),
     sp.GetRequiredService<RagasEvaluationDataLoader>(),
     sp.GetRequiredService<RagasEvaluationRunStore>(),
     sp.GetRequiredService<IServiceScopeFactory>(),
     sp.GetRequiredService<RagasEvaluationTextSnapshotter>(),
+    sp.GetRequiredService<RagasEvaluationSecretProvider>(),
     sp.GetRequiredService<ILogger<RagasEvaluationRunCoordinator>>()));
 builder.Services.AddScoped<IRagasRagQueryClient, LightRagRagasQueryClient>();
 builder.Services.AddScoped<RagasEvaluationRunner>();

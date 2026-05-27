@@ -14,6 +14,7 @@ public sealed class RagasEvaluationRunCoordinator
     private readonly RagasEvaluationRunStore store;
     private readonly IServiceScopeFactory scopeFactory;
     private readonly RagasEvaluationTextSnapshotter snapshotter;
+    private readonly RagasEvaluationSecretProvider secretProvider;
     private readonly ILogger<RagasEvaluationRunCoordinator> logger;
 
     internal RagasEvaluationRunCoordinator(
@@ -22,6 +23,7 @@ public sealed class RagasEvaluationRunCoordinator
         RagasEvaluationRunStore store,
         IServiceScopeFactory scopeFactory,
         RagasEvaluationTextSnapshotter snapshotter,
+        RagasEvaluationSecretProvider secretProvider,
         ILogger<RagasEvaluationRunCoordinator> logger)
     {
         this.options = options;
@@ -29,6 +31,7 @@ public sealed class RagasEvaluationRunCoordinator
         this.store = store;
         this.scopeFactory = scopeFactory;
         this.snapshotter = snapshotter;
+        this.secretProvider = secretProvider;
         this.logger = logger;
     }
 
@@ -179,11 +182,11 @@ public sealed class RagasEvaluationRunCoordinator
                 StatusCodes.Status503ServiceUnavailable);
         }
 
-        if (string.IsNullOrWhiteSpace(value.ApiKey))
+        if (string.IsNullOrWhiteSpace(secretProvider.GetEvaluatorApiKey()))
         {
             return RagasEvaluationOperationResult<object>.Fail(
                 "missing_evaluator_api_key",
-                "RAGAS evaluation requires Evaluation:Ragas:ApiKey.",
+                "RAGAS evaluation requires Evaluation:Ragas:ApiKey or DEEPSEEK_API_KEY.",
                 StatusCodes.Status503ServiceUnavailable);
         }
 

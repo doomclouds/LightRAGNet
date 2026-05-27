@@ -315,6 +315,7 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
             evaluator,
             new RagasEvaluationTextSnapshotter(Options.Create(options)),
             Options.Create(options),
+            new RagasEvaluationSecretProvider(Options.Create(options)),
             NullLogger<RagasEvaluationRunner>.Instance);
     }
 

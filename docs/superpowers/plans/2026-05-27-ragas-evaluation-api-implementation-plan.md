@@ -199,7 +199,7 @@ public sealed class RagasEvaluationOptions
 {
     public bool Enabled { get; set; }
     public string AdminToken { get; set; } = string.Empty;
-    public string EvaluatorModel { get; set; } = "gpt-4o-mini";
+    public string EvaluatorModel { get; set; } = "deepseek-v4-flash";
     public string ApiKey { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 180;
@@ -860,7 +860,7 @@ Build URL:
 
 ```csharp
 var baseUrl = string.IsNullOrWhiteSpace(options.Value.BaseUrl)
-    ? "https://api.openai.com/v1"
+    ? "https://api.deepseek.com"
     : options.Value.BaseUrl.TrimEnd('/');
 var endpoint = $"{baseUrl}/chat/completions";
 ```
@@ -1177,9 +1177,9 @@ Add a short section to the eventual archive with:
     "Ragas": {
       "Enabled": true,
       "AdminToken": "<local secret>",
-      "EvaluatorModel": "gpt-4o-mini",
-      "ApiKey": "<local secret>",
-      "BaseUrl": "https://api.openai.com/v1"
+      "EvaluatorModel": "deepseek-v4-flash",
+      "ApiKey": "<local secret or DEEPSEEK_API_KEY>",
+      "BaseUrl": "https://api.deepseek.com"
     }
   }
 }

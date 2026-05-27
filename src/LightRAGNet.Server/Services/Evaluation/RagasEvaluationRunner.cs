@@ -9,6 +9,7 @@ internal sealed class RagasEvaluationRunner(
     IRagasEvaluator evaluator,
     RagasEvaluationTextSnapshotter snapshotter,
     IOptions<RagasEvaluationOptions> options,
+    RagasEvaluationSecretProvider secretProvider,
     ILogger<RagasEvaluationRunner> logger)
 {
     public async Task ExecuteAsync(
@@ -169,12 +170,9 @@ internal sealed class RagasEvaluationRunner(
     private string SanitizeJudgeText(string value)
     {
         var sanitized = value;
-        foreach (var secret in new[] { options.Value.ApiKey, options.Value.AdminToken })
+        foreach (var secret in secretProvider.GetSecretValues())
         {
-            if (!string.IsNullOrWhiteSpace(secret))
-            {
-                sanitized = sanitized.Replace(secret, "[redacted]", StringComparison.Ordinal);
-            }
+            sanitized = sanitized.Replace(secret, "[redacted]", StringComparison.Ordinal);
         }
 
         return sanitized;

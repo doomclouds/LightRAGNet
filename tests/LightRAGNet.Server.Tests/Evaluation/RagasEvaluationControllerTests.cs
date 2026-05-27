@@ -8,6 +8,7 @@ using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Share.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace LightRAGNet.Server.Tests.Evaluation;
 
@@ -187,8 +188,12 @@ public sealed class RagasEvaluationControllerTests
             {
                 services.RemoveAll<IRagasRagQueryClient>();
                 services.RemoveAll<IRagasEvaluator>();
+                services.RemoveAll<RagasEvaluationSecretProvider>();
                 services.AddScoped<IRagasRagQueryClient, SuccessfulRagasRagQueryClient>();
                 services.AddScoped<IRagasEvaluator>(_ => evaluator ?? new SuccessfulRagasEvaluator());
+                services.AddSingleton(sp => new RagasEvaluationSecretProvider(
+                    sp.GetRequiredService<IOptions<RagasEvaluationOptions>>(),
+                    _ => null));
             },
             overrides);
     }

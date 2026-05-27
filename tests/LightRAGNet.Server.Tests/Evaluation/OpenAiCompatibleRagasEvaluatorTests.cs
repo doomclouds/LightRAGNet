@@ -78,21 +78,23 @@ public sealed class OpenAiCompatibleRagasEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_WhenBaseUrlIsBlank_UsesDefaultOpenAiEndpoint()
+    public async Task EvaluateAsync_WhenBaseUrlAndModelAreBlank_UsesDefaultDeepSeekFlashEndpoint()
     {
         var handler = new CapturingHttpMessageHandler(CreateJudgeResponse());
         using var httpClient = new HttpClient(handler);
         var evaluator = CreateEvaluator(httpClient, new RagasEvaluationOptions
         {
             ApiKey = ApiKey,
-            BaseUrl = " ",
-            EvaluatorModel = "judge-model"
+            BaseUrl = " "
         });
 
         await evaluator.EvaluateAsync(CreateInput(), CancellationToken.None);
 
         handler.Request.Should().NotBeNull();
-        handler.Request!.RequestUri.Should().Be("https://api.openai.com/v1/chat/completions");
+        handler.Request!.RequestUri.Should().Be("https://api.deepseek.com/chat/completions");
+
+        using var payloadDocument = JsonDocument.Parse(handler.RequestContent!);
+        payloadDocument.RootElement.GetProperty("model").GetString().Should().Be("deepseek-v4-flash");
     }
 
     [Fact]
@@ -173,6 +175,7 @@ public sealed class OpenAiCompatibleRagasEvaluatorTests
         return new OpenAiCompatibleRagasEvaluator(
             httpClient,
             Options.Create(options),
+            new RagasEvaluationSecretProvider(Options.Create(options)),
             new RagasJudgeResponseParser());
     }
 
