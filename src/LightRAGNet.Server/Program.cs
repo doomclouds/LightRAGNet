@@ -11,6 +11,7 @@ using LightRAGNet.Server.Services.CacheManagement;
 using LightRAGNet.Server.Services.DocumentArtifacts;
 using LightRAGNet.Server.Services.DocumentConversion;
 using LightRAGNet.Server.Services.DocumentPreview;
+using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Server.Services.SystemHealth;
 using LightRAGNet.Server.Services.SystemHealth.Checks;
 using LightRAGNet.Core.Interfaces;
@@ -129,6 +130,24 @@ builder.Services.AddSignalR()
 
 // Register LightRAG services (including task queue services)
 builder.Services.AddLightRAG(builder.Configuration);
+builder.Services.Configure<RagasEvaluationOptions>(
+    builder.Configuration.GetSection("Evaluation:Ragas"));
+builder.Services.AddSingleton<RagasJudgeResponseParser>();
+builder.Services.AddSingleton<RagasEvaluationTextSnapshotter>();
+builder.Services.AddSingleton<RagasEvaluationRunStore>();
+builder.Services.AddSingleton<RagasEvaluationDataLoader>();
+builder.Services.AddSingleton<RagasEvaluationSecretProvider>();
+builder.Services.AddSingleton(sp => new RagasEvaluationRunCoordinator(
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RagasEvaluationOptions>>(),
+    sp.GetRequiredService<RagasEvaluationDataLoader>(),
+    sp.GetRequiredService<RagasEvaluationRunStore>(),
+    sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetRequiredService<RagasEvaluationTextSnapshotter>(),
+    sp.GetRequiredService<RagasEvaluationSecretProvider>(),
+    sp.GetRequiredService<ILogger<RagasEvaluationRunCoordinator>>()));
+builder.Services.AddScoped<IRagasRagQueryClient, LightRagRagasQueryClient>();
+builder.Services.AddScoped<RagasEvaluationRunner>();
+builder.Services.AddHttpClient<IRagasEvaluator, OpenAiCompatibleRagasEvaluator>();
 builder.Services.AddSingleton(sp => new CacheEntryInspector(
     sp.GetRequiredKeyedService<IKVStore>(KVContracts.LLMCache)));
 builder.Services.AddSingleton<CacheClearPlanner>();

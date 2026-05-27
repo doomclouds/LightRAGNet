@@ -26,6 +26,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Include="Evaluation\Data\**\*.*"
+              CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
       <_ContentIncludedByDefault Remove="rag_storage\entity_chunks.json" />
       <_ContentIncludedByDefault Remove="rag_storage\full_docs.json" />
       <_ContentIncludedByDefault Remove="rag_storage\full_entities.json" />

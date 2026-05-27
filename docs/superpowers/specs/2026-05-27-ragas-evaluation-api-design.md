@@ -259,7 +259,7 @@ Add:
     "Ragas": {
       "Enabled": false,
       "AdminToken": "",
-      "EvaluatorModel": "gpt-4o-mini",
+      "EvaluatorModel": "deepseek-v4-flash",
       "ApiKey": "",
       "BaseUrl": "",
       "TimeoutSeconds": 180,
@@ -278,7 +278,7 @@ Rules:
 
 - `Enabled=false`: create-run returns a disabled error.
 - `Enabled=true` and missing `AdminToken`: endpoint returns misconfigured.
-- Missing evaluator API key returns misconfigured.
+- Missing evaluator API key returns misconfigured; `Evaluation:Ragas:ApiKey` takes precedence, otherwise `DEEPSEEK_API_KEY` is used.
 - API keys and tokens must not be logged, persisted in run snapshots, or returned in diagnostics.
 - `MaxConcurrentCases` is included for future expansion, but the first version should run cases serially unless implementation stays simple and deterministic.
 
