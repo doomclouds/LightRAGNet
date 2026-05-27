@@ -179,9 +179,9 @@ React 页面新增通用 UI 时，应优先使用共享组件，而不是继续�
 
 共享组件是统一 UI 的主要约束方式。页面应优先组合共享组件，再补页面局部结构。
 
-### 基础组件
+### 已实现共享组件
 
-这些组件定义通用产品语言：
+这些组件当前已经有共享实现，定义通用产品语言：
 
 - `AppLayout`
 - `PageHeader`
@@ -201,11 +201,18 @@ React 页面新增通用 UI 时，应优先使用共享组件，而不是继续�
 - `EmptyState`
 - `ErrorState`
 - `ConfirmDialog`
-- `Drawer`
 - `ActionMenu`
 - `FileTypeIcon`
 - `ProgressBar`
 - `MarkdownRenderer`
+
+### 目标/待补齐共享原语
+
+这些组件属于设计系统目标，但当前不能写成已实现。页面需要时可以先保留局部实现，并把迁移入口留给后续切片：
+
+- `Drawer`
+- 通用 `TextField` / `SelectField`
+- 通用 `DataTable`
 
 规则：
 
@@ -214,7 +221,8 @@ React 页面新增通用 UI 时，应优先使用共享组件，而不是继续�
 - 单行超过三个操作时使用 `ActionMenu`。
 - 状态、模式、健康度和任务状态使用 `StatusPill`。
 - 密集操作表格使用 `DataTableSurface` 包裹。
-- 当前页面工作流的侧边详情使用 `Drawer`。
+- 共享 `Drawer` 补齐后，当前页面工作流的侧边详情应迁向共享 `Drawer`。
+- 共享 `Drawer` 补齐前，可以保留页面局部抽屉实现，但必须对齐 token、遮罩、焦点管理和响应式规则，且不能视为页面迁移已完成。
 - 破坏性操作使用 `ConfirmDialog`。
 - 空状态和错误状态使用 `EmptyState`、`ErrorState`。
 
@@ -269,7 +277,7 @@ PageTabs for status or category
 Toolbar for search, filters, refresh, and primary action
 DataTableSurface
 Pagination
-Drawer or Dialog for row details
+Shared Drawer after primitive exists, page-local drawer during transition, or Dialog for row details
 ```
 
 规则：
