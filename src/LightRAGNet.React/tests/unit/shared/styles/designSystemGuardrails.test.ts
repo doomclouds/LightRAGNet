@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 
 type CssFile = {
   name: string;
-  path: string;
   css: string;
 };
 
@@ -22,6 +21,11 @@ const allowedRootFontDebt = new Set([
   'system-status.css|.system-status|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif'
 ]);
 
+const allowedMonospaceFontDebt = new Set([
+  'cache-management.css|.cache-key-prefix|font-family: Consolas, "Cascadia Mono", monospace',
+  'system-status.css|.system-status__evidence td|font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace'
+]);
+
 const allowedHexDebt = new Map<string, string[]>([
   [
     'document-preview.css',
@@ -33,10 +37,13 @@ const allowedLocalUiDebt = new Map<string, string[]>([
   [
     'cache-management.css',
     [
+      'cache-banner',
       'cache-button',
+      'cache-field',
       'cache-icon-button',
       'cache-panel',
       'cache-pill',
+      'cache-segmented',
       'cache-table',
       'cache-table-wrap',
       'cache-toolbar'
@@ -45,21 +52,28 @@ const allowedLocalUiDebt = new Map<string, string[]>([
   [
     'graph-workbench.css',
     [
+      'graph-workbench__compact-field',
+      'graph-workbench__confirm-dialog',
+      'graph-workbench__danger-button',
       'graph-workbench__dialog',
       'graph-workbench__dialog-backdrop',
+      'graph-workbench__field',
       'graph-workbench__icon-button',
       'graph-workbench__layout-menu',
       'graph-workbench__primary-button',
-      'graph-workbench__danger-button'
+      'graph-workbench__range-field',
+      'graph-workbench__settings-panel'
     ]
   ],
   [
     'rag-chat.css',
     [
-      'rag-chat__dialog',
-      'rag-chat__dialog-backdrop',
       'rag-chat__detail-table',
       'rag-chat__detail-tab',
+      'rag-chat__dialog',
+      'rag-chat__dialog-backdrop',
+      'rag-chat__dialog-toolbar',
+      'rag-chat__field',
       'rag-chat__table-wrap'
     ]
   ],
@@ -79,9 +93,7 @@ describe('React design system guardrails', () => {
       collectDeclarations(file.css, 'font-family').map((declaration) => `${file.name}|${declaration.selector}|${declaration.value}`)
     );
 
-    const rootFontDeclarations = declarations.filter((declaration) => !declaration.includes('monospace'));
-
-    expect(new Set(rootFontDeclarations)).toEqual(allowedRootFontDebt);
+    expect(new Set(declarations)).toEqual(new Set([...allowedRootFontDebt, ...allowedMonospaceFontDebt]));
   });
 
   it('keeps hard-coded page hex colors registered instead of allowing silent drift', () => {
@@ -108,7 +120,6 @@ describe('React design system guardrails', () => {
 function readCssFile(name: string, relativePath: string): CssFile {
   return {
     name,
-    path: relativePath,
     css: readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
   };
 }
@@ -137,30 +148,11 @@ function collectHexLiterals(css: string): string[] {
 function collectLocalUiClasses(css: string): string[] {
   const classNames = new Set<string>();
   const classPattern = /\.([a-zA-Z][a-zA-Z0-9_-]*)\b/gm;
-  const localSuffixes = new Set(['button', 'icon-button', 'panel', 'pill', 'table', 'table-wrap', 'toolbar']);
-  const bemElements = new Set([
-    'button',
-    'danger-button',
-    'detail-tab',
-    'detail-table',
-    'dialog',
-    'dialog-backdrop',
-    'icon-button',
-    'layout-menu',
-    'panel',
-    'pill',
-    'primary-button',
-    'status',
-    'status-pill',
-    'table',
-    'table-wrap',
-    'toolbar'
-  ]);
 
   for (const match of css.matchAll(classPattern)) {
     const className = stripModifier(match[1]);
 
-    if (isLocalUiClass(className, localSuffixes, bemElements)) {
+    if (getLocalUiTarget(className)) {
       classNames.add(className);
     }
   }
@@ -172,14 +164,40 @@ function stripModifier(className: string): string {
   return className.replace(/--[a-zA-Z0-9_-]+$/, '');
 }
 
-function isLocalUiClass(className: string, localSuffixes: Set<string>, bemElements: Set<string>): boolean {
+function getLocalUiTarget(className: string): string | undefined {
   const bemElement = className.match(/^[a-zA-Z][a-zA-Z0-9_-]*__(?<element>[a-zA-Z][a-zA-Z0-9_-]*)$/)?.groups?.element;
 
   if (bemElement) {
-    return bemElements.has(bemElement);
+    return getTargetFromName(bemElement, true);
   }
 
-  return Array.from(localSuffixes).some((suffix) => className.endsWith(`-${suffix}`));
+  return getTargetFromName(className, false);
+}
+
+function getTargetFromName(name: string, allowStatusTarget: boolean): string | undefined {
+  const targets = [
+    'confirm-dialog',
+    'detail-tab',
+    'dialog-backdrop',
+    'icon-button',
+    'layout-menu',
+    'table-wrap',
+    'segmented',
+    'toolbar',
+    'button',
+    'dialog',
+    'banner',
+    'field',
+    'panel',
+    'table',
+    'pill'
+  ];
+
+  if (allowStatusTarget) {
+    targets.push('status');
+  }
+
+  return targets.find((target) => name === target || name.endsWith(`-${target}`));
 }
 
 function normalizeSelector(selector: string): string {

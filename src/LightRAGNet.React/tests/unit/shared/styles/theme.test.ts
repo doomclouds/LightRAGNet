@@ -55,7 +55,7 @@ describe('light workbench theme tokens', () => {
   });
 
   it('defines shared shell and reusable surface classes', () => {
-    [
+    const expectedClasses = [
       '.app-frame',
       '.app-topbar',
       '.app-sidebar',
@@ -78,9 +78,11 @@ describe('light workbench theme tokens', () => {
       '.lrn-field',
       '.lrn-diagnostic-table',
       '.lrn-confirm-dialog'
-    ].forEach((className) => {
-      expect(appCss).toContain(className);
-    });
+    ];
+
+    const missingClasses = expectedClasses.filter((className) => !appCss.includes(className));
+
+    expect(missingClasses).toEqual([]);
   });
 
   it('uses light-theme-safe accent fill foregrounds for document CTAs', () => {
