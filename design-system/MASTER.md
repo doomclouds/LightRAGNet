@@ -163,6 +163,18 @@ Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif
 - 通用按钮阴影
 - 替代 body 字体栈
 
+## 设计系统护栏
+
+React 页面新增通用 UI 时，应优先使用共享组件，而不是继续扩展页面局部按钮、面板、pill、表格或 dialog 体系。
+
+护栏规则：
+
+- 页面 CSS 默认不定义根级 `font-family`，应继承 `theme.css` 的全局字体栈。
+- 页面 CSS 不新增非白名单硬编码 hex；通用颜色应提升为 token 或使用已有 token。
+- 命中 `*__button`、`*__panel`、`*__pill`、`*__table`、`*__dialog`、`*__toolbar`、`*__banner` 等通用 UI 概念时，先检查是否应使用 `Button`、`Panel`、`StatusPill`、`DataTableSurface`、`ConfirmDialog`、`Toolbar` 或 `Banner`。
+- 图谱 canvas、文档类型图标、Markdown/code 内容渲染和缓存趋势条等数据可视化颜色可以保留局部实现，但必须在测试白名单里登记。
+- 现有页面局部 UI 债务必须有迁移入口，不能静默扩散。
+
 ## 组件标准
 
 共享组件是统一 UI 的主要约束方式。页面应优先组合共享组件，再补页面局部结构。
@@ -175,12 +187,16 @@ Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif
 - `PageHeader`
 - `PageTabs`
 - `Panel`
+- `Banner`
 - `Toolbar`
 - `Button`
 - `ButtonLink`
 - `IconButton`
+- `SegmentedControl`
+- `Field`
 - `StatusPill`
 - `DataTableSurface`
+- `DiagnosticTable`
 - `Pagination`
 - `EmptyState`
 - `ErrorState`
