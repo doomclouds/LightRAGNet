@@ -68,7 +68,7 @@ const allowedLocalUiDebt = new Map<string, string[]>([
     [
       'system-status__button',
       'system-status__panel',
-      'system-status__status-pill'
+      'system-status__status'
     ]
   ]
 ]);
@@ -100,7 +100,7 @@ describe('React design system guardrails', () => {
     );
 
     cssFiles.forEach((file) => {
-      expect(actual.get(file.name) ?? []).toEqual(allowedLocalUiDebt.get(file.name) ?? []);
+      expect(actual.get(file.name) ?? []).toEqual([...(allowedLocalUiDebt.get(file.name) ?? [])].sort());
     });
   });
 });
@@ -136,13 +136,50 @@ function collectHexLiterals(css: string): string[] {
 
 function collectLocalUiClasses(css: string): string[] {
   const classNames = new Set<string>();
-  const classPattern = /\.([a-zA-Z][a-zA-Z0-9_-]*(?:__(?:button|icon-button|panel|pill|dialog|toolbar|table|banner)|-(?:button|icon-button|panel|pill|table|toolbar)))\b/gm;
+  const classPattern = /\.([a-zA-Z][a-zA-Z0-9_-]*)\b/gm;
+  const localSuffixes = new Set(['button', 'icon-button', 'panel', 'pill', 'table', 'table-wrap', 'toolbar']);
+  const bemElements = new Set([
+    'button',
+    'danger-button',
+    'detail-tab',
+    'detail-table',
+    'dialog',
+    'dialog-backdrop',
+    'icon-button',
+    'layout-menu',
+    'panel',
+    'pill',
+    'primary-button',
+    'status',
+    'status-pill',
+    'table',
+    'table-wrap',
+    'toolbar'
+  ]);
 
   for (const match of css.matchAll(classPattern)) {
-    classNames.add(match[1]);
+    const className = stripModifier(match[1]);
+
+    if (isLocalUiClass(className, localSuffixes, bemElements)) {
+      classNames.add(className);
+    }
   }
 
   return Array.from(classNames).sort();
+}
+
+function stripModifier(className: string): string {
+  return className.replace(/--[a-zA-Z0-9_-]+$/, '');
+}
+
+function isLocalUiClass(className: string, localSuffixes: Set<string>, bemElements: Set<string>): boolean {
+  const bemElement = className.match(/^[a-zA-Z][a-zA-Z0-9_-]*__(?<element>[a-zA-Z][a-zA-Z0-9_-]*)$/)?.groups?.element;
+
+  if (bemElement) {
+    return bemElements.has(bemElement);
+  }
+
+  return Array.from(localSuffixes).some((suffix) => className.endsWith(`-${suffix}`));
 }
 
 function normalizeSelector(selector: string): string {
