@@ -1,100 +1,100 @@
 import {
-  CircleCheck,
-  CircleDashed,
-  CircleX,
-  ClipboardList,
+  BrainCircuit,
+  Database,
+  HardDrive,
+  Network,
+  ScanSearch,
+  Server,
+  Workflow,
   TriangleAlert,
   type LucideIcon
 } from 'lucide-react';
 
-import type { SystemHealthCheckResult, SystemHealthStatus } from '@/api/systemStatusApi';
-import { DataTableSurface } from '@/shared/components/DataTable';
-import { StatusPill } from '@/shared/components/StatusPill';
-import { formatDurationMs, formatEvidenceValue, getStatusTone } from './systemStatusPresentation';
+import type { SystemHealthCheckResult } from '@/api/systemStatusApi';
+import { SystemStatusBadge, SystemStatusPanel, SystemStatusTabs } from './SystemStatusPrimitives';
+import { formatGeneratedAt } from './systemStatusPresentation';
 
 type SystemStatusEvidenceTableProps = {
   checks: SystemHealthCheckResult[];
+  generatedAt: string;
 };
 
-const statusIcons: Record<SystemHealthStatus, LucideIcon> = {
-  Healthy: CircleCheck,
-  Degraded: TriangleAlert,
-  Unhealthy: CircleX,
-  NotMeasured: CircleDashed
-};
-
-export function SystemStatusEvidenceTable({ checks }: SystemStatusEvidenceTableProps) {
+export function SystemStatusEvidenceTable({ checks, generatedAt }: SystemStatusEvidenceTableProps) {
   return (
-    <section className="system-status__checks-surface" aria-label="Health checks">
-      <div className="system-status__section-heading">
-        <ClipboardList aria-hidden="true" size={18} />
-        <h2>Health checks</h2>
-      </div>
-
+    <SystemStatusPanel className="system-status__checks-surface" ariaLabel="Evidence" actions={<SystemStatusTabs />}>
       {checks.length === 0 ? (
         <p className="system-status__empty">No health checks reported.</p>
       ) : (
-        <DataTableSurface className="system-status__checks-grid">
-          <table className="lrn-data-table system-status__checks-rows" aria-label="Backend measurements">
+        <div className="system-status__table-wrap">
+          <table className="system-status__checks-rows" aria-label="Backend measurements">
             <thead>
               <tr>
-                <th scope="col">Check</th>
+                <th scope="col">Component</th>
                 <th scope="col">Category</th>
                 <th scope="col">Status</th>
-                <th scope="col">Message</th>
-                <th scope="col">Duration</th>
                 <th scope="col">Evidence</th>
-                <th scope="col">Remediation</th>
+                <th scope="col">Last Checked</th>
               </tr>
             </thead>
             <tbody>
               {checks.map((check) => {
-                const StatusIcon = statusIcons[check.status];
+                const CheckIcon = getCheckIcon(check);
 
                 return (
                   <tr key={check.id}>
                     <th scope="row">
                       <span className="system-status__check-name">
-                        <StatusIcon aria-hidden="true" size={15} />
+                        <CheckIcon aria-hidden="true" size={15} />
                         {check.name}
                       </span>
                     </th>
                     <td>{check.category}</td>
                     <td>
-                      <StatusPill tone={getStatusTone(check.status)}>{check.status}</StatusPill>
+                      <SystemStatusBadge status={check.status} />
                     </td>
                     <td>{check.message}</td>
-                    <td>{formatDurationMs(check.durationMs)}</td>
-                    <td>
-                      <EvidenceSummary evidence={check.evidence} />
-                    </td>
-                    <td>{check.remediation || 'None'}</td>
+                    <td>{formatGeneratedAt(generatedAt)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </DataTableSurface>
+        </div>
       )}
-    </section>
+    </SystemStatusPanel>
   );
 }
 
-function EvidenceSummary({ evidence }: { evidence: Record<string, unknown> | null | undefined }) {
-  const entries = evidence == null ? [] : Object.entries(evidence);
+function getCheckIcon(check: SystemHealthCheckResult): LucideIcon {
+  const haystack = `${check.id} ${check.name} ${check.category}`.toLowerCase();
 
-  if (entries.length === 0) {
-    return <>No evidence</>;
+  if (haystack.includes('qdrant') || haystack.includes('vector')) {
+    return Database;
   }
 
-  return (
-    <dl className="system-status__evidence-summary">
-      {entries.map(([key, value]) => (
-        <div key={key}>
-          <dt>{key}</dt>
-          <dd>{formatEvidenceValue(value)}</dd>
-        </div>
-      ))}
-    </dl>
-  );
+  if (haystack.includes('neo4j') || haystack.includes('graph')) {
+    return Network;
+  }
+
+  if (haystack.includes('rerank') || haystack.includes('rank')) {
+    return ScanSearch;
+  }
+
+  if (haystack.includes('embedding') || haystack.includes('model') || haystack.includes('ai')) {
+    return BrainCircuit;
+  }
+
+  if (haystack.includes('worker') || haystack.includes('queue')) {
+    return Workflow;
+  }
+
+  if (haystack.includes('sqlite') || haystack.includes('storage') || haystack.includes('metadata')) {
+    return HardDrive;
+  }
+
+  if (check.status !== 'Healthy') {
+    return TriangleAlert;
+  }
+
+  return Server;
 }

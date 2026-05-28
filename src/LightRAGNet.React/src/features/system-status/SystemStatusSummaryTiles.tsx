@@ -1,76 +1,67 @@
-import {
-  Activity,
-  CircleCheck,
-  CircleDashed,
-  CircleX,
-  Timer,
-  TriangleAlert,
-  type LucideIcon
-} from 'lucide-react';
+import { CheckCircle2, Clock3, Database, GitFork, Server } from 'lucide-react';
 
 import type { SystemHealthResponse } from '@/api/systemStatusApi';
-import { Panel } from '@/shared/components/Panel';
-import { StatusPill } from '@/shared/components/StatusPill';
-import { formatDurationMs, formatGeneratedAt, getStatusTone } from './systemStatusPresentation';
+import { SystemStatusTile } from './SystemStatusPrimitives';
+import { formatDurationMs, formatGeneratedAt } from './systemStatusPresentation';
 
 type SystemStatusSummaryTilesProps = {
   health: SystemHealthResponse;
 };
 
-type SummaryTile = {
-  label: string;
-  value: string | number;
-  icon: LucideIcon;
-  tone: 'healthy' | 'degraded' | 'unhealthy' | 'not-measured';
-};
-
 export function SystemStatusSummaryTiles({ health }: SystemStatusSummaryTilesProps) {
-  const summaryTiles: SummaryTile[] = [
-    { label: 'Healthy', value: health.summary.healthy, icon: CircleCheck, tone: 'healthy' },
-    { label: 'Degraded', value: health.summary.degraded, icon: TriangleAlert, tone: 'degraded' },
-    { label: 'Unhealthy', value: health.summary.unhealthy, icon: CircleX, tone: 'unhealthy' },
-    { label: 'Not measured', value: health.summary.notMeasured, icon: CircleDashed, tone: 'not-measured' }
-  ];
+  const totalChecks = health.checks.length;
+  const vectorStore = findCheckValue(health, ['qdrant', 'vector'], 'Qdrant');
+  const graphStore = findCheckValue(health, ['neo4j', 'graph'], 'Neo4j');
 
   return (
-    <Panel as="section" className="system-status__summary-tiles" aria-label="System summary">
-      <div className="system-status__summary-hero">
-        <Activity aria-hidden="true" size={18} />
-        <div>
-          <p className="system-status__eyebrow">Overall health</p>
-          <StatusPill tone={getStatusTone(health.status)}>{health.status}</StatusPill>
-        </div>
-      </div>
-
-      <dl className="system-status__summary-counts">
-        {summaryTiles.map((tile) => {
-          const Icon = tile.icon;
-
-          return (
-            <div className={`system-status__summary-metric system-status__summary-metric--${tile.tone}`} key={tile.label}>
-              <dt>
-                <Icon aria-hidden="true" size={16} />
-                {tile.label}
-              </dt>
-              <dd>{tile.value}</dd>
-            </div>
-          );
-        })}
-      </dl>
-
-      <dl className="system-status__meta">
-        <div>
-          <dt>Generated</dt>
-          <dd>{formatGeneratedAt(health.generatedAt)}</dd>
-        </div>
-        <div>
-          <dt>Duration</dt>
-          <dd>
-            <Timer aria-hidden="true" size={14} />
-            {formatDurationMs(health.durationMs)}
-          </dd>
-        </div>
-      </dl>
-    </Panel>
+    <section className="system-status__status-strip" aria-label="System summary">
+      <SystemStatusTile
+        icon={CheckCircle2}
+        label="Overall Health"
+        value={health.status}
+        note={getOverallNote(health)}
+        tone={health.status === 'Healthy' ? 'healthy' : 'warning'}
+      />
+      <SystemStatusTile
+        icon={Server}
+        label="Services"
+        value={`${totalChecks} / ${totalChecks}`}
+        note={`${health.summary.healthy} healthy, ${health.summary.degraded + health.summary.unhealthy + health.summary.notMeasured} needs attention`}
+      />
+      <SystemStatusTile icon={Database} label="Vector Store" value={vectorStore.value} note={vectorStore.note} />
+      <SystemStatusTile icon={GitFork} label="Graph Store" value={graphStore.value} note={graphStore.note} />
+      <SystemStatusTile
+        icon={Clock3}
+        label="Last Checked"
+        value={formatGeneratedAt(health.generatedAt)}
+        note={`Probe duration: ${formatDurationMs(health.durationMs)}`}
+        tone="warning"
+      />
+    </section>
   );
+}
+
+function getOverallNote(health: SystemHealthResponse): string {
+  if (health.status === 'Healthy') {
+    return 'All critical systems operational';
+  }
+
+  if (health.status === 'Unhealthy') {
+    return 'Critical systems need attention';
+  }
+
+  return 'Some systems need attention';
+}
+
+function findCheckValue(health: SystemHealthResponse, keywords: string[], fallback: string): { value: string; note: string } {
+  const check = health.checks.find((item) => {
+    const haystack = `${item.id} ${item.name} ${item.category}`.toLowerCase();
+    return keywords.some((keyword) => haystack.includes(keyword));
+  });
+
+  if (!check) {
+    return { value: fallback, note: 'Not reported' };
+  }
+
+  return { value: fallback, note: check.status === 'Healthy' ? 'Connected' : check.message };
 }

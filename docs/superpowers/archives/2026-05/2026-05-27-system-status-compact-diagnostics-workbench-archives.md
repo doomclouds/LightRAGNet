@@ -25,6 +25,11 @@
 
 ## Verification Snapshot
 
+- 2026-05-28 follow-up：根据 `05-system-status-compact-diagnostics-workbench-react-prototype.html` 重新复刻 React 页面展示层，抽出 `SystemStatusPrimitives`，将 summary strip、Evidence tabs、Remediation Priorities、Feature Impact 和 Raw Data (JSON) 调整回原型布局，同时保留现有 `/api/system/health` 加载与 stale request guard。
+- 2026-05-28 follow-up：补充移动端 app shell topbar 自适应修复，避免 `Clear All Data` 在窄屏换行后覆盖 `/system-status` 页面标题。
+- `npm test -- tests/unit/shared/styles/theme.test.ts tests/integration/features/system-status/SystemStatusWorkbench.test.tsx` 于 2026-05-28 通过：2 个 test files，15 个 tests。
+- `npm run build` 于 2026-05-28 通过；仅保留既有 Vite chunk size warning。
+- Playwright visual QA 于 2026-05-28 使用 mock `/api/system/health` 数据检查 `1440x920` 与 `390x844`：无全局横向滚动，无 system-status tile/panel 重叠；控制台仅有后端未启动导致的 SignalR connection refused。
 - `npm test --prefix src/LightRAGNet.React -- --run tests/unit/features/system-status/systemStatusPresentation.test.ts tests/integration/features/system-status/SystemStatusWorkbench.test.tsx` 通过：2 个 test files，18 个 tests。
 - `npm test --prefix src/LightRAGNet.React -- --run` 通过：35 个 test files，269 个 tests；仅保留 npm 对 `--run` 的已知 CLI warning。
 - `npm run build --prefix src/LightRAGNet.React` 通过；仅保留既有 Vite chunk size warning。
@@ -44,4 +49,5 @@
 
 ## Notes
 
-- 375px 视觉检查中现有 app shell 会在 System Status 内容上方占位；本轮只重构右侧页面内容，未改变 shell 移动布局边界。
+- 2026-05-28 用户验证反馈指出上一轮实现没有按 React 原型充分复原；后续同类原型复刻应由主代理直接对照原型 DOM/CSS、现有实现和浏览器截图，不把关键视觉判断拆给缺少完整上下文的子代理。
+- 375px 视觉检查中现有 app shell 会在 System Status 内容上方占位；2026-05-28 follow-up 已修正移动 topbar 行高覆盖主内容的问题，但仍保留当前 shell 的 sidebar-first 移动布局边界。

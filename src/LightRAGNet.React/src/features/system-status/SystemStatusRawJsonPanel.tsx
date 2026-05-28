@@ -1,21 +1,34 @@
-import { Braces } from 'lucide-react';
+import { Copy, Download } from 'lucide-react';
 
 import type { SystemHealthResponse } from '@/api/systemStatusApi';
-import { Panel } from '@/shared/components/Panel';
+import { SystemStatusMiniButton, SystemStatusPanel } from './SystemStatusPrimitives';
 import { formatHealthJson } from './systemStatusPresentation';
 
 type SystemStatusRawJsonPanelProps = {
   health: SystemHealthResponse;
+  onCopy: () => void;
+  onDownload: () => void;
 };
 
-export function SystemStatusRawJsonPanel({ health }: SystemStatusRawJsonPanelProps) {
+export function SystemStatusRawJsonPanel({ health, onCopy, onDownload }: SystemStatusRawJsonPanelProps) {
   return (
-    <Panel as="section" className="system-status__raw-json" aria-label="Raw health JSON">
-      <div className="system-status__section-heading">
-        <Braces aria-hidden="true" size={18} />
-        <h2>Raw health JSON</h2>
-      </div>
+    <SystemStatusPanel
+      title="Raw Data (JSON)"
+      className="system-status__raw-json"
+      actions={
+        <div className="system-status__raw-toolbar">
+          <SystemStatusMiniButton aria-label="Copy Raw JSON" onClick={onCopy}>
+            <Copy aria-hidden="true" size={13} />
+            Copy
+          </SystemStatusMiniButton>
+          <SystemStatusMiniButton aria-label="Download Raw JSON" onClick={onDownload}>
+            <Download aria-hidden="true" size={13} />
+            Download
+          </SystemStatusMiniButton>
+        </div>
+      }
+    >
       <pre className="system-status__raw-code">{formatHealthJson(health)}</pre>
-    </Panel>
+    </SystemStatusPanel>
   );
 }

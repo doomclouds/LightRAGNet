@@ -85,6 +85,14 @@ describe('light workbench theme tokens', () => {
     expect(missingClasses).toEqual([]);
   });
 
+  it('lets the mobile topbar grow instead of overlapping main content', () => {
+    const mobileShellPattern = /@media \(max-width: 640px\)[\s\S]*?\.app-main-shell\s*\{(?<block>[^}]+)\}/m;
+    const match = appCss.match(mobileShellPattern);
+
+    expect(match, 'Expected mobile app-main-shell rule').not.toBeNull();
+    expect(match?.groups?.block).toContain('grid-template-rows: auto minmax(0, 1fr)');
+  });
+
   it('keeps new shared primitive styles on tokens instead of hard-coded state colors', () => {
     [
       '.lrn-banner',

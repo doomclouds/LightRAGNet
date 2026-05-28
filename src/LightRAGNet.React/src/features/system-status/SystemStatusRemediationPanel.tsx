@@ -1,9 +1,5 @@
-import { ShieldAlert, Wrench } from 'lucide-react';
-
 import type { SystemHealthFixFirstItem } from '@/api/systemStatusApi';
-import { Panel } from '@/shared/components/Panel';
-import { StatusPill } from '@/shared/components/StatusPill';
-import { getStatusTone } from './systemStatusPresentation';
+import { SystemStatusMiniButton, SystemStatusPanel } from './SystemStatusPrimitives';
 
 type SystemStatusRemediationPanelProps = {
   items: SystemHealthFixFirstItem[];
@@ -11,44 +7,27 @@ type SystemStatusRemediationPanelProps = {
 
 export function SystemStatusRemediationPanel({ items }: SystemStatusRemediationPanelProps) {
   return (
-    <Panel as="section" className="system-status__remediation-priorities" aria-label="Fix first">
-      <div className="system-status__section-heading">
-        <Wrench aria-hidden="true" size={18} />
-        <h2>Fix first priorities</h2>
-      </div>
-
+    <SystemStatusPanel title="Remediation Priorities" className="system-status__remediation-priorities">
       {items.length === 0 ? (
         <p className="system-status__empty">No remediation priorities.</p>
       ) : (
-        <ol className="system-status__priority-list">
+        <div className="system-status__list">
           {items.map((item, index) => (
-            <li className="system-status__priority-item" key={item.checkId}>
-              <div className="system-status__priority-header">
-                <span className="system-status__priority-rank">{index + 1}</span>
-                <div>
-                  <h3>
-                    <ShieldAlert aria-hidden="true" size={15} />
-                    {item.title}
-                  </h3>
-                  <p>{item.checkId}</p>
-                </div>
-                <StatusPill tone={getStatusTone(item.status)}>{item.status}</StatusPill>
+            <article className="system-status__remediation" key={item.checkId}>
+              <span className={index === 0 ? 'system-status__rank' : 'system-status__rank system-status__rank--warning'}>{index + 1}</span>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.remediation || formatList(item.affects)}</p>
               </div>
-              <p className="system-status__remediation">{item.remediation}</p>
-              <dl className="system-status__meta">
-                <div>
-                  <dt>Affects</dt>
-                  <dd>{formatList(item.affects)}</dd>
-                </div>
-              </dl>
-            </li>
+              <SystemStatusMiniButton aria-label={`View ${item.title}`}>View</SystemStatusMiniButton>
+            </article>
           ))}
-        </ol>
+        </div>
       )}
-    </Panel>
+    </SystemStatusPanel>
   );
 }
 
 function formatList(values: string[]): string {
-  return values.length > 0 ? values.join(', ') : 'None';
+  return values.length > 0 ? values.join(', ') : 'No affected features';
 }

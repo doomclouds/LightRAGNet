@@ -1,9 +1,7 @@
-import { ExternalLink, RadioTower } from 'lucide-react';
+import { FileUp, MessageCircle, Search, Share2, type LucideIcon } from 'lucide-react';
 
 import type { SystemHealthFeatureImpact } from '@/api/systemStatusApi';
-import { Panel } from '@/shared/components/Panel';
-import { StatusPill } from '@/shared/components/StatusPill';
-import { getStatusTone } from './systemStatusPresentation';
+import { SystemStatusBadge, SystemStatusPanel } from './SystemStatusPrimitives';
 
 type SystemStatusFeatureImpactPanelProps = {
   items: SystemHealthFeatureImpact[];
@@ -11,49 +9,50 @@ type SystemStatusFeatureImpactPanelProps = {
 
 export function SystemStatusFeatureImpactPanel({ items }: SystemStatusFeatureImpactPanelProps) {
   return (
-    <Panel as="section" className="system-status__feature-impact-list" aria-label="Feature impact">
-      <div className="system-status__section-heading">
-        <RadioTower aria-hidden="true" size={18} />
-        <h2>Feature impact</h2>
-      </div>
-
+    <SystemStatusPanel title="Feature Impact" className="system-status__feature-impact-list">
       {items.length === 0 ? (
         <p className="system-status__empty">No feature impacts reported.</p>
       ) : (
-        <div className="system-status__impact-list">
+        <div className="system-status__list">
           {items.map((item) => (
             <article className="system-status__impact" key={getImpactKey(item)}>
-              <div className="system-status__impact-header">
-                <h3>{item.feature}</h3>
-                <StatusPill tone={getStatusTone(item.status)}>{item.status}</StatusPill>
+              <div>
+                <h3 className="system-status__impact-title">
+                  <ImpactIcon feature={item.feature} />
+                  {item.feature}
+                </h3>
+                <p>{item.reason}</p>
               </div>
-              <p>{item.reason}</p>
-              <dl className="system-status__meta">
-                <div>
-                  <dt>Affected by</dt>
-                  <dd>{formatList(item.affectedBy)}</dd>
-                </div>
-              </dl>
-              {item.links.length > 0 ? (
-                <div className="system-status__links">
-                  {item.links.map((link) => (
-                    <a href={link.href} key={`${item.feature}-${link.label}-${link.href}`}>
-                      {link.label}
-                      <ExternalLink aria-hidden="true" size={13} />
-                    </a>
-                  ))}
-                </div>
-              ) : null}
+              <SystemStatusBadge status={item.status} />
             </article>
           ))}
         </div>
       )}
-    </Panel>
+    </SystemStatusPanel>
   );
 }
 
-function formatList(values: string[]): string {
-  return values.length > 0 ? values.join(', ') : 'None';
+function ImpactIcon({ feature }: { feature: string }) {
+  const Icon = getImpactIcon(feature);
+  return <Icon aria-hidden="true" size={15} />;
+}
+
+function getImpactIcon(feature: string): LucideIcon {
+  const normalized = feature.toLowerCase();
+
+  if (normalized.includes('document') || normalized.includes('ingestion')) {
+    return FileUp;
+  }
+
+  if (normalized.includes('chat') || normalized.includes('rag')) {
+    return MessageCircle;
+  }
+
+  if (normalized.includes('graph')) {
+    return Share2;
+  }
+
+  return Search;
 }
 
 function getImpactKey(item: SystemHealthFeatureImpact): string {

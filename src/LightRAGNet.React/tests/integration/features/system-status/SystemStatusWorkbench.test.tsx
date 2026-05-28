@@ -17,6 +17,7 @@ import { SystemStatusWorkbench } from "@/features/system-status/SystemStatusWork
 import type { SystemHealthResponse } from "@/api/systemStatusApi";
 
 const systemStatusWorkbenchPath = resolve(process.cwd(), "src/features/system-status/SystemStatusWorkbench.tsx");
+const systemStatusSummaryTilesPath = resolve(process.cwd(), "src/features/system-status/SystemStatusSummaryTiles.tsx");
 
 const degradedHealth: SystemHealthResponse = {
   status: "Degraded",
@@ -129,12 +130,14 @@ afterEach(() => {
 describe("SystemStatusWorkbench source guard", () => {
   test("uses server-provided health aggregation fields without local aggregation", () => {
     const source = readFileSync(systemStatusWorkbenchPath, "utf8");
+    const summarySource = readFileSync(systemStatusSummaryTilesPath, "utf8");
 
     expect(source).toContain("health.status");
-    expect(source).toContain("health.summary");
     expect(source).toContain("health.checks");
     expect(source).toContain("health.fixFirst");
     expect(source).toContain("health.featureImpacts");
+    expect(summarySource).toContain("health.summary");
+    expect(summarySource).toContain("health.checks");
     expect(source).toContain("currentApiBaseRef");
     expect(source).toContain("requestApiBase");
     expect(source).not.toMatch(/\b(?:const|let|var)\s+fixFirst\s*=/);
@@ -150,42 +153,48 @@ describe("SystemStatusWorkbench compact diagnostics workbench", () => {
 
     const summary = await screen.findByRole("region", { name: "System summary" });
     expect(screen.getByRole("heading", { name: "System Status" })).toBeInTheDocument();
-    expect(screen.getByText("Diagnostics workbench")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy JSON" })).toBeInTheDocument();
+    expect(screen.getByText("Real-time diagnostics and system operation overview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export Report" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh Now" })).toBeInTheDocument();
 
-    expect(summary).toHaveTextContent(/Healthy\s*1/);
-    expect(summary).toHaveTextContent(/Degraded\s*1/);
-    expect(summary).toHaveTextContent(/Unhealthy\s*0/);
-    expect(summary).toHaveTextContent(/Not measured\s*1/);
+    expect(summary).toHaveTextContent("Overall Health");
+    expect(summary).toHaveTextContent("Degraded");
+    expect(summary).toHaveTextContent("Services");
+    expect(summary).toHaveTextContent("3 / 3");
+    expect(summary).toHaveTextContent("Vector Store");
+    expect(summary).toHaveTextContent("Qdrant");
+    expect(summary).toHaveTextContent("Graph Store");
+    expect(summary).toHaveTextContent("Neo4j");
+    expect(summary).toHaveTextContent("Last Checked");
 
-    const checks = screen.getByRole("region", { name: "Health checks" });
+    expect(screen.getByRole("tab", { name: "Evidence" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Remediation" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Feature Impact" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Raw Data" })).toBeInTheDocument();
+
+    const checks = screen.getByRole("region", { name: "Evidence" });
     expect(within(checks).getByText("Qdrant connectivity")).toBeInTheDocument();
     expect(within(checks).getByText("Vector storage")).toBeInTheDocument();
     expect(within(checks).getByText("Healthy")).toBeInTheDocument();
     expect(within(checks).getByText("Vector storage accepted a health probe.")).toBeInTheDocument();
-    expect(within(checks).getByText("18 ms")).toBeInTheDocument();
     expect(within(checks).getByText("Neo4j connectivity")).toBeInTheDocument();
     expect(within(checks).getByText("Graph storage")).toBeInTheDocument();
     expect(within(checks).getByText("Degraded")).toBeInTheDocument();
     expect(within(checks).getByText("Graph storage responded slowly.")).toBeInTheDocument();
-    expect(within(checks).getByText("242 ms")).toBeInTheDocument();
-    expect(within(checks).getByText("Inspect Neo4j logs and restart graph storage if latency persists.")).toBeInTheDocument();
-    expect(within(checks).getByText("latencyMs")).toBeInTheDocument();
-    expect(within(checks).getByText("242")).toBeInTheDocument();
 
-    const fixFirst = screen.getByRole("region", { name: "Fix first" });
+    const fixFirst = screen.getByRole("region", { name: "Remediation Priorities" });
     expect(within(fixFirst).getByText("Stabilize graph storage")).toBeInTheDocument();
     expect(within(fixFirst).getByText("Inspect Neo4j logs and restart graph storage if latency persists.")).toBeInTheDocument();
-    expect(within(fixFirst).getByText("Knowledge graph, Graph retrieval")).toBeInTheDocument();
+    expect(within(fixFirst).getByRole("button", { name: "View Stabilize graph storage" })).toBeInTheDocument();
 
-    const featureImpact = screen.getByRole("region", { name: "Feature impact" });
+    const featureImpact = screen.getByRole("region", { name: "Feature Impact" });
     expect(within(featureImpact).getByText("Graph retrieval")).toBeInTheDocument();
     expect(within(featureImpact).getByText("Degraded")).toBeInTheDocument();
     expect(within(featureImpact).getByText("Graph responses are slow enough to reduce retrieval confidence.")).toBeInTheDocument();
-    expect(within(featureImpact).getByText("neo4j-connectivity")).toBeInTheDocument();
-    expect(within(featureImpact).getByRole("link", { name: "Open graph view" })).toHaveAttribute("href", "/graph-view");
 
+    const rawData = screen.getByRole("region", { name: "Raw Data (JSON)" });
+    expect(within(rawData).getByRole("button", { name: "Copy Raw JSON" })).toBeInTheDocument();
+    expect(within(rawData).getByRole("button", { name: "Download Raw JSON" })).toBeInTheDocument();
     expect(screen.getByText(/"status": "Degraded"/)).toBeInTheDocument();
   });
 
@@ -203,7 +212,7 @@ describe("SystemStatusWorkbench compact diagnostics workbench", () => {
 
     await screen.findByText("Stabilize graph storage");
     expect(screen.getByRole("status")).toHaveTextContent("");
-    await userEvent.click(screen.getByRole("button", { name: "Copy JSON" }));
+    await userEvent.click(screen.getByRole("button", { name: "Export Report" }));
 
     expect(writeText).toHaveBeenCalledWith(JSON.stringify(degradedHealth, null, 2));
     expect(await screen.findByRole("status")).toHaveTextContent("Copied.");
