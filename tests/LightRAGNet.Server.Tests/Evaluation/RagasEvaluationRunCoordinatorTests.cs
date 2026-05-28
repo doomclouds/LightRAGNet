@@ -344,15 +344,21 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
     {
         var options = CreateOptions();
         options.ApiKey = string.Empty;
+        var store = CreateStore();
         var secretProvider = new RagasEvaluationSecretProvider(
             Options.Create(options),
             name => name == "DEEPSEEK_API_KEY" ? "environment-key" : null);
-        var coordinator = CreateCoordinator(options: options, secretProvider: secretProvider);
+        var coordinator = CreateCoordinator(options: options, store: store, secretProvider: secretProvider);
 
         var result = await coordinator.CreateAsync(CreateRequest(maxCases: 1), CancellationToken.None);
 
         result.Success.Should().BeTrue();
         result.Value!.Status.Should().Be(RagasEvaluationRunStatus.Queued.ToString());
+        await WaitUntilAsync(async () =>
+        {
+            var run = await store.GetAsync(result.Value.RunId, CancellationToken.None);
+            return run?.Status == RagasEvaluationRunStatus.Completed;
+        });
     }
 
     public void Dispose()
