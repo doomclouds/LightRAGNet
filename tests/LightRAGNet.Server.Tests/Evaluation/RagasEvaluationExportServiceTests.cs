@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using LightRAGNet.Server.Services.Evaluation;
 using LightRAGNet.Share.Models;
@@ -11,6 +12,8 @@ public sealed class RagasEvaluationExportServiceTests
     {
         var service = new RagasEvaluationExportService();
         var run = CreateRun(includeFullText: false);
+        run.Cases[0].AnswerText = "secret-key";
+        run.Cases[0].Contexts[0].Text = "secret-key";
 
         var result = service.ExportJson(run);
 
@@ -18,6 +21,17 @@ public sealed class RagasEvaluationExportServiceTests
         result.FileName.Should().EndWith(".json");
         result.Content.Should().Contain(run.RunId);
         result.Content.Should().NotContain("secret-key");
+
+        using var document = JsonDocument.Parse(result.Content);
+        var root = document.RootElement;
+        root.GetProperty("format").GetString().Should().Be("json");
+        var exportedRun = root.GetProperty("run");
+        exportedRun.GetProperty("runId").GetString().Should().Be(run.RunId);
+        exportedRun.GetProperty("request").GetProperty("includeFullText").GetBoolean().Should().BeFalse();
+
+        var exportedCase = exportedRun.GetProperty("cases")[0];
+        exportedCase.GetProperty("answerText").ValueKind.Should().Be(JsonValueKind.Null);
+        exportedCase.GetProperty("contexts")[0].GetProperty("text").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]
@@ -31,7 +45,27 @@ public sealed class RagasEvaluationExportServiceTests
         result.ContentType.Should().Be("text/csv; charset=utf-8");
         result.Content.Should().Contain("run_id,case_name,status,faithfulness,answer_relevance,context_recall,context_precision,ragas_score,context_count,answer_hash");
         result.Content.Should().Contain("\"case, \"\"quoted\"\"\"");
+        result.Content.Should().Contain("\r\n");
         result.Content.Should().NotContain("AnswerText");
+        result.Content.Should().NotContain("secret-key");
+    }
+
+    [Theory]
+    [InlineData("=cmd|' /C calc'!A0", "'=cmd|' /C calc'!A0")]
+    [InlineData("+formula", "'+formula")]
+    [InlineData("-formula", "'-formula")]
+    [InlineData("@formula", "'@formula")]
+    [InlineData("\tformula", "'\tformula")]
+    [InlineData("\rformula", "\"'\rformula\"")]
+    [InlineData("\nformula", "\"'\nformula\"")]
+    public void ExportCsv_NeutralizesFormulaLikeTextColumns(string caseName, string expectedCell)
+    {
+        var service = new RagasEvaluationExportService();
+        var run = CreateRunWithCaseName(caseName);
+
+        var result = service.ExportCsv(run);
+
+        result.Content.Should().Contain(expectedCell);
     }
 
     private static RagasEvaluationRunRecord CreateRun(bool includeFullText)

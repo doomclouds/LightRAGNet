@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Share.Models;
 
 namespace LightRAGNet.Server.Services.Evaluation;
 
@@ -18,7 +19,7 @@ internal sealed class RagasEvaluationExportService
         {
             generatedAt = DateTimeOffset.UtcNow,
             format = "json",
-            run
+            run = GetJsonRun(run)
         };
         var content = JsonSerializer.Serialize(payload, LightRAGJsonOptions.HumanReadableCamelCaseWithStringEnums);
 
@@ -31,23 +32,23 @@ internal sealed class RagasEvaluationExportService
     public RagasEvaluationExportResult ExportCsv(RagasEvaluationRunRecord run)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("run_id,case_name,status,faithfulness,answer_relevance,context_recall,context_precision,ragas_score,context_count,answer_hash");
+        builder.Append("run_id,case_name,status,faithfulness,answer_relevance,context_recall,context_precision,ragas_score,context_count,answer_hash\r\n");
 
         foreach (var item in run.Cases)
         {
             builder.AppendJoin(
                 ',',
-                Csv(run.RunId),
-                Csv(item.CaseName),
-                Csv(item.Status),
-                Csv(Number(item.Metrics.Faithfulness)),
-                Csv(Number(item.Metrics.AnswerRelevance)),
-                Csv(Number(item.Metrics.ContextRecall)),
-                Csv(Number(item.Metrics.ContextPrecision)),
-                Csv(Number(item.Metrics.RagasScore)),
-                Csv(item.Contexts.Count.ToString(CultureInfo.InvariantCulture)),
-                Csv(item.AnswerHash));
-            builder.AppendLine();
+                CsvText(run.RunId),
+                CsvText(item.CaseName),
+                CsvText(item.Status),
+                CsvRaw(Number(item.Metrics.Faithfulness)),
+                CsvRaw(Number(item.Metrics.AnswerRelevance)),
+                CsvRaw(Number(item.Metrics.ContextRecall)),
+                CsvRaw(Number(item.Metrics.ContextPrecision)),
+                CsvRaw(Number(item.Metrics.RagasScore)),
+                CsvRaw(item.Contexts.Count.ToString(CultureInfo.InvariantCulture)),
+                CsvText(item.AnswerHash));
+            builder.Append("\r\n");
         }
 
         return new RagasEvaluationExportResult(
@@ -59,7 +60,74 @@ internal sealed class RagasEvaluationExportService
     private static string Number(double? value) =>
         value.HasValue ? value.Value.ToString("0.####", CultureInfo.InvariantCulture) : string.Empty;
 
-    private static string Csv(string value)
+    private static object GetJsonRun(RagasEvaluationRunRecord run)
+    {
+        if (run.Request.IncludeFullText)
+        {
+            return run;
+        }
+
+        return new
+        {
+            run.RunId,
+            run.Status,
+            run.CreatedAt,
+            run.StartedAt,
+            run.CompletedAt,
+            run.Request,
+            run.Summary,
+            Cases = run.Cases.Select(RedactCaseFullText).ToList(),
+            run.Diagnostics,
+            run.Error
+        };
+    }
+
+    private static RagasEvaluationCaseResultDto RedactCaseFullText(RagasEvaluationCaseResultDto item)
+    {
+        return new RagasEvaluationCaseResultDto
+        {
+            CaseName = item.CaseName,
+            QuestionPreview = item.QuestionPreview,
+            GroundTruthPreview = item.GroundTruthPreview,
+            Status = item.Status,
+            Metrics = item.Metrics,
+            Reasons = item.Reasons,
+            AnswerPreview = item.AnswerPreview,
+            AnswerHash = item.AnswerHash,
+            AnswerText = null,
+            Contexts = item.Contexts.Select(RedactContextFullText).ToList(),
+            Diagnostics = item.Diagnostics
+        };
+    }
+
+    private static RagasEvaluationContextSnapshotDto RedactContextFullText(RagasEvaluationContextSnapshotDto item)
+    {
+        return new RagasEvaluationContextSnapshotDto
+        {
+            Preview = item.Preview,
+            Hash = item.Hash,
+            Text = null,
+            ChunkId = item.ChunkId,
+            FilePath = item.FilePath,
+            ReferenceId = item.ReferenceId
+        };
+    }
+
+    private static string CsvText(string value) => CsvRaw(NeutralizeSpreadsheetFormula(value));
+
+    private static string NeutralizeSpreadsheetFormula(string value)
+    {
+        if (value.Length == 0)
+        {
+            return value;
+        }
+
+        return value[0] is '=' or '+' or '-' or '@' or '\t' or '\r' or '\n'
+            ? $"'{value}"
+            : value;
+    }
+
+    private static string CsvRaw(string value)
     {
         var escaped = value.Replace("\"", "\"\"", StringComparison.Ordinal);
         return escaped.Contains(',', StringComparison.Ordinal)
