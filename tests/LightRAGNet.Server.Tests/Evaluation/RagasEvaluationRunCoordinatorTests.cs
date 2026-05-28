@@ -168,7 +168,15 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
 
         result.Success.Should().BeTrue();
         result.Value!.Runs.Should().ContainSingle();
-        result.Value.Runs[0].RunId.Should().Be("ragas-a");
+        var item = result.Value.Runs[0];
+        item.RunId.Should().Be("ragas-a");
+        item.Status.Should().Be(RagasEvaluationRunStatus.Completed.ToString());
+        item.Total.Should().Be(1);
+        item.Succeeded.Should().Be(1);
+        item.Failed.Should().Be(0);
+        item.Cancelled.Should().Be(0);
+        item.RagasScore.Should().Be(0.75);
+        item.DurationSeconds.Should().Be(5);
     }
 
     [Fact]
@@ -183,6 +191,42 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         result.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
+    [Theory]
+    [InlineData(null, "application/json; charset=utf-8", ".json")]
+    [InlineData("", "application/json; charset=utf-8", ".json")]
+    [InlineData("json", "application/json; charset=utf-8", ".json")]
+    [InlineData("csv", "text/csv; charset=utf-8", ".csv")]
+    public async Task ExportAsync_WhenFormatIsSupported_ReturnsExport(
+        string? format,
+        string expectedContentType,
+        string expectedExtension)
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-a"), CancellationToken.None);
+
+        var result = await coordinator.ExportAsync("ragas-a", format, CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Value!.ContentType.Should().Be(expectedContentType);
+        result.Value.FileName.Should().Be("ragas-a" + expectedExtension);
+        result.Value.Content.Should().Contain("ragas-a");
+    }
+
+    [Fact]
+    public async Task ExportAsync_WhenFormatIsUnsupported_ReturnsBadRequest()
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-a"), CancellationToken.None);
+
+        var result = await coordinator.ExportAsync("ragas-a", "xml", CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("unsupported_export_format");
+        result.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+    }
+
     [Fact]
     public async Task CompareAsync_SameRun_ReturnsBadRequest()
     {
@@ -195,6 +239,42 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
         result.Success.Should().BeFalse();
         result.ErrorCode.Should().Be("same_run_compare");
         result.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+    }
+
+    [Theory]
+    [InlineData("missing-current", "ragas-baseline")]
+    [InlineData("ragas-current", "missing-baseline")]
+    public async Task CompareAsync_WhenEitherRunIsMissing_ReturnsNotFound(
+        string runId,
+        string baselineRunId)
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-current"), CancellationToken.None);
+        await store.UpsertAsync(CreateCompletedRun("ragas-baseline"), CancellationToken.None);
+
+        var result = await coordinator.CompareAsync(runId, baselineRunId, CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("run_not_found");
+        result.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+    }
+
+    [Fact]
+    public async Task CompareAsync_WhenRunsExist_ReturnsComparison()
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-current", ragasScore: 0.8), CancellationToken.None);
+        await store.UpsertAsync(CreateCompletedRun("ragas-baseline", ragasScore: 0.7), CancellationToken.None);
+
+        var result = await coordinator.CompareAsync("ragas-current", "ragas-baseline", CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Value!.RunId.Should().Be("ragas-current");
+        result.Value.BaselineRunId.Should().Be("ragas-baseline");
+        result.Value.Metrics["ragasScore"].Direction.Should().Be("Improved");
+        result.Value.Metrics["ragasScore"].Delta.Should().BeApproximately(0.1, 0.0001);
     }
 
     [Fact]
@@ -388,7 +468,7 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
             }
         };
 
-    private static RagasEvaluationRunRecord CreateCompletedRun(string runId) =>
+    private static RagasEvaluationRunRecord CreateCompletedRun(string runId, double ragasScore = 0.75) =>
         new()
         {
             RunId = runId,
@@ -405,7 +485,7 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
                     AnswerRelevance = 0.8,
                     ContextRecall = 0.7,
                     ContextPrecision = 0.6,
-                    RagasScore = 0.75
+                    RagasScore = ragasScore
                 },
                 ElapsedTimeSeconds = 5
             },
