@@ -335,8 +335,9 @@ internal sealed class RagasEvaluationRunner(
             MinRagasScore = scores.Length > 0 ? scores.Min() : null,
             MaxRagasScore = scores.Length > 0 ? scores.Max() : null,
             FailureReasons = failed
-                .SelectMany(result => result.Diagnostics)
-                .GroupBy(diagnostic => diagnostic.Code, StringComparer.Ordinal)
+                .Select(result => result.Diagnostics.FirstOrDefault())
+                .Where(diagnostic => diagnostic is not null)
+                .GroupBy(diagnostic => diagnostic!.Code, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal)
         };
     }

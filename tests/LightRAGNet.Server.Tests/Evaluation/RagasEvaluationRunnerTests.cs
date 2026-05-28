@@ -86,6 +86,9 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
         run.Summary.MaxRagasScore.Should().BeApproximately(0.85, 0.000001);
         run.Summary.ElapsedTimeSeconds.Should().BeGreaterThan(0);
         run.Summary.AverageSecondsPerCase.Should().BeGreaterThan(0);
+        run.Summary.AverageSecondsPerCase.Should().BeApproximately(
+            run.Summary.ElapsedTimeSeconds!.Value / run.Summary.Total,
+            0.000001);
         run.Summary.FailureReasons.Should().BeEmpty();
     }
 
@@ -194,6 +197,13 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
         var responseDiagnostic = run.Cases[0].Diagnostics.Should()
             .ContainSingle(diagnostic => diagnostic.Code == "judge_response")
             .Subject;
+
+        run.Cases[0].Diagnostics.Should().ContainSingle(diagnostic =>
+            diagnostic.Code == "invalid_json" &&
+            diagnostic.Message == "Judge response was not valid JSON.");
+        run.Summary.FailureReasons.Should().ContainKey("invalid_json").WhoseValue.Should().Be(1);
+        run.Summary.FailureReasons.Should().NotContainKey("judge_prompt");
+        run.Summary.FailureReasons.Should().NotContainKey("judge_response");
 
         promptDiagnostic.Details["preview"].Should().Contain("judge prompt");
         promptDiagnostic.Details["hash"].Should().NotBeNullOrWhiteSpace();
