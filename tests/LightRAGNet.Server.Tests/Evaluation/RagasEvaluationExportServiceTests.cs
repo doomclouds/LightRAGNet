@@ -14,6 +14,8 @@ public sealed class RagasEvaluationExportServiceTests
         var run = CreateRun(includeFullText: false);
         run.Cases[0].AnswerText = "secret-key";
         run.Cases[0].Contexts[0].Text = "secret-key";
+        run.Diagnostics.Add(CreateDiagnostic());
+        run.Cases[0].Diagnostics.Add(CreateDiagnostic());
 
         var result = service.ExportJson(run);
 
@@ -32,6 +34,19 @@ public sealed class RagasEvaluationExportServiceTests
         var exportedCase = exportedRun.GetProperty("cases")[0];
         exportedCase.GetProperty("answerText").ValueKind.Should().Be(JsonValueKind.Null);
         exportedCase.GetProperty("contexts")[0].GetProperty("text").ValueKind.Should().Be(JsonValueKind.Null);
+
+        var runDiagnosticDetails = exportedRun.GetProperty("diagnostics")[0].GetProperty("details");
+        runDiagnosticDetails.TryGetProperty("text", out _).Should().BeFalse();
+        runDiagnosticDetails.GetProperty("preview").GetString().Should().Be("safe preview");
+        runDiagnosticDetails.GetProperty("hash").GetString().Should().Be("safe hash");
+
+        var caseDiagnosticDetails = exportedCase.GetProperty("diagnostics")[0].GetProperty("details");
+        caseDiagnosticDetails.TryGetProperty("text", out _).Should().BeFalse();
+        caseDiagnosticDetails.GetProperty("preview").GetString().Should().Be("safe preview");
+        caseDiagnosticDetails.GetProperty("hash").GetString().Should().Be("safe hash");
+
+        run.Diagnostics[0].Details.Should().ContainKey("text").WhoseValue.Should().Be("secret-key");
+        run.Cases[0].Diagnostics[0].Details.Should().ContainKey("text").WhoseValue.Should().Be("secret-key");
     }
 
     [Fact]
@@ -136,5 +151,20 @@ public sealed class RagasEvaluationExportServiceTests
         run.Cases[0].CaseName = caseName;
 
         return run;
+    }
+
+    private static RagasEvaluationDiagnosticDto CreateDiagnostic()
+    {
+        return new RagasEvaluationDiagnosticDto
+        {
+            Code = "judge_snapshot",
+            Message = "judge diagnostic",
+            Details = new Dictionary<string, string>
+            {
+                ["text"] = "secret-key",
+                ["preview"] = "safe preview",
+                ["hash"] = "safe hash"
+            }
+        };
     }
 }

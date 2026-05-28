@@ -77,7 +77,7 @@ internal sealed class RagasEvaluationExportService
             run.Request,
             run.Summary,
             Cases = run.Cases.Select(RedactCaseFullText).ToList(),
-            run.Diagnostics,
+            Diagnostics = RedactDiagnosticFullText(run.Diagnostics),
             run.Error
         };
     }
@@ -96,8 +96,23 @@ internal sealed class RagasEvaluationExportService
             AnswerHash = item.AnswerHash,
             AnswerText = null,
             Contexts = item.Contexts.Select(RedactContextFullText).ToList(),
-            Diagnostics = item.Diagnostics
+            Diagnostics = RedactDiagnosticFullText(item.Diagnostics)
         };
+    }
+
+    private static List<RagasEvaluationDiagnosticDto> RedactDiagnosticFullText(
+        IEnumerable<RagasEvaluationDiagnosticDto> diagnostics)
+    {
+        return diagnostics
+            .Select(diagnostic => new RagasEvaluationDiagnosticDto
+            {
+                Code = diagnostic.Code,
+                Message = diagnostic.Message,
+                Details = diagnostic.Details
+                    .Where(detail => !string.Equals(detail.Key, "text", StringComparison.Ordinal))
+                    .ToDictionary(detail => detail.Key, detail => detail.Value, StringComparer.Ordinal)
+            })
+            .ToList();
     }
 
     private static RagasEvaluationContextSnapshotDto RedactContextFullText(RagasEvaluationContextSnapshotDto item)
