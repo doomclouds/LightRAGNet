@@ -74,14 +74,16 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_WhenCasesComplete_ComputesBenchmarkStatistics()
     {
-        var fixture = CreateSuccessfulRunnerFixture(caseCount: 2);
+        var fixture = CreateSuccessfulRunnerFixture(
+            CreateMetrics(0.2, 0.4, 0.6, 0.8),
+            CreateMetrics(0.7, 0.8, 0.9, 1.0));
         var run = CreateRun();
 
         await fixture.Runner.ExecuteAsync(run, fixture.Cases, CancellationToken.None);
 
         run.Summary.SuccessRate.Should().Be(1.0);
-        run.Summary.MinRagasScore.Should().BeGreaterThan(0);
-        run.Summary.MaxRagasScore.Should().BeGreaterThan(0);
+        run.Summary.MinRagasScore.Should().BeApproximately(0.5, 0.000001);
+        run.Summary.MaxRagasScore.Should().BeApproximately(0.85, 0.000001);
         run.Summary.ElapsedTimeSeconds.Should().BeGreaterThan(0);
         run.Summary.AverageSecondsPerCase.Should().BeGreaterThan(0);
         run.Summary.FailureReasons.Should().BeEmpty();
@@ -363,21 +365,21 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
         return new RagasEvaluationRunStore(configuration);
     }
 
-    private RunnerFixture CreateSuccessfulRunnerFixture(int caseCount)
+    private RunnerFixture CreateSuccessfulRunnerFixture(params RagasMetricSet[] metrics)
     {
         var queryClient = new FakeRagasRagQueryClient();
         var evaluator = new FakeRagasEvaluator();
 
-        for (var index = 1; index <= caseCount; index++)
+        for (var index = 1; index <= metrics.Length; index++)
         {
             queryClient.Enqueue(new RagasQueryExecutionResult(
                 $"answer {index}",
                 [new RagasRetrievedContext($"context {index}", $"chunk-{index}", $"docs/{index}.md", $"ref-{index}")],
                 QueryMode.Mix));
-            evaluator.EnqueueSuccess(CreateMetrics(0.8, 0.7, 0.6, 0.5));
+            evaluator.EnqueueSuccess(metrics[index - 1]);
         }
 
-        var cases = CreateCases(caseCount);
+        var cases = CreateCases(metrics.Length);
 
         return new RunnerFixture(CreateRunner(CreateStore(), queryClient, evaluator), cases);
     }
