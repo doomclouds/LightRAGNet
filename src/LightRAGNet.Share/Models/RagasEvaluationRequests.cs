@@ -57,6 +57,12 @@ public sealed class RagasEvaluationSummaryDto
     public int Succeeded { get; set; }
     public int Failed { get; set; }
     public int Cancelled { get; set; }
+    public double? SuccessRate { get; set; }
+    public double? ElapsedTimeSeconds { get; set; }
+    public double? AverageSecondsPerCase { get; set; }
+    public double? MinRagasScore { get; set; }
+    public double? MaxRagasScore { get; set; }
+    public Dictionary<string, int> FailureReasons { get; set; } = [];
     public RagasEvaluationMetricsDto AverageMetrics { get; set; } = new();
 }
 
@@ -105,4 +111,49 @@ public sealed class RagasEvaluationDiagnosticDto
     public string Code { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public Dictionary<string, string> Details { get; set; } = [];
+}
+
+public sealed class RagasEvaluationRunListResponse
+{
+    public List<RagasEvaluationRunSummaryItemDto> Runs { get; set; } = [];
+}
+
+public sealed class RagasEvaluationRunSummaryItemDto
+{
+    public string RunId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public int Total { get; set; }
+    public int Succeeded { get; set; }
+    public int Failed { get; set; }
+    public int Cancelled { get; set; }
+    public double? RagasScore { get; set; }
+    public double? DurationSeconds { get; set; }
+}
+
+public sealed class RagasEvaluationComparisonResponse
+{
+    public string RunId { get; set; } = string.Empty;
+    public string BaselineRunId { get; set; } = string.Empty;
+    public string Status { get; set; } = "Comparable";
+    public Dictionary<string, RagasEvaluationMetricComparisonDto> Metrics { get; set; } = [];
+    public RagasEvaluationCaseCountComparisonDto CaseCounts { get; set; } = new();
+    public List<RagasEvaluationDiagnosticDto> Diagnostics { get; set; } = [];
+}
+
+public sealed class RagasEvaluationMetricComparisonDto
+{
+    public double? Baseline { get; set; }
+    public double? Current { get; set; }
+    public double? Delta { get; set; }
+    public string Direction { get; set; } = "NotMeasured";
+}
+
+public sealed class RagasEvaluationCaseCountComparisonDto
+{
+    public int BaselineTotal { get; set; }
+    public int CurrentTotal { get; set; }
+    public int MatchedCases { get; set; }
 }
