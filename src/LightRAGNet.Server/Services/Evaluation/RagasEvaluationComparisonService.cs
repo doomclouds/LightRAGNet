@@ -71,14 +71,24 @@ internal sealed class RagasEvaluationComparisonService
         RagasEvaluationRunRecord current,
         RagasEvaluationRunRecord baseline)
     {
-        var currentCases = current.Cases.Select(item => item.CaseName).ToHashSet(StringComparer.Ordinal);
-        var baselineCases = baseline.Cases.Select(item => item.CaseName).ToHashSet(StringComparer.Ordinal);
+        var currentCases = CountByCaseName(current);
+        var baselineCases = CountByCaseName(baseline);
 
         return new RagasEvaluationCaseCountComparisonDto
         {
             BaselineTotal = baseline.Cases.Count,
             CurrentTotal = current.Cases.Count,
-            MatchedCases = currentCases.Intersect(baselineCases, StringComparer.Ordinal).Count()
+            MatchedCases = currentCases.Sum(item =>
+                baselineCases.TryGetValue(item.Key, out var baselineCount)
+                    ? Math.Min(item.Value, baselineCount)
+                    : 0)
         };
+    }
+
+    private static Dictionary<string, int> CountByCaseName(RagasEvaluationRunRecord run)
+    {
+        return run.Cases
+            .GroupBy(item => item.CaseName, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
     }
 }

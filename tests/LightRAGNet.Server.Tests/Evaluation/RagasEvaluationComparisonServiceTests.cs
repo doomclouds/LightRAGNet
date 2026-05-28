@@ -105,6 +105,21 @@ public sealed class RagasEvaluationComparisonServiceTests
         result.Diagnostics.Should().Contain(diagnostic => diagnostic.Code == "case_set_differs");
     }
 
+    [Fact]
+    public void Compare_WhenBothRunsContainSameDuplicateCaseNames_MatchesAllCases()
+    {
+        var service = new RagasEvaluationComparisonService();
+        var baseline = CreateRun("baseline", ["case-a", "case-a"], ragasScore: 0.8);
+        var current = CreateRun("current", ["case-a", "case-a"], ragasScore: 0.8);
+
+        var result = service.Compare(current, baseline);
+
+        result.CaseCounts.BaselineTotal.Should().Be(2);
+        result.CaseCounts.CurrentTotal.Should().Be(2);
+        result.CaseCounts.MatchedCases.Should().Be(2);
+        result.Diagnostics.Should().NotContain(diagnostic => diagnostic.Code == "case_set_differs");
+    }
+
     private static RagasEvaluationRunRecord CreateRun(
         string runId,
         double? ragasScore,
