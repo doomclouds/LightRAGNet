@@ -10,19 +10,30 @@ public sealed class RagasEvaluationComparisonServiceTests
     public void Compare_WhenCurrentScoreHigher_ReportsImproved()
     {
         var service = new RagasEvaluationComparisonService();
-        var baseline = CreateRun("baseline", ragasScore: 0.8);
-        var current = CreateRun("current", ragasScore: 0.85, faithfulness: 0.95);
+        var baseline = CreateRun(
+            "baseline",
+            ragasScore: 0.5,
+            faithfulness: 0.61,
+            answerRelevance: 0.42,
+            contextRecall: 0.32,
+            contextPrecision: 0.24);
+        var current = CreateRun(
+            "current",
+            ragasScore: 0.91,
+            faithfulness: 0.74,
+            answerRelevance: 0.68,
+            contextRecall: 0.55,
+            contextPrecision: 0.49);
 
         var result = service.Compare(current, baseline);
 
         result.Metrics.Keys.Should().BeEquivalentTo(
             ["ragasScore", "faithfulness", "answerRelevance", "contextRecall", "contextPrecision"]);
-        result.Metrics["ragasScore"].Direction.Should().Be("Improved");
-        result.Metrics["ragasScore"].Delta.Should().BeApproximately(0.05, 0.0001);
-        result.Metrics["faithfulness"].Baseline.Should().Be(0.9);
-        result.Metrics["faithfulness"].Current.Should().Be(0.95);
-        result.Metrics["faithfulness"].Delta.Should().BeApproximately(0.05, 0.0001);
-        result.Metrics["faithfulness"].Direction.Should().Be("Improved");
+        AssertMetric(result, "ragasScore", baseline: 0.5, current: 0.91, delta: 0.41, direction: "Improved");
+        AssertMetric(result, "faithfulness", baseline: 0.61, current: 0.74, delta: 0.13, direction: "Improved");
+        AssertMetric(result, "answerRelevance", baseline: 0.42, current: 0.68, delta: 0.26, direction: "Improved");
+        AssertMetric(result, "contextRecall", baseline: 0.32, current: 0.55, delta: 0.23, direction: "Improved");
+        AssertMetric(result, "contextPrecision", baseline: 0.24, current: 0.49, delta: 0.25, direction: "Improved");
     }
 
     [Fact]
@@ -138,5 +149,19 @@ public sealed class RagasEvaluationComparisonServiceTests
                 })
                 .ToList()
         };
+    }
+
+    private static void AssertMetric(
+        RagasEvaluationComparisonResponse result,
+        string metric,
+        double baseline,
+        double current,
+        double delta,
+        string direction)
+    {
+        result.Metrics[metric].Baseline.Should().Be(baseline);
+        result.Metrics[metric].Current.Should().Be(current);
+        result.Metrics[metric].Delta.Should().BeApproximately(delta, 0.0001);
+        result.Metrics[metric].Direction.Should().Be(direction);
     }
 }
