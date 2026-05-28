@@ -40,7 +40,7 @@
 
 ## Related Problems
 
-- None.
+- [Task State File Replace Lock](../../problems/2026-05/2026-05-19-task-state-file-replace-lock-problem.md)
 
 ## Notes
 
