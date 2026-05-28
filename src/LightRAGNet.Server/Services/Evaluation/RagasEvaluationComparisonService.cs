@@ -76,8 +76,8 @@ internal sealed class RagasEvaluationComparisonService
 
         return new RagasEvaluationCaseCountComparisonDto
         {
-            BaselineTotal = baselineCases.Count,
-            CurrentTotal = currentCases.Count,
+            BaselineTotal = baseline.Cases.Count,
+            CurrentTotal = current.Cases.Count,
             MatchedCases = currentCases.Intersect(baselineCases, StringComparer.Ordinal).Count()
         };
     }
