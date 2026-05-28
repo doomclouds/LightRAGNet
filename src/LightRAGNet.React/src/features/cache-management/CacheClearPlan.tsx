@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ShieldAlert, Trash2, X } from "lucide-react";
 
 import type { CacheClearPlanDto } from "@/types/cacheManagement";
@@ -31,74 +31,87 @@ export function CacheClearPlan({
     <section className="cache-panel">
       <header className="cache-panel__head">
         <div>
-          <h2>Clear plan</h2>
-          <p>Risk, entry count, and impact before deletion.</p>
+          <h2>Clear Plan</h2>
+          <p>Previewed entries that match the current policy</p>
         </div>
       </header>
 
       {plans.length === 0 ? (
         <div className="cache-empty-state">No clear plan</div>
       ) : (
-        <div className="cache-clear-list">
-          {plans.map((plan) => {
-            const tone = getRiskTone(plan.risk);
-            const isPending = pendingPlanId === plan.id;
-            const isConfirming = confirmingPlanId === plan.id;
-            const destructiveClearConfirmed = confirmedPlanId === plan.id;
+        <div className="cache-table-wrap">
+          <table className="cache-table cache-clear-table">
+            <thead>
+              <tr>
+                <th>Cache Family</th>
+                <th>Items</th>
+                <th>Impact</th>
+                <th>Clear Before</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plans.map((plan) => {
+                const tone = getRiskTone(plan.risk);
+                const isPending = pendingPlanId === plan.id;
+                const isConfirming = confirmingPlanId === plan.id;
+                const destructiveClearConfirmed = confirmedPlanId === plan.id;
 
-            return (
-              <article className={`cache-clear-row cache-clear-row--${tone}`} key={plan.id}>
-                <div className="cache-clear-row__body">
-                  <div className="cache-clear-row__title">
-                    <h3>{plan.title}</h3>
-                    <span className={`cache-pill cache-pill--${tone}`}>{plan.risk}</span>
-                  </div>
-                  <p>{plan.impact}</p>
-                  <div className="cache-clear-row__meta">
-                    <span>{formatNumber(plan.entryCount)} entries</span>
-                    <span>{plan.cacheTypes.join(", ")}</span>
-                  </div>
-                </div>
-
-                {isConfirming ? (
-                  <div className="cache-clear-row__actions">
-                    <label className="cache-clear-confirm">
-                      <input
-                        type="checkbox"
-                        checked={destructiveClearConfirmed}
-                        onChange={(event) => setConfirmedPlanId(event.target.checked ? plan.id : null)}
-                        disabled={isPending}
-                      />
-                      <span>Confirm destructive clear</span>
-                    </label>
-                    <button
-                      className="cache-button cache-button--danger"
-                      type="button"
-                      onClick={() => onConfirmClear(plan)}
-                      disabled={isPending || !destructiveClearConfirmed}
-                    >
-                      <ShieldAlert aria-hidden="true" size={16} />
-                      Confirm
-                    </button>
-                    <button className="cache-icon-button" type="button" onClick={onCancelClear} disabled={isPending}>
-                      <X aria-hidden="true" size={16} />
-                      <span className="cache-sr-only">Cancel</span>
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className={tone === "bad" ? "cache-button cache-button--danger" : "cache-button"}
-                    type="button"
-                    onClick={() => onBeginClear(plan)}
-                    disabled={isPending || plan.entryCount === 0}
-                  >
-                    <Trash2 aria-hidden="true" size={16} />
-                    {isPending ? "Clearing" : plan.requiresConfirmation ? "Review" : "Clear"}
-                  </button>
-                )}
-              </article>
-            );
-          })}
+                return (
+                  <tr key={plan.id}>
+                    <td>
+                      <strong>{plan.title}</strong>
+                      <small>{plan.cacheTypes.join(", ")}</small>
+                    </td>
+                    <td>{formatNumber(plan.entryCount)}</td>
+                    <td>
+                      <span className={`cache-pill cache-pill--${tone}`}>{plan.risk}</span>
+                      <small>{plan.impact}</small>
+                    </td>
+                    <td>7 days</td>
+                    <td>
+                      {isConfirming ? (
+                        <div className="cache-clear-actions">
+                          <label className="cache-clear-confirm">
+                            <input
+                              type="checkbox"
+                              checked={destructiveClearConfirmed}
+                              onChange={(event) => setConfirmedPlanId(event.target.checked ? plan.id : null)}
+                              disabled={isPending}
+                            />
+                            <span>Confirm destructive clear</span>
+                          </label>
+                          <button
+                            className="cache-button cache-button--danger"
+                            type="button"
+                            onClick={() => onConfirmClear(plan)}
+                            disabled={isPending || !destructiveClearConfirmed}
+                          >
+                            <ShieldAlert aria-hidden="true" size={16} />
+                            Confirm
+                          </button>
+                          <button className="cache-icon-button cache-icon-button--small" type="button" onClick={onCancelClear} disabled={isPending}>
+                            <X aria-hidden="true" size={16} />
+                            <span className="cache-sr-only">Cancel</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className={tone === "bad" ? "cache-button cache-button--danger" : "cache-button"}
+                          type="button"
+                          onClick={() => onBeginClear(plan)}
+                          disabled={isPending || plan.entryCount === 0}
+                        >
+                          <Trash2 aria-hidden="true" size={16} />
+                          {isPending ? "Clearing" : plan.requiresConfirmation ? "Review" : "Clear"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

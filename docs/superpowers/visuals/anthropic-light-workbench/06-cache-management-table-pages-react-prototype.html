@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cache Management Table Pages React Prototype</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+      :root {
+        --app-bg: #fbfaf6;
+        --surface: #fffefa;
+        --surface-muted: #f7f3ea;
+        --border: #e7ded2;
+        --border-strong: #d9cdbd;
+        --text-primary: #191817;
+        --text-secondary: #5f5a52;
+        --text-muted: #8f887d;
+        --accent: #c8552d;
+        --accent-strong: #a94221;
+        --accent-soft: #f4e4db;
+        --success: #4d8a58;
+        --warning: #c6871d;
+        --danger: #ce4c34;
+        --success-soft: #eaf4e8;
+        --warning-soft: #f8efd8;
+        --danger-soft: #f8e2dc;
+        --blue: #4f6f8f;
+        --blue-soft: #e8eef4;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--app-bg);
+        color: var(--text-primary);
+        font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        font-size: 13px;
+      }
+
+      button,
+      input,
+      select { font: inherit; }
+
+      button { cursor: pointer; }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 214px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, #fffefa 0%, #fbfaf6 100%);
+        padding: 14px 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 24px;
+        font-weight: 850;
+        font-size: 16px;
+      }
+
+      .logo {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: #7a3217;
+        color: #fffefa;
+        font-size: 12px;
+      }
+
+      .nav-section {
+        margin: 18px 0 8px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .nav-item {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        padding: 0 10px;
+      }
+
+      .nav-item.active {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-weight: 780;
+      }
+
+      .icon {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        stroke-width: 1.8;
+      }
+
+      .workspace {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 48px minmax(0, 1fr);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 254, 250, .78);
+        padding: 0 22px;
+      }
+
+      .crumbs {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        min-width: 0;
+      }
+
+      .crumbs strong { color: var(--text-primary); }
+
+      .search {
+        width: min(380px, 42vw);
+        height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-muted);
+        padding: 0 12px;
+      }
+
+      .page {
+        min-width: 0;
+        padding: 18px 22px 22px;
+      }
+
+      .page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 24px;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      h2,
+      h3,
+      p { margin: 0; }
+
+      .subtle {
+        color: var(--text-secondary);
+        line-height: 1.45;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .button,
+      .icon-button,
+      .mini-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-primary);
+        font-weight: 760;
+      }
+
+      .button {
+        height: 32px;
+        padding: 0 12px;
+        font-size: 12px;
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fffefa;
+      }
+
+      .mini-button {
+        height: 26px;
+        color: var(--text-secondary);
+        padding: 0 9px;
+        font-size: 11px;
+      }
+
+      .icon-button {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+      }
+
+      .range-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-muted);
+      }
+
+      .range-control button {
+        height: 24px;
+        min-width: 38px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .range-control button.active {
+        background: var(--surface);
+        color: var(--accent-strong);
+        box-shadow: 0 1px 0 rgba(25, 24, 23, .05);
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .metric-card {
+        min-width: 0;
+        min-height: 104px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        padding: 14px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 72px;
+        gap: 10px;
+        align-items: end;
+      }
+
+      .metric-label {
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 780;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        margin-top: 8px;
+        font-size: 25px;
+        line-height: 1;
+        font-weight: 850;
+      }
+
+      .metric-note {
+        margin-top: 8px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .metric-note.good { color: var(--success); }
+      .metric-note.warn { color: var(--danger); }
+
+      .sparkline {
+        width: 72px;
+        height: 42px;
+      }
+
+      .sparkline path {
+        fill: none;
+        stroke: var(--success);
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .sparkline.warn path { stroke: var(--danger); }
+      .sparkline .fill { fill: rgba(77, 138, 88, .12); stroke: none; }
+      .sparkline.warn .fill { fill: rgba(206, 76, 52, .12); }
+
+      .content-grid {
+        display: grid;
+        grid-template-columns: minmax(800px, 2.05fr) minmax(260px, .55fr);
+        gap: 14px;
+        align-items: start;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+
+      .panel-head {
+        min-height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 12px 14px;
+      }
+
+      .panel-title {
+        display: grid;
+        gap: 2px;
+      }
+
+      .panel-title h2 {
+        font-size: 14px;
+        line-height: 1.2;
+      }
+
+      .panel-title span {
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 820px;
+      }
+
+      th {
+        height: 38px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 11px;
+        text-align: left;
+        font-weight: 800;
+        padding: 0 14px;
+        white-space: nowrap;
+      }
+
+      td {
+        height: 58px;
+        border-bottom: 1px solid #eee7de;
+        color: var(--text-secondary);
+        padding: 0 14px;
+        white-space: nowrap;
+      }
+
+      tr:last-child td { border-bottom: 0; }
+
+      .family {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .family-icon {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--surface-muted);
+        color: var(--accent-strong);
+      }
+
+      .family strong {
+        display: block;
+        color: var(--text-primary);
+        font-size: 13px;
+      }
+
+      .family small {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .type {
+        color: var(--text-primary);
+        font-weight: 720;
+      }
+
+      .hit-cell {
+        min-width: 132px;
+      }
+
+      .hit-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .progress {
+        position: relative;
+        width: 76px;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #ede5dc;
+      }
+
+      .progress span {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: var(--value);
+        border-radius: inherit;
+        background: var(--success);
+      }
+
+      .progress.warn span { background: var(--warning); }
+      .progress.bad span { background: var(--danger); }
+
+      .mini-spark {
+        width: 72px;
+        height: 22px;
+      }
+
+      .mini-spark path {
+        fill: none;
+        stroke: var(--success);
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .mini-spark.warn path { stroke: var(--warning); }
+      .mini-spark.bad path { stroke: var(--danger); }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 68px;
+        height: 24px;
+        border-radius: 999px;
+        padding: 0 9px;
+        font-size: 11px;
+        font-weight: 820;
+      }
+
+      .pill.healthy {
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      .pill.warning {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .pill.critical {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .action-dot {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-secondary);
+      }
+
+      .side-stack,
+      .bottom-stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .insights {
+        display: grid;
+        gap: 10px;
+        padding: 12px 14px 14px;
+      }
+
+      .insight {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        min-height: 48px;
+      }
+
+      .insight-icon {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+      }
+
+      .insight-icon.good {
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      .insight-icon.warn {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .insight-icon.bad {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .insight h3 {
+        margin-bottom: 3px;
+        color: var(--text-primary);
+        font-size: 13px;
+        line-height: 1.25;
+      }
+
+      .insight p {
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .chart {
+        height: 210px;
+        padding: 12px 14px 14px;
+      }
+
+      .chart svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .chart-grid {
+        stroke: #eee7de;
+        stroke-width: 1;
+      }
+
+      .chart-area {
+        fill: rgba(200, 85, 45, .12);
+      }
+
+      .chart-line {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .chart-label {
+        fill: var(--text-muted);
+        font-size: 10px;
+      }
+
+      .bottom-grid {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(560px, 1.2fr) minmax(300px, .65fr);
+        gap: 14px;
+      }
+
+      .clear-table table {
+        min-width: 650px;
+      }
+
+      .impact {
+        color: var(--text-primary);
+        font-weight: 760;
+      }
+
+      .policy {
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field label {
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .field select,
+      .field input {
+        width: 100%;
+        height: 34px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-primary);
+        padding: 0 10px;
+      }
+
+      .policy-note {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-muted);
+        padding: 10px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .policy-note strong {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--text-primary);
+      }
+
+      @media (max-width: 1180px) {
+        .metric-strip {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .content-grid,
+        .bottom-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 840px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .workspace {
+          grid-template-rows: auto minmax(0, 1fr);
+        }
+
+        .topbar {
+          min-height: 48px;
+          padding: 8px 14px;
+        }
+
+        .search {
+          display: none;
+        }
+
+        .page {
+          padding: 14px;
+        }
+
+        .page-head {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .actions {
+          flex-wrap: wrap;
+        }
+
+        .range-control {
+          flex: 1 1 auto;
+          justify-content: space-between;
+        }
+
+        .metric-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .metric-card {
+          grid-template-columns: minmax(0, 1fr) 82px;
+        }
+
+        .content-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .panel {
+          border-radius: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const metrics = [
+        ["Cache Hit Rate", "76.8%", "6.3% vs yesterday", "good", "M3 34 L18 28 L28 31 L44 22 L54 24 L66 10"],
+        ["Total Requests", "1.24M", "12.1% vs yesterday", "good", "M3 36 L18 30 L30 42 L42 25 L48 18 L55 20 L66 8"],
+        ["Cache Size", "8.42 GB", "1.3 GB vs yesterday", "good", "M3 32 L18 30 L30 44 L44 22 L52 25 L62 18 L68 13"],
+        ["Evictions (24h)", "32,451", "8.4% vs yesterday", "warn", "M3 12 L18 18 L28 24 L36 20 L48 32 L66 34"],
+        ["Savings (24h)", "18.7K", "Estimated API calls saved", "good", "M3 36 L18 31 L25 24 L31 29 L44 25 L57 17 L66 11"]
+      ];
+
+      const families = [
+        ["cpu", "embedding", "Vector Cache", 91, "912K", "3.12 GB", "healthy", "Healthy", "M4 18 L18 18 L32 10 L46 14 L62 6"],
+        ["scan-search", "rerank", "Rank Cache", 82, "184K", "740 MB", "healthy", "Healthy", "M4 16 L20 13 L34 18 L48 10 L62 12"],
+        ["braces", "entity_extract", "LLM Cache", 74, "63K", "1.46 GB", "warning", "Warning", "M4 12 L18 18 L32 15 L48 22 L62 17"],
+        ["git-fork", "graph_query", "Graph Cache", 61, "48K", "980 MB", "critical", "Critical", "M4 9 L18 14 L30 21 L46 19 L62 28"],
+        ["file-text", "doc_chunk", "Document Cache", 88, "721K", "1.92 GB", "healthy", "Healthy", "M4 18 L16 22 L32 14 L48 12 L62 8"],
+        ["message-square", "system_prompt", "Prompt Cache", 79, "22K", "128 MB", "healthy", "Healthy", "M4 20 L18 15 L34 12 L48 17 L62 11"],
+        ["wrench", "tool_response", "Tool Cache", 67, "94K", "1.06 GB", "warning", "Warning", "M4 24 L18 18 L32 22 L48 28 L62 30"]
+      ];
+
+      const clearPlan = [
+        ["tool_response", "1.06 GB", "94K", "Low", "7 days", "Clear"],
+        ["entity_extract", "420 MB", "18K", "Medium", "14 days", "Clear"],
+        ["graph_query", "310 MB", "8K", "Medium", "3 days", "Clear"]
+      ];
+
+      function Icon({ name, className = "icon" }) {
+        return <i data-lucide={name} className={className} aria-hidden="true" />;
+      }
+
+      function NavItem({ icon, label, active }) {
+        return (
+          <div className={`nav-item ${active ? "active" : ""}`}>
+            <Icon name={icon} />
+            {label}
+          </div>
+        );
+      }
+
+      function MetricCard({ label, value, note, tone, path }) {
+        return (
+          <section className="metric-card">
+            <div>
+              <p className="metric-label">{label}</p>
+              <p className="metric-value">{value}</p>
+              <p className={`metric-note ${tone}`}>{note}</p>
+            </div>
+            <svg className={`sparkline ${tone === "warn" ? "warn" : ""}`} viewBox="0 0 72 44" preserveAspectRatio="none">
+              <path className="fill" d={`${path} L70 42 L2 42 Z`} />
+              <path d={path} />
+            </svg>
+          </section>
+        );
+      }
+
+      function StatusPill({ status }) {
+        const key = status === "Healthy" ? "healthy" : status === "Warning" ? "warning" : "critical";
+        return <span className={`pill ${key}`}>{status}</span>;
+      }
+
+      function MiniSpark({ tone, path }) {
+        const key = tone === "critical" ? "bad" : tone === "warning" ? "warn" : "";
+        return (
+          <svg className={`mini-spark ${key}`} viewBox="0 0 68 34" preserveAspectRatio="none">
+            <path d={path} />
+          </svg>
+        );
+      }
+
+      function CacheFamiliesTable() {
+        return (
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">
+                <h2>Cache Families</h2>
+                <span>Operational view across hot cache surfaces</span>
+              </div>
+              <button className="mini-button"><Icon name="sliders-horizontal" />Columns</button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cache Family</th>
+                    <th>Type</th>
+                    <th>Hit Rate</th>
+                    <th>Requests (24h)</th>
+                    <th>Size</th>
+                    <th>Trend</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {families.map(([icon, name, type, hit, requests, size, statusKey, status, trend]) => (
+                    <tr key={name}>
+                      <td>
+                        <span className="family">
+                          <span className="family-icon"><Icon name={icon} /></span>
+                          <span><strong>{name}</strong><small>{type}</small></span>
+                        </span>
+                      </td>
+                      <td><span className="type">{type}</span></td>
+                      <td className="hit-cell">
+                        <span className="hit-row">
+                          <strong>{hit}%</strong>
+                          <span className={`progress ${statusKey === "critical" ? "bad" : statusKey === "warning" ? "warn" : ""}`} style={{ "--value": `${hit}%` }}><span /></span>
+                        </span>
+                      </td>
+                      <td>{requests}</td>
+                      <td>{size}</td>
+                      <td><MiniSpark tone={statusKey} path={trend} /></td>
+                      <td><StatusPill status={status} /></td>
+                      <td><button className="action-dot" title={`Open actions for ${name}`}><Icon name="more-vertical" /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      }
+
+      function InsightsPanel() {
+        return (
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">
+                <h2>Cache Insights</h2>
+                <span>Priority signals from the selected range</span>
+              </div>
+            </div>
+            <div className="insights">
+              <article className="insight">
+                <span className="insight-icon good"><Icon name="trending-up" /></span>
+                <div>
+                  <h3>Hit rate improved 6.3%</h3>
+                  <p>Overall cache efficiency is up compared to yesterday.</p>
+                </div>
+              </article>
+              <article className="insight">
+                <span className="insight-icon bad"><Icon name="triangle-alert" /></span>
+                <div>
+                  <h3>graph_query is below 65%</h3>
+                  <p>Review graph query keys and invalidation frequency.</p>
+                </div>
+              </article>
+              <article className="insight">
+                <span className="insight-icon warn"><Icon name="hard-drive" /></span>
+                <div>
+                  <h3>tool_response is growing fast</h3>
+                  <p>Projected to exceed 1.4 GB within the next 8 hours.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        );
+      }
+
+      function TrendChart() {
+        return (
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">
+                <h2>Hit Rate Trend (24h)</h2>
+                <span>Hourly average across all cache families</span>
+              </div>
+            </div>
+            <div className="chart">
+              <svg viewBox="0 0 420 190" preserveAspectRatio="none">
+                <line className="chart-grid" x1="0" y1="36" x2="420" y2="36" />
+                <line className="chart-grid" x1="0" y1="82" x2="420" y2="82" />
+                <line className="chart-grid" x1="0" y1="128" x2="420" y2="128" />
+                <path className="chart-area" d="M8 134 C48 118, 66 124, 94 104 C128 80, 152 88, 184 72 C220 54, 246 64, 276 50 C316 30, 342 44, 408 22 L408 172 L8 172 Z" />
+                <path className="chart-line" d="M8 134 C48 118, 66 124, 94 104 C128 80, 152 88, 184 72 C220 54, 246 64, 276 50 C316 30, 342 44, 408 22" />
+                <text className="chart-label" x="6" y="185">00:00</text>
+                <text className="chart-label" x="174" y="185">12:00</text>
+                <text className="chart-label" x="366" y="185">Now</text>
+              </svg>
+            </div>
+          </section>
+        );
+      }
+
+      function ClearPlanPanel() {
+        return (
+          <section className="panel clear-table">
+            <div className="panel-head">
+              <div className="panel-title">
+                <h2>Clear Plan</h2>
+                <span>Previewed entries that match the current policy</span>
+              </div>
+              <button className="mini-button"><Icon name="download" />Export</button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cache Family</th>
+                    <th>Size</th>
+                    <th>Items</th>
+                    <th>Impact</th>
+                    <th>Clear Before</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clearPlan.map(([family, size, items, impact, before, action]) => (
+                    <tr key={family}>
+                      <td><strong>{family}</strong></td>
+                      <td>{size}</td>
+                      <td>{items}</td>
+                      <td><span className="impact">{impact}</span></td>
+                      <td>{before}</td>
+                      <td><button className="mini-button"><Icon name="trash-2" />{action}</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      }
+
+      function ClearPolicyPanel() {
+        return (
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">
+                <h2>Clear Policy</h2>
+                <span>Generate a safe clear preview before execution</span>
+              </div>
+            </div>
+            <div className="policy">
+              <div className="field">
+                <label>Strategy</label>
+                <select defaultValue="latest">
+                  <option value="latest">Keep Latest</option>
+                  <option value="least-hit">Remove Least Hit</option>
+                  <option value="expired">Expired Only</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Keep Duration</label>
+                <input value="7 Days" readOnly />
+              </div>
+              <div className="field">
+                <label>Minimum Hit Rate</label>
+                <input value="70%" readOnly />
+              </div>
+              <div className="policy-note">
+                <Icon name="shield-check" />
+                <p><strong>Preview first</strong>3 families match this policy. Execution remains manual.</p>
+              </div>
+              <button className="button primary"><Icon name="list-checks" />Preview Plan (3)</button>
+            </div>
+          </section>
+        );
+      }
+
+      function App() {
+        const [range, setRange] = React.useState("24H");
+
+        React.useEffect(() => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        });
+
+        return (
+          <main className="app">
+            <aside className="sidebar">
+              <div className="brand"><span className="logo">LR</span>LightRAGNet</div>
+              <NavItem icon="home" label="Overview" />
+              <NavItem icon="file-text" label="Documents" />
+              <NavItem icon="message-square" label="RAG Chat" />
+              <NavItem icon="git-fork" label="Graph" />
+              <div className="nav-section">System</div>
+              <NavItem icon="activity" label="System Status" />
+              <NavItem icon="database" label="Cache Management" active />
+              <NavItem icon="settings" label="Configuration" />
+              <NavItem icon="scroll-text" label="Logs" />
+              <div className="nav-section">Administration</div>
+              <NavItem icon="users" label="Users" />
+              <NavItem icon="key-round" label="API Keys" />
+            </aside>
+
+            <section className="workspace">
+              <header className="topbar">
+                <div className="crumbs"><Icon name="menu" /> <span>System</span> / <strong>Cache Management</strong></div>
+                <input className="search" value="Search cache families, keys, policies..." readOnly />
+              </header>
+
+              <div className="page">
+                <header className="page-head">
+                  <div>
+                    <h1>Cache Management</h1>
+                    <p className="subtle">Monitor cache performance and manage clear policies</p>
+                  </div>
+                  <div className="actions">
+                    <div className="range-control" aria-label="Time range">
+                      {["1H", "6H", "24H", "7D", "30D"].map((item) => (
+                        <button key={item} className={range === item ? "active" : ""} onClick={() => setRange(item)}>{item}</button>
+                      ))}
+                    </div>
+                    <button className="icon-button" title="Refresh cache metrics"><Icon name="refresh-cw" /></button>
+                    <button className="button"><Icon name="copy" />Copy JSON</button>
+                  </div>
+                </header>
+
+                <section className="metric-strip">
+                  {metrics.map(([label, value, note, tone, path]) => (
+                    <MetricCard key={label} label={label} value={value} note={note} tone={tone} path={path} />
+                  ))}
+                </section>
+
+                <section className="content-grid">
+                  <CacheFamiliesTable />
+                  <div className="side-stack">
+                    <InsightsPanel />
+                    <TrendChart />
+                  </div>
+                  <div className="bottom-grid">
+                    <ClearPlanPanel />
+                    <ClearPolicyPanel />
+                  </div>
+                </section>
+              </div>
+            </section>
+          </main>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

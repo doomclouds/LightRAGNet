@@ -10,7 +10,7 @@
 - [2026-05-26-offline-retrieval-json-dataset-oracle-archives.md](./2026-05/2026-05-26-offline-retrieval-json-dataset-oracle-archives.md): 将离线检索评估迁移为 Python-compatible dataset 加 LightRAGNet extended oracle 的 JSON 数据驱动测试层。
 - [2026-05-25-offline-retrieval-evaluation-fixture-archives.md](./2026-05/2026-05-25-offline-retrieval-evaluation-fixture-archives.md): 增加离线检索评估 fixture，用固定语料和 raw data oracle 覆盖 Naive、Local、Global、Mix 与 rerank 回归。
 - [2026-05-25-react-anthropic-light-shell-redesign-archives.md](./2026-05/2026-05-25-react-anthropic-light-shell-redesign-archives.md): 将独立 React 前端切换到 Anthropic-like 浅色工作台 shell，并首批重构 Documents、Upload、Document Preview 三个文档页面。
-- [2026-05-24-cache-management-workbench-archives.md](./2026-05/2026-05-24-cache-management-workbench-archives.md): 增加基于真实 hit/miss 指标和安全库存的 Cache Management 工作台，提供缓存效率、风险、趋势和确认式清理能力。
+- [2026-05-24-cache-management-workbench-archives.md](./2026-05/2026-05-24-cache-management-workbench-archives.md): 增加基于真实 hit/miss 指标和安全库存的 Cache Management 工作台，并在独立 React 前端对齐 compact light workbench 表格页视觉。
 - [2026-05-24-react-full-ui-migration-archives.md](./2026-05/2026-05-24-react-full-ui-migration-archives.md): 将 Blazor-hosted React islands 迁入独立 React shell，形成深色完整前端路由、文档工作台、安全预览、图谱和运营页面体验。
 - [2026-05-24-react-standalone-documents-migration-archives.md](./2026-05/2026-05-24-react-standalone-documents-migration-archives.md): 新建独立 Vite/React 前端并迁移文档上传、文档列表、预览、操作和 SignalR 生命周期刷新，同时保持 Blazor 项目共存。
 - [2026-05-24-react-ui-standardization-rag-chat-workbench-archives.md](./2026-05/2026-05-24-react-ui-standardization-rag-chat-workbench-archives.md): 统一 React 页面到 `dark-ops` 设计标准，并将 RAG Chat 迁移为带安全引用预览和消息级诊断的 React workbench。

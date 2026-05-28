@@ -131,7 +131,7 @@ describe("CacheManagementWorkbench", () => {
     expect(exportedJson).not.toMatch(/original_prompt|return_value|authorization|api_key|hidden prompt|Bearer token/i);
   });
 
-  test("renders cache evidence, clear plan, and safe entry samples without sensitive fields", () => {
+  test("renders cache evidence and clear plan without sensitive payload fields", () => {
     const html = renderToStaticMarkup(
       <CacheManagementWorkbenchView
         apiBase="/api-root"
@@ -157,8 +157,43 @@ describe("CacheManagementWorkbench", () => {
     expect(html).toContain("1,248");
     expect(html).toContain("42 min");
     expect(html).toContain("Clear all LLM cache");
-    expect(html).toContain("Mix:query:af31...");
     expect(html).not.toMatch(/prompt|return_value|provider response|authorization|api key/i);
+  });
+
+  test("renders the approved table-pages workbench sections", () => {
+    const html = renderToStaticMarkup(
+      <CacheManagementWorkbenchView
+        apiBase="/api-root"
+        workspace="_"
+        window="24h"
+        overview={overview}
+        isLoading={false}
+        errorMessage={null}
+        actionMessage={null}
+        pendingPlanId={null}
+        confirmingPlanId={null}
+        onWorkspaceChange={() => undefined}
+        onWindowChange={() => undefined}
+        onRefresh={() => undefined}
+        onCopyJson={() => undefined}
+        onBeginClear={() => undefined}
+        onCancelClear={() => undefined}
+        onConfirmClear={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Monitor cache performance and manage clear policies");
+    expect(html).toContain("Cache Families");
+    expect(html).toContain("Cache Insights");
+    expect(html).toContain("Hit Rate Trend (24h)");
+    expect(html).toContain("Clear Plan");
+    expect(html).toContain("Clear Policy");
+    expect(html).toContain("Preview Plan");
+    expect(html).toContain("1H");
+    expect(html).toContain("6H");
+    expect(html).toContain("30D");
+    expect(html).not.toContain("Entry samples");
+    expect(html).not.toContain("Measurement");
   });
 
   test("renders explicit destructive clear confirmation before enabling confirm", () => {
@@ -197,7 +232,7 @@ describe("CacheManagementWorkbench", () => {
     render(<CacheManagementWorkbench apiBase="/api-root" />);
 
     await screen.findByText("Clear all LLM cache");
-    await user.click(screen.getByRole("button", { name: /review/i }));
+    await user.click(screen.getByRole("button", { name: /^review$/i }));
     expect(screen.getByText("Confirm destructive clear")).toBeInTheDocument();
 
     const workspaceInput = screen.getByLabelText("Workspace");

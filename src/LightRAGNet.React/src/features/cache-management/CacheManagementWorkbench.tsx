@@ -1,15 +1,14 @@
 ﻿import { useCallback, useEffect, useRef, useState } from "react";
-import { Clipboard, RefreshCw } from "lucide-react";
+import { Clipboard, LoaderCircle, RefreshCw } from "lucide-react";
 
 import { clearCachePlan, getCacheManagementOverview } from "@/api/cacheManagementApi";
 import type { CacheClearPlanDto, CacheOverviewResponse } from "@/types/cacheManagement";
 import "@/features/cache-management/cache-management.css";
 import { CacheClearPlan } from "./CacheClearPlan";
+import { CacheClearPolicy } from "./CacheClearPolicy";
 import { CacheEfficiencyTrend } from "./CacheEfficiencyTrend";
-import { CacheEntryDrilldown } from "./CacheEntryDrilldown";
 import { CacheFamilyTable } from "./CacheFamilyTable";
 import { CacheInsights } from "./CacheInsights";
-import { CacheMeasurementContract } from "./CacheMeasurementContract";
 import { CacheSummaryCards } from "./CacheSummaryCards";
 import { formatDateTime, formatHitRate, formatLatencySaved } from "./formatters";
 
@@ -48,8 +47,11 @@ type OverviewRequestSnapshot = OverviewRequestParams & {
 };
 
 const windowOptions = [
-  { value: "24h", label: "24h" },
-  { value: "7d", label: "7d" }
+  { value: "1h", label: "1H" },
+  { value: "6h", label: "6H" },
+  { value: "24h", label: "24H" },
+  { value: "7d", label: "7D" },
+  { value: "30d", label: "30D" }
 ];
 
 function normalizeWorkspace(workspace: string): string {
@@ -300,23 +302,14 @@ export function CacheManagementWorkbenchView({
         <header className="cache-page-head">
           <div>
             <h1>Cache Management</h1>
-            <div className="cache-page-meta">
-              <span>Workspace {overview?.workspace ?? workspace}</span>
-              <span>{overview ? formatDateTime(overview.generatedAt) : "Loading"}</span>
-            </div>
+            <p className="cache-page-subtle">Monitor cache performance and manage clear policies</p>
           </div>
 
           <div className="cache-toolbar" aria-label="Cache controls">
-            <label className="cache-field">
+            <label className="cache-field cache-field--workspace">
               <span>Workspace</span>
-              <input
-                value={workspace}
-                onChange={(event) => onWorkspaceChange(event.target.value)}
-                placeholder="_"
-                aria-label="Workspace"
-              />
+              <input value={workspace} onChange={(event) => onWorkspaceChange(event.target.value)} placeholder="_" aria-label="Workspace" />
             </label>
-
             <div className="cache-segmented" aria-label="Time window">
               {windowOptions.map((option) => (
                 <button
@@ -330,9 +323,8 @@ export function CacheManagementWorkbenchView({
               ))}
             </div>
 
-            <button className="cache-button cache-button--accent" type="button" onClick={onRefresh} disabled={isLoading}>
-              <RefreshCw aria-hidden="true" size={16} />
-              {isLoading ? "Loading" : "Refresh"}
+            <button className="cache-icon-button" type="button" onClick={onRefresh} disabled={isLoading} aria-label="Refresh cache metrics">
+              {isLoading ? <LoaderCircle aria-hidden="true" className="cache-spin" size={16} /> : <RefreshCw aria-hidden="true" size={16} />}
             </button>
             <button className="cache-button" type="button" onClick={onCopyJson} disabled={!overview}>
               <Clipboard aria-hidden="true" size={16} />
@@ -340,6 +332,11 @@ export function CacheManagementWorkbenchView({
             </button>
           </div>
         </header>
+
+        <div className="cache-page-meta">
+          <span>Workspace {overview?.workspace ?? workspace}</span>
+          <span>{overview ? formatDateTime(overview.generatedAt) : "Loading"}</span>
+        </div>
 
         {errorMessage ? <div className="cache-banner cache-banner--error">{errorMessage}</div> : null}
         {actionMessage ? <div className="cache-banner cache-banner--success">{actionMessage}</div> : null}
@@ -356,11 +353,13 @@ export function CacheManagementWorkbenchView({
 
             <div className="cache-content-grid">
               <CacheFamilyTable families={overview.families} />
-              <CacheInsights insights={overview.insights} />
+              <div className="cache-side-stack">
+                <CacheInsights insights={overview.insights} />
+                <CacheEfficiencyTrend trend={overview.trend} window={window} />
+              </div>
             </div>
 
-            <div className="cache-detail-grid">
-              <CacheEfficiencyTrend trend={overview.trend} />
+            <div className="cache-bottom-grid">
               <CacheClearPlan
                 plans={overview.clearPlan}
                 pendingPlanId={pendingPlanId}
@@ -369,11 +368,7 @@ export function CacheManagementWorkbenchView({
                 onCancelClear={onCancelClear}
                 onConfirmClear={onConfirmClear}
               />
-            </div>
-
-            <div className="cache-detail-grid">
-              <CacheEntryDrilldown entries={overview.entrySamples} />
-              <CacheMeasurementContract />
+              <CacheClearPolicy planCount={overview.clearPlan.length} />
             </div>
           </>
         ) : null}

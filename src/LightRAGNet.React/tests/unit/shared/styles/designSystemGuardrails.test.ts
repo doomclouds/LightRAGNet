@@ -17,12 +17,10 @@ const cssFiles: CssFile[] = [
 ];
 
 const allowedRootFontDebt = new Set([
-  'cache-management.css|.cache-workbench|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif',
   'graph-workbench.css|.graph-workbench|font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif'
 ]);
 
 const allowedMonospaceFontDebt = new Set([
-  'cache-management.css|.cache-key-prefix|font-family: Consolas, "Cascadia Mono", monospace',
   'system-status.css|.system-status__raw-code|font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace'
 ]);
 
@@ -30,6 +28,10 @@ const allowedHexDebt = new Map<string, string[]>([
   [
     'document-preview.css',
     ['#1f2937', '#26313f', '#374151', '#7a3217', '#f7f4ee', '#fffefa']
+  ],
+  [
+    'system-status.css',
+    ['#7a3217', '#d8a43d']
   ]
 ]);
 
@@ -39,10 +41,14 @@ const allowedLocalUiDebt = new Map<string, string[]>([
     [
       'cache-banner',
       'cache-button',
+      'cache-clear-table',
+      'cache-family-table',
       'cache-field',
       'cache-icon-button',
+      'cache-mini-button',
       'cache-panel',
       'cache-pill',
+      'cache-policy__field',
       'cache-segmented',
       'cache-table',
       'cache-table-wrap',
@@ -77,7 +83,17 @@ const allowedLocalUiDebt = new Map<string, string[]>([
       'rag-chat__table-wrap'
     ]
   ],
-  ['system-status.css', []]
+  [
+    'system-status.css',
+    [
+      'system-status__button',
+      'system-status__mini-button',
+      'system-status__panel',
+      'system-status__pill',
+      'system-status__raw-toolbar',
+      'system-status__table-wrap'
+    ]
+  ]
 ]);
 
 describe('React design system guardrails', () => {

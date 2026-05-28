@@ -1,4 +1,4 @@
-﻿import { CircleAlert, CircleCheck, Info } from "lucide-react";
+import { CircleAlert, Info, TrendingUp } from "lucide-react";
 
 import type { CacheInsightDto } from "@/types/cacheManagement";
 import { normalizeTone } from "./formatters";
@@ -11,7 +11,7 @@ function iconForLevel(level: string) {
   const tone = normalizeTone(level);
 
   if (tone === "good") {
-    return <CircleCheck aria-hidden="true" size={18} />;
+    return <TrendingUp aria-hidden="true" size={18} />;
   }
 
   if (tone === "warn" || tone === "bad") {
@@ -26,8 +26,8 @@ export function CacheInsights({ insights }: Props) {
     <section className="cache-panel">
       <header className="cache-panel__head">
         <div>
-          <h2>Insights</h2>
-          <p>Backend-ranked maintenance signals.</p>
+          <h2>Cache Insights</h2>
+          <p>Priority signals from the selected range</p>
         </div>
       </header>
 
