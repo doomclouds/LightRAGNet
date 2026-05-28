@@ -44,18 +44,41 @@ describe("RagChatWorkbench", () => {
     await renderWorkbench();
 
     expect(host.textContent).toContain("RAG Chat");
-    expect(host.textContent).toContain("Query settings");
+    expect(host.textContent).toContain("Query Settings");
+    expect(host.textContent).toContain("New conversation");
+    expect(host.textContent).toContain("Auto");
+    expect(host.textContent).toContain("Reset to defaults");
+    expect(host.querySelector(".rag-chat__workbench")).not.toBeNull();
+    expect(host.querySelector(".rag-chat__settings")).not.toBeNull();
+    expect(host.querySelector(".rag-chat__layout--fixed")).not.toBeNull();
+    expect(host.querySelector(".rag-chat__layout--empty")).not.toBeNull();
+    expect(host.querySelector(".rag-chat__chat--empty")).not.toBeNull();
+    expect(host.querySelector(".rag-chat__messages")).toHaveAttribute("data-scroll-surface", "messages");
     expect(host.querySelector("[data-testid='rag-chat-composer']")).not.toBeNull();
     expect(getControl("Mode")).toBeInstanceOf(HTMLSelectElement);
+    expect(getControl("Mode")).toHaveClass("lrn-select");
     expect(getControl("References")).toBeInstanceOf(HTMLInputElement);
     expect(getControl("Debug output")).toBeInstanceOf(HTMLSelectElement);
+    expect(host.querySelector(".rag-chat__mode-segment")).toBeNull();
+    expect(host.querySelectorAll(".rag-chat__setting-row")).toHaveLength(7);
+    expect(host.textContent).toContain("Retrieval route and graph blend.");
+    expect(host.textContent).toContain("Shape the answer before it is rendered.");
+    expect(host.textContent).toContain("Stream the answer as tokens arrive.");
+    expect(host.textContent).toContain("Surface source previews when metadata is available.");
+    expect(host.textContent).toContain("Use the reranker to sharpen retrieved context.");
+    expect(host.textContent).toContain("Number of chunks to retrieve.");
+    expect(host.textContent).toContain("Chunks per document.");
+    expect(host.textContent).toContain("Bias retrieval toward important terms.");
+    expect(host.textContent).toContain("Filter out noisy concepts.");
+    expect(host.textContent).toContain("Choose answer, context, or prompt inspection.");
+    expect(host.querySelector(".rag-chat__settings-body > .rag-chat__reset-action")).not.toBeNull();
   });
 
-  test("renders only real current state chips in the page header", async () => {
+  test("renders only real current state chips in the workbench heading", async () => {
     await renderWorkbench();
 
     const heading = [...host.querySelectorAll("h1")].find((item) => item.textContent === "RAG Chat");
-    const pageHeader = heading?.closest(".lrn-page-header");
+    const pageHeader = heading?.closest(".rag-chat__topline");
 
     expect(pageHeader).not.toBeNull();
     expect(pageHeader?.textContent).toContain("Mix");
@@ -325,7 +348,7 @@ describe("RagChatWorkbench", () => {
     await clickButton("View query details");
     expect(capturedSignal?.aborted).toBe(false);
 
-    await clickButton("x");
+    await clickButton("Close query details");
 
     expect(capturedSignal?.aborted).toBe(true);
   });
@@ -348,7 +371,7 @@ describe("RagChatWorkbench", () => {
     expect(getRagQueryData).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("Loading retrieval data");
 
-    await clickButton("x");
+    await clickButton("Close query details");
 
     expect(capturedSignals[0]?.aborted).toBe(true);
 

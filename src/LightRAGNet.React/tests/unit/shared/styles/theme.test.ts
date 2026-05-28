@@ -225,6 +225,21 @@ describe('light workbench theme tokens', () => {
       expect(ragChatCss).toContain(lightDeclaration);
     });
   });
+
+  it('keeps RAG chat height bound to the main workbench instead of viewport magic numbers', () => {
+    expect(getRuleBlock(appCss, '.app-main')).toContain('min-height: 0');
+    expect(getRuleBlock(appCss, '.app-main--rag-chat')).toContain('padding-bottom: 16px');
+    expect(getRuleBlock(appCss, '.app-main--rag-chat')).toContain('height: calc(100vh - var(--topbar-height))');
+    expect(getRuleBlock(ragChatCss, '.rag-chat')).toContain('height: 100%');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__workbench')).toContain('height: 100%');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__workbench')).toContain('grid-template-rows: auto minmax(0, 1fr)');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__layout')).not.toContain('100vh - 224px');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__chat')).toContain('border: 1px solid var(--panel-border)');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__chat')).toContain('border-radius: var(--radius-panel)');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__setting-row')).toContain('gap: 8px');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__field-note')).toContain('color: var(--text-muted)');
+    expect(getRuleBlock(ragChatCss, '.rag-chat__switch-description')).toContain('color: var(--text-muted)');
+  });
 });
 
 function readCss(relativePath: string): string {

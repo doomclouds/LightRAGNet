@@ -1,12 +1,16 @@
 import type { ComponentType, ReactNode } from 'react';
 import {
   Activity,
+  Bell,
+  BookOpen,
+  CloudUpload,
   Database,
   FileSearch,
-  Files,
-  MessageSquare,
+  FileText,
+  Menu,
+  MessageCircle,
   Network,
-  UploadCloud,
+  Sun,
   type LucideProps
 } from 'lucide-react';
 import type { RagTaskHubConnectionState } from '@/api/ragTaskHubClient';
@@ -23,10 +27,10 @@ type AppLayoutProps = {
 };
 
 const navigationIcons: Record<NavigationIconId, ComponentType<LucideProps>> = {
-  'message-square': MessageSquare,
-  files: Files,
+  'message-circle': MessageCircle,
+  'file-text': FileText,
   network: Network,
-  'upload-cloud': UploadCloud,
+  'cloud-upload': CloudUpload,
   'file-search': FileSearch,
   activity: Activity,
   database: Database
@@ -80,7 +84,9 @@ export function AppLayout({ currentPath, connectionStatus, children }: AppLayout
                       href={item.href}
                       aria-current={item.routeId === activeRoute.id ? 'page' : undefined}
                     >
-                      <Icon size={17} aria-hidden="true" />
+                      <span className="app-nav__icon" data-nav-icon={item.icon}>
+                        <Icon size={17} aria-hidden="true" />
+                      </span>
                       <span>{item.label}</span>
                     </a>
                   );
@@ -101,13 +107,29 @@ export function AppLayout({ currentPath, connectionStatus, children }: AppLayout
 
       <section className="app-main-shell">
         <div className="app-topbar">
-          <div className="app-route-context">
-            <span className="app-route-context__eyebrow">Current workspace</span>
-            <strong>{activeRoute.title}</strong>
+          <div className="app-topbar__left">
+            <button className="app-topbar__icon-action" type="button" aria-label="Open navigation menu">
+              <Menu size={17} aria-hidden="true" />
+            </button>
+            <div className="app-route-context">
+              <span className="app-route-context__eyebrow">Current workspace</span>
+              <strong>{activeRoute.title}</strong>
+            </div>
           </div>
-          <ClearAllDataAction />
+          <div className="app-topbar__actions">
+            <button className="app-topbar__icon-action" type="button" aria-label="Toggle appearance">
+              <Sun size={17} aria-hidden="true" />
+            </button>
+            <a className="app-topbar__icon-action" href="/document-preview" aria-label="Open documentation">
+              <BookOpen size={17} aria-hidden="true" />
+            </a>
+            <button className="app-topbar__icon-action" type="button" aria-label="Open notifications">
+              <Bell size={17} aria-hidden="true" />
+            </button>
+            <ClearAllDataAction />
+          </div>
         </div>
-        <main className="app-main">{children}</main>
+        <main className={`app-main app-main--${activeRoute.id}`}>{children}</main>
       </section>
     </div>
   );

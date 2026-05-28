@@ -1,11 +1,11 @@
 export function AppBrandMark() {
   return (
-    <span className="app-brand__mark" aria-hidden="true">
+    <span className="app-brand__mark" data-brand-icon="spark" data-testid="app-brand-mark" aria-hidden="true">
       <svg viewBox="0 0 32 32" focusable="false">
-        <circle cx="16" cy="16" r="13" />
-        <path d="M10.5 17.5c3.6-7.2 8-8.1 11-5.1 3 3 .9 7.7-5.4 9.6" />
-        <path d="M11 21.3c5.3.9 9.4-.7 11.8-4.4" />
-        <path d="M12.8 10.3c-1.3 2.8-1.1 5.1.7 6.9" />
+        <path className="app-brand__spark-core" d="M16 3.5l2.8 8.1 8.2 2.9-8.2 2.9L16 25.5l-2.8-8.1L5 14.5l8.2-2.9L16 3.5Z" />
+        <path d="M25.6 4.8l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8.8-2.4Z" />
+        <path d="M7.2 21.4l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" />
+        <path d="M20.8 22.2l.6 1.8 1.8.6-1.8.6-.6 1.8-.6-1.8-1.8-.6 1.8-.6.6-1.8Z" />
       </svg>
     </span>
   );

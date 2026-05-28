@@ -1,10 +1,10 @@
 import type { AppRouteId } from './router';
 
 export type NavigationIconId =
-  | 'message-square'
-  | 'files'
+  | 'message-circle'
+  | 'file-text'
   | 'network'
-  | 'upload-cloud'
+  | 'cloud-upload'
   | 'file-search'
   | 'activity'
   | 'database';
@@ -27,8 +27,8 @@ export const primaryNavigationGroups: NavigationGroup[] = [
     id: 'workspace',
     label: 'Workspace',
     items: [
-      { routeId: 'rag-chat', label: 'RAG Chat', href: '/', icon: 'message-square' },
-      { routeId: 'documents', label: 'Documents', href: '/documents', icon: 'files' },
+      { routeId: 'rag-chat', label: 'RAG Chat', href: '/', icon: 'message-circle' },
+      { routeId: 'documents', label: 'Documents', href: '/documents', icon: 'file-text' },
       { routeId: 'graph', label: 'Knowledge Graph', href: '/graph-view', icon: 'network' }
     ]
   },
@@ -36,7 +36,7 @@ export const primaryNavigationGroups: NavigationGroup[] = [
     id: 'document-flow',
     label: 'Document Flow',
     items: [
-      { routeId: 'upload', label: 'Upload Document', href: '/documents/upload', icon: 'upload-cloud' },
+      { routeId: 'upload', label: 'Upload Document', href: '/documents/upload', icon: 'cloud-upload' },
       { routeId: 'document-preview', label: 'Document Preview', href: '/document-preview', icon: 'file-search' }
     ]
   },

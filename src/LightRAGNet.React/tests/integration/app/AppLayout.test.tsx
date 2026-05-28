@@ -151,6 +151,7 @@ describe('AppLayout', () => {
     render(<App />);
 
     expect(screen.getByRole('link', { name: 'LightRAGNet home' })).toHaveTextContent('LightRAGNet');
+    expect(screen.getByTestId('app-brand-mark')).toHaveAttribute('data-brand-icon', 'spark');
 
     const navigation = within(screen.getByRole('navigation', { name: 'Primary' }));
     expect(navigation.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument();
@@ -163,6 +164,13 @@ describe('AppLayout', () => {
     expect(navigation.getByRole('link', { name: 'Document Preview' })).toHaveAttribute('href', '/document-preview');
     expect(navigation.getByRole('link', { name: 'System Status' })).toHaveAttribute('href', '/system-status');
     expect(navigation.getByRole('link', { name: 'Cache Management' })).toHaveAttribute('href', '/cache-management');
+    expect(navigation.getByRole('link', { name: 'RAG Chat' }).querySelector('[data-nav-icon="message-circle"]')).toBeInTheDocument();
+    expect(navigation.getByRole('link', { name: 'Documents' }).querySelector('[data-nav-icon="file-text"]')).toBeInTheDocument();
+    expect(navigation.getByRole('link', { name: 'Upload Document' }).querySelector('[data-nav-icon="cloud-upload"]')).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Toggle appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open documentation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open notifications' })).toBeInTheDocument();
 
     const mainLandmarks = screen.getAllByRole('main');
     expect(mainLandmarks).toHaveLength(1);
@@ -207,6 +215,14 @@ describe('AppLayout', () => {
 
     expect(status).toHaveTextContent('SignalR ServerNotStarted');
     expect(status.querySelector('.app-realtime-status--disconnected')).toBeInTheDocument();
+  });
+
+  it('marks the RAG Chat main surface for full-height workbench layout', () => {
+    window.history.pushState({}, '', '/');
+
+    render(<App />);
+
+    expect(screen.getByRole('main')).toHaveClass('app-main--rag-chat');
   });
 
   it('wires the production document route to task hub updates', async () => {

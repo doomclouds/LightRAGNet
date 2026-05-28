@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Chat Workbench React Prototype</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+      :root {
+        --app-bg: #fbfaf6;
+        --surface: #fffefa;
+        --surface-muted: #f7f3ea;
+        --surface-quiet: #fbf7ef;
+        --border: #e7ded2;
+        --border-strong: #d9cdbd;
+        --text-primary: #191817;
+        --text-secondary: #5f5a52;
+        --text-muted: #8f887d;
+        --accent: #c8552d;
+        --accent-strong: #a94221;
+        --accent-soft: #f4e4db;
+        --success: #4d8a58;
+        --warning: #c6871d;
+        --danger: #ce4c34;
+        --shadow-soft: 0 18px 46px rgba(64, 46, 24, .08);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--app-bg);
+        color: var(--text-primary);
+        font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        font-size: 14px;
+      }
+
+      button,
+      input,
+      textarea,
+      select { font: inherit; }
+
+      button { cursor: pointer; }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 238px minmax(0, 1fr);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .sidebar {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, #fffefa 0%, #fbfaf6 100%);
+      }
+
+      .brand {
+        height: 68px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 24px;
+        border-bottom: 1px solid var(--border);
+        font-size: 20px;
+        font-weight: 820;
+      }
+
+      .brand-mark {
+        width: 28px;
+        height: 28px;
+        color: var(--accent);
+      }
+
+      .nav {
+        padding: 24px 14px;
+      }
+
+      .nav-item {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        border-radius: 8px;
+        color: #3e3a35;
+        padding: 0 16px;
+        font-size: 15px;
+      }
+
+      .nav-item + .nav-item { margin-top: 10px; }
+
+      .nav-item.active {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-weight: 780;
+      }
+
+      .profile {
+        height: 92px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        border-top: 1px solid var(--border);
+        padding: 0 22px;
+      }
+
+      .avatar {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: #e8e0d5;
+        color: #5a4f43;
+        font-size: 18px;
+      }
+
+      .workspace {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 68px minmax(0, 1fr);
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: auto minmax(260px, 500px) minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 18px;
+        border-bottom: 1px solid var(--border);
+        padding: 0 26px;
+        background: rgba(255, 254, 250, .84);
+      }
+
+      .icon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+        stroke-width: 1.8;
+      }
+
+      .menu-button,
+      .icon-button {
+        width: 34px;
+        height: 34px;
+        display: inline-grid;
+        place-items: center;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--text-secondary);
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: var(--text-secondary);
+      }
+
+      .search {
+        height: 40px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 0 12px;
+        color: var(--text-muted);
+      }
+
+      .search input {
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text-primary);
+      }
+
+      .kbd {
+        min-width: 50px;
+        height: 25px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        color: var(--text-muted);
+        background: #fbf8f1;
+        font-size: 12px;
+      }
+
+      .workbench {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 356px;
+      }
+
+      .chat-main {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        padding: 20px 34px 32px;
+      }
+
+      .chat-head {
+        height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .chat-title {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.2;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+
+      .button,
+      .mini-button {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-primary);
+        padding: 0 13px;
+        font-size: 14px;
+      }
+
+      .mini-button {
+        width: 34px;
+        padding: 0;
+      }
+
+      .chat-tools {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: var(--text-secondary);
+      }
+
+      .thread {
+        min-height: 0;
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        overflow-y: auto;
+        padding: 18px 0 26px;
+      }
+
+      .message-card {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 254, 250, .82);
+        padding: 22px;
+      }
+
+      .message-card.user {
+        min-height: 102px;
+      }
+
+      .message-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+
+      .speaker {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .speaker strong {
+        font-size: 15px;
+      }
+
+      .time {
+        color: var(--text-muted);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .assistant-avatar {
+        background: linear-gradient(145deg, #d45d32, #a94221);
+        color: #fffefa;
+      }
+
+      .stream {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: -6px 0 14px 58px;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+
+      .stream-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      .answer {
+        margin-left: 58px;
+        max-width: 760px;
+        color: #23201c;
+        line-height: 1.78;
+      }
+
+      .answer h2 {
+        margin: 22px 0 8px;
+        font-size: 15px;
+        line-height: 1.35;
+      }
+
+      .answer p {
+        margin: 0 0 14px;
+      }
+
+      .answer ul,
+      .answer ol {
+        margin: 8px 0 18px;
+        padding-left: 22px;
+      }
+
+      .details-button {
+        min-height: 36px;
+      }
+
+      .references {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 22px 0 4px 58px;
+      }
+
+      .reference {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface-quiet);
+        color: var(--text-primary);
+        padding: 0 11px;
+        font-size: 13px;
+      }
+
+      .ref-count {
+        min-width: 18px;
+        height: 18px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 999px;
+        background: #ebe3d8;
+        color: var(--text-secondary);
+        font-size: 11px;
+      }
+
+      .composer {
+        min-height: 132px;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        padding: 18px 16px 14px;
+      }
+
+      .composer textarea {
+        width: 100%;
+        min-height: 52px;
+        resize: none;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text-primary);
+      }
+
+      .composer textarea::placeholder,
+      .field input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .composer-left {
+        display: flex;
+        gap: 8px;
+      }
+
+      .send-button {
+        width: 82px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #d96538, #b34422);
+        color: #fffefa;
+      }
+
+      .settings {
+        min-width: 0;
+        border-left: 1px solid var(--border);
+        background: rgba(255, 254, 250, .72);
+        padding: 28px 30px;
+      }
+
+      .settings-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .settings h2 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.2;
+        font-weight: 760;
+      }
+
+      .settings-body {
+        display: grid;
+        gap: 22px;
+      }
+
+      .field {
+        display: grid;
+        gap: 9px;
+      }
+
+      .field-label {
+        color: var(--text-primary);
+        font-weight: 650;
+      }
+
+      .field-note {
+        color: var(--text-muted);
+        font-size: 13px;
+        line-height: 1.38;
+      }
+
+      .segment {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .segment button {
+        min-height: 36px;
+        border: 0;
+        border-right: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-primary);
+      }
+
+      .segment button:last-child {
+        border-right: 0;
+      }
+
+      .segment button.active {
+        color: #fffefa;
+        background: var(--accent);
+      }
+
+      .select,
+      .field input {
+        width: 100%;
+        height: 38px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text-primary);
+        padding: 0 12px;
+      }
+
+      .field input {
+        display: block;
+      }
+
+      .toggle-row,
+      .number-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .toggle {
+        width: 39px;
+        height: 24px;
+        position: relative;
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      .toggle::after {
+        content: "";
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: #fffefa;
+      }
+
+      .number {
+        width: 110px;
+        height: 40px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--surface);
+        padding: 0 10px;
+      }
+
+      .number-controls {
+        display: grid;
+        color: var(--text-muted);
+      }
+
+      .reset {
+        margin-top: 14px;
+        width: 100%;
+        height: 38px;
+      }
+
+      @media (max-width: 1120px) {
+        .app {
+          grid-template-columns: 1fr;
+          border-radius: 0;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .workbench {
+          grid-template-columns: 1fr;
+        }
+
+        .settings {
+          border-left: 0;
+          border-top: 1px solid var(--border);
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          padding: 10px 14px;
+        }
+
+        .top-actions {
+          display: none;
+        }
+
+        .search {
+          height: 36px;
+        }
+
+        .chat-main {
+          padding: 16px 12px 20px;
+        }
+
+        .chat-head {
+          height: auto;
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .chat-tools {
+          gap: 10px;
+        }
+
+        .message-card {
+          padding: 16px;
+        }
+
+        .answer,
+        .references,
+        .stream {
+          margin-left: 0;
+        }
+
+        .message-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .composer {
+          min-height: 150px;
+        }
+
+        .settings {
+          padding: 20px 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      function Icon({ name, className = "icon" }) {
+        return <i data-lucide={name} className={className} aria-hidden="true" />;
+      }
+
+      function NavItem({ icon, label, active }) {
+        return (
+          <div className={`nav-item ${active ? "active" : ""}`}>
+            <Icon name={icon} />
+            <span>{label}</span>
+          </div>
+        );
+      }
+
+      function ToggleRow({ title, note }) {
+        return (
+          <div className="toggle-row">
+            <div>
+              <div className="field-label">{title}</div>
+              <div className="field-note">{note}</div>
+            </div>
+            <button className="toggle" type="button" aria-label={title} />
+          </div>
+        );
+      }
+
+      function NumberField({ title, note, value }) {
+        return (
+          <div className="number-row">
+            <div>
+              <div className="field-label">{title}</div>
+              <div className="field-note">{note}</div>
+            </div>
+            <div className="number">
+              <span>{value}</span>
+              <span className="number-controls"><Icon name="chevron-up" /><Icon name="chevron-down" /></span>
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [mode, setMode] = React.useState("RAG");
+
+        React.useEffect(() => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        });
+
+        return (
+          <main className="app">
+            <aside className="sidebar">
+              <div className="brand">
+                <Icon name="sparkles" className="brand-mark" />
+                <span>LightRAGNet</span>
+              </div>
+
+              <nav className="nav" aria-label="Primary">
+                <NavItem icon="home" label="Overview" />
+                <NavItem icon="file-text" label="Documents" />
+                <NavItem icon="message-circle" label="RAG Chat" active />
+                <NavItem icon="network" label="Knowledge Graph" />
+                <NavItem icon="settings" label="System" />
+                <NavItem icon="database" label="Cache" />
+                <NavItem icon="scroll-text" label="Logs" />
+                <NavItem icon="sliders-horizontal" label="Settings" />
+              </nav>
+
+              <div className="profile">
+                <span className="avatar">A</span>
+                <div>
+                  <strong>Admin</strong>
+                  <div className="field-note">Administrator</div>
+                </div>
+                <Icon name="chevron-right" />
+              </div>
+            </aside>
+
+            <section className="workspace">
+              <header className="topbar">
+                <button className="menu-button" type="button" aria-label="Open navigation"><Icon name="menu" /></button>
+                <label className="search">
+                  <Icon name="search" />
+                  <input value="Search documents, nodes, conversations..." readOnly />
+                  <span className="kbd">Ctrl K</span>
+                </label>
+                <span />
+                <div className="top-actions">
+                  <Icon name="sun" />
+                  <Icon name="book-open" />
+                  <Icon name="bell" />
+                </div>
+              </header>
+
+              <section className="workbench">
+                <section className="chat-main">
+                  <header className="chat-head">
+                    <div className="chat-title">
+                      <h1>RAG Chat</h1>
+                      <button className="button" type="button">New conversation</button>
+                      <button className="mini-button" type="button" aria-label="Create conversation"><Icon name="plus" /></button>
+                    </div>
+                    <div className="chat-tools">
+                      <Icon name="history" />
+                      <Icon name="upload" />
+                      <Icon name="trash-2" />
+                    </div>
+                  </header>
+
+                  <div className="thread">
+                    <article className="message-card user">
+                      <div className="message-head">
+                        <div className="speaker">
+                          <span className="avatar">A</span>
+                          <strong>You</strong>
+                          <span className="time">10:21 AM</span>
+                        </div>
+                      </div>
+                      <div className="answer">LightRAGNet 支持哪些类型的文档？如何保证解析质量？</div>
+                    </article>
+
+                    <article className="message-card">
+                      <div className="message-head">
+                        <div className="speaker">
+                          <span className="avatar assistant-avatar">L</span>
+                          <strong>LightRAGNet</strong>
+                          <span className="time">10:21 AM</span>
+                        </div>
+                        <button className="button details-button" type="button"><Icon name="sliders-horizontal" />View details</button>
+                      </div>
+                      <div className="stream"><span className="stream-dot" />Streaming answer...</div>
+                      <div className="answer">
+                        <p>LightRAGNet 支持多种文档类型，并通过多层次的解析策略与质量保障机制来确保解析效果。</p>
+                        <h2>支持的文档类型</h2>
+                        <ul>
+                          <li>Office 文档：DOCX, PPTX, XLSX</li>
+                          <li>PDF 文档：文本型 PDF，扫描版 PDF（OCR）</li>
+                          <li>纯文本：TXT, MD</li>
+                          <li>网页：HTML</li>
+                          <li>代码文件：支持多种编程语言文件</li>
+                        </ul>
+                        <h2>解析质量保障</h2>
+                        <ol>
+                          <li>多解析引擎协同：根据文档类型自动选择最优解析引擎</li>
+                          <li>结构化识别：保留标题、段落、列表、表格等结构信息</li>
+                          <li>质量评分机制：对解析结果进行置信度评分，过滤低质量内容</li>
+                          <li>重试与降级策略：解析失败时自动切换策略或引擎重试</li>
+                        </ol>
+                        <p>如果你有具体的文档示例或场景需求，我可以进一步给出更有针对性的建议。</p>
+                      </div>
+                      <div className="references">
+                        <span className="reference"><Icon name="file-text" />docs_supported_types.md <span className="ref-count">1</span></span>
+                        <span className="reference"><Icon name="file-text" />parsing_quality_guide.md <span className="ref-count">2</span></span>
+                        <span className="reference"><Icon name="file-text" />lightRAG_overview.pdf <span className="ref-count">3</span></span>
+                        <span className="reference">+2 more</span>
+                      </div>
+                    </article>
+                  </div>
+
+                  <section className="composer" aria-label="Message composer">
+                    <textarea placeholder="Ask anything about your knowledge base..." />
+                    <div className="composer-actions">
+                      <div className="composer-left">
+                        <button className="button" type="button">Auto <Icon name="chevron-down" /></button>
+                        <button className="mini-button" type="button" aria-label="Attach file"><Icon name="paperclip" /></button>
+                      </div>
+                      <button className="send-button" type="button" aria-label="Send message"><Icon name="send" /></button>
+                    </div>
+                  </section>
+                </section>
+
+                <aside className="settings">
+                  <div className="settings-head">
+                    <h2>Query Settings</h2>
+                    <Icon name="chevrons-right" />
+                  </div>
+                  <div className="settings-body">
+                    <div className="field">
+                      <div className="field-label">Mode</div>
+                      <div className="segment">
+                        {["RAG", "RAG + KG", "KG"].map((item) => (
+                          <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)} type="button">{item}</button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <div className="field-label">Response style</div>
+                      <div className="select"><Icon name="sliders-horizontal" /><span>Balanced (Default)</span><Icon name="chevron-down" /></div>
+                    </div>
+
+                    <ToggleRow title="Streaming" note="Stream tokens as they are generated" />
+                    <ToggleRow title="References" note="Show reference sources" />
+                    <ToggleRow title="Rerank" note="Rerank retrieved chunks" />
+                    <NumberField title="TopK" note="Number of chunks to retrieve" value="10" />
+                    <NumberField title="ChunkTopK" note="Chunks per document" value="5" />
+
+                    <label className="field">
+                      <span className="field-label">Keywords <span className="field-note">(Optional)</span></span>
+                      <input placeholder="e.g., LightRAGNet, parsing" />
+                    </label>
+
+                    <label className="field">
+                      <span className="field-label">Exclude keywords <span className="field-note">(Optional)</span></span>
+                      <input placeholder="e.g., ads, copyright" />
+                    </label>
+
+                    <div className="field">
+                      <div className="field-label">Debug output</div>
+                      <div className="select"><span>None</span><Icon name="chevron-down" /></div>
+                    </div>
+
+                    <button className="button reset" type="button"><Icon name="rotate-ccw" />Reset to defaults</button>
+                  </div>
+                </aside>
+              </section>
+            </section>
+          </main>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

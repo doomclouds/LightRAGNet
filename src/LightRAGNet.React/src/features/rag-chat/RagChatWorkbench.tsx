@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { History, Plus, Trash2, Upload } from "lucide-react";
 
 import { queryRagStream } from "@/api/ragChatApi";
-import { PageHeader } from "@/shared/components/PageHeader";
-import { StatusPill } from "@/shared/components/StatusPill";
 import type { ChatMessage, RagQueryReference } from "@/types/ragChat";
 import { ChatPane } from "./ChatPane";
 import { QueryDetailsDialog } from "./QueryDetailsDialog";
@@ -138,28 +137,45 @@ export function RagChatWorkbench({ apiBase, initialAssistantReferenceUrl }: Prop
 
   return (
     <section className="rag-chat">
-      <section className="rag-chat__inner">
-        <PageHeader
-          title="RAG Chat"
-          meta={
-            <>
-              <StatusPill tone="accent">{settings.mode}</StatusPill>
-              <StatusPill>{settings.streamResponse ? "Streaming" : "Non-stream"}</StatusPill>
-            </>
-          }
-          actions={
+      <section className="rag-chat__workbench">
+        <header className="rag-chat__topline">
+          <div className="rag-chat__heading">
+            <div className="rag-chat__title-row">
+              <h1>RAG Chat</h1>
+              <span className="rag-chat__status-chip">{settings.mode}</span>
+              <span className="rag-chat__status-chip">{settings.streamResponse ? "Streaming" : "Non-stream"}</span>
+            </div>
+            <p>Query the document store and knowledge graph from one focused workspace.</p>
+          </div>
+          <div className="rag-chat__header-actions">
+            <button className="rag-chat__utility-action" type="button" aria-label="Open conversation history">
+              <History size={16} aria-hidden="true" />
+            </button>
+            <button className="rag-chat__utility-action" type="button" aria-label="Upload context document">
+              <Upload size={16} aria-hidden="true" />
+            </button>
             <button
-              className="lrn-button lrn-button--danger"
+              className="rag-chat__primary-action"
               type="button"
+              disabled={isRunning}
+              onClick={() => setMessages([])}
+            >
+              <Plus size={16} aria-hidden="true" />
+              <span>New conversation</span>
+            </button>
+            <button
+              className="rag-chat__danger-action"
+              type="button"
+              aria-label="Clear conversation history"
               disabled={isRunning || messages.length === 0}
               onClick={() => setMessages([])}
             >
-              Clear History
+              <Trash2 size={16} aria-hidden="true" />
             </button>
-          }
-        />
+          </div>
+        </header>
 
-        <div className="rag-chat__layout">
+        <div className={`rag-chat__layout rag-chat__layout--fixed ${messages.length === 0 ? "rag-chat__layout--empty" : ""}`}>
           <ChatPane
             input={input}
             isRunning={isRunning}

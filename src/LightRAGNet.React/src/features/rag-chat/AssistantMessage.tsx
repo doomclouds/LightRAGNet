@@ -1,3 +1,5 @@
+import { Bot, FileText, LoaderCircle } from "lucide-react";
+
 import { MarkdownRenderer } from "@/shared/components/MarkdownRenderer";
 import type { ChatMessage, RagQueryReference } from "@/types/ragChat";
 
@@ -12,9 +14,22 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
 
   return (
     <article className="rag-chat__message rag-chat__message--assistant">
+      <div className="rag-chat__message-head">
+        <span className="rag-chat__avatar rag-chat__avatar--assistant" aria-hidden="true">
+          <Bot size={15} />
+        </span>
+        <strong>LightRAGNet</strong>
+        <span>{message.isComplete ? "Answer" : "Thinking"}</span>
+      </div>
+
       <MarkdownRenderer className="rag-chat__markdown" content={message.text || (message.isComplete ? "No content returned." : "")} />
 
-      {!message.isComplete ? <div className="rag-chat__loading">Generating...</div> : null}
+      {!message.isComplete ? (
+        <div className="rag-chat__loading">
+          <LoaderCircle size={14} aria-hidden="true" />
+          <span>Generating...</span>
+        </div>
+      ) : null}
       {message.errorMessage ? <div className="rag-chat__error">{message.errorMessage}</div> : null}
 
       {metadata ? (
@@ -32,10 +47,14 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
 
             return href ? (
               <a key={reference.referenceId} href={href} target="_blank" rel="noopener noreferrer">
+                <FileText size={13} aria-hidden="true" />
                 {reference.fileName || reference.filePath}
               </a>
             ) : (
-              <span key={reference.referenceId}>{reference.fileName || reference.filePath}</span>
+              <span key={reference.referenceId}>
+                <FileText size={13} aria-hidden="true" />
+                {reference.fileName || reference.filePath}
+              </span>
             );
           })}
         </div>
@@ -43,8 +62,8 @@ export function AssistantMessage({ message, onOpenDetails }: Props) {
 
       {message.isComplete && message.request ? (
         <div className="rag-chat__message-actions">
-          <button className="lrn-button" type="button" onClick={onOpenDetails}>
-            View query details
+          <button className="rag-chat__details-action" type="button" aria-label="View query details" onClick={onOpenDetails}>
+            View details
           </button>
         </div>
       ) : null}
