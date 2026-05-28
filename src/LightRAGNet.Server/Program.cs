@@ -141,6 +141,8 @@ builder.Services.AddSingleton(sp => new RagasEvaluationRunCoordinator(
     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RagasEvaluationOptions>>(),
     sp.GetRequiredService<RagasEvaluationDataLoader>(),
     sp.GetRequiredService<RagasEvaluationRunStore>(),
+    new RagasEvaluationExportService(),
+    new RagasEvaluationComparisonService(),
     sp.GetRequiredService<IServiceScopeFactory>(),
     sp.GetRequiredService<RagasEvaluationTextSnapshotter>(),
     sp.GetRequiredService<RagasEvaluationSecretProvider>(),

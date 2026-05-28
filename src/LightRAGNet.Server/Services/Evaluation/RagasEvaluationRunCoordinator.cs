@@ -12,6 +12,8 @@ public sealed class RagasEvaluationRunCoordinator
     private readonly IOptions<RagasEvaluationOptions> options;
     private readonly RagasEvaluationDataLoader dataLoader;
     private readonly RagasEvaluationRunStore store;
+    private readonly RagasEvaluationExportService exportService;
+    private readonly RagasEvaluationComparisonService comparisonService;
     private readonly IServiceScopeFactory scopeFactory;
     private readonly RagasEvaluationTextSnapshotter snapshotter;
     private readonly RagasEvaluationSecretProvider secretProvider;
@@ -21,6 +23,8 @@ public sealed class RagasEvaluationRunCoordinator
         IOptions<RagasEvaluationOptions> options,
         RagasEvaluationDataLoader dataLoader,
         RagasEvaluationRunStore store,
+        RagasEvaluationExportService exportService,
+        RagasEvaluationComparisonService comparisonService,
         IServiceScopeFactory scopeFactory,
         RagasEvaluationTextSnapshotter snapshotter,
         RagasEvaluationSecretProvider secretProvider,
@@ -29,6 +33,8 @@ public sealed class RagasEvaluationRunCoordinator
         this.options = options;
         this.dataLoader = dataLoader;
         this.store = store;
+        this.exportService = exportService;
+        this.comparisonService = comparisonService;
         this.scopeFactory = scopeFactory;
         this.snapshotter = snapshotter;
         this.secretProvider = secretProvider;
@@ -140,6 +146,67 @@ public sealed class RagasEvaluationRunCoordinator
         }
 
         return RagasEvaluationOperationResult<RagasEvaluationRunResponse>.Ok(ToResponse(run));
+    }
+
+    internal async Task<RagasEvaluationOperationResult<RagasEvaluationRunListResponse>> ListAsync(
+        CancellationToken cancellationToken)
+    {
+        var runs = await store.ListAsync(cancellationToken);
+        return RagasEvaluationOperationResult<RagasEvaluationRunListResponse>.Ok(new RagasEvaluationRunListResponse
+        {
+            Runs = runs.Select(ToSummaryItem).ToList()
+        });
+    }
+
+    internal async Task<RagasEvaluationOperationResult<RagasEvaluationExportResult>> ExportAsync(
+        string runId,
+        string? format,
+        CancellationToken cancellationToken)
+    {
+        var run = await store.GetAsync(runId, cancellationToken);
+        if (run is null)
+        {
+            return RagasEvaluationOperationResult<RagasEvaluationExportResult>.Fail(
+                "run_not_found",
+                $"RAGAS evaluation run '{runId}' was not found.",
+                StatusCodes.Status404NotFound);
+        }
+
+        return string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase)
+            ? RagasEvaluationOperationResult<RagasEvaluationExportResult>.Ok(exportService.ExportCsv(run))
+            : string.Equals(format, "json", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(format)
+                ? RagasEvaluationOperationResult<RagasEvaluationExportResult>.Ok(exportService.ExportJson(run))
+                : RagasEvaluationOperationResult<RagasEvaluationExportResult>.Fail(
+                    "unsupported_export_format",
+                    "Supported RAGAS evaluation export formats are json and csv.",
+                    StatusCodes.Status400BadRequest);
+    }
+
+    internal async Task<RagasEvaluationOperationResult<RagasEvaluationComparisonResponse>> CompareAsync(
+        string runId,
+        string baselineRunId,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(runId, baselineRunId, StringComparison.Ordinal))
+        {
+            return RagasEvaluationOperationResult<RagasEvaluationComparisonResponse>.Fail(
+                "same_run_compare",
+                "A RAGAS evaluation run cannot be compared with itself.",
+                StatusCodes.Status400BadRequest);
+        }
+
+        var current = await store.GetAsync(runId, cancellationToken);
+        var baseline = await store.GetAsync(baselineRunId, cancellationToken);
+        if (current is null || baseline is null)
+        {
+            return RagasEvaluationOperationResult<RagasEvaluationComparisonResponse>.Fail(
+                "run_not_found",
+                "The current or baseline RAGAS evaluation run was not found.",
+                StatusCodes.Status404NotFound);
+        }
+
+        return RagasEvaluationOperationResult<RagasEvaluationComparisonResponse>.Ok(
+            comparisonService.Compare(current, baseline));
     }
 
     internal async Task<RagasEvaluationOperationResult<RagasEvaluationRunResponse>> CancelAsync(
@@ -273,5 +340,21 @@ public sealed class RagasEvaluationRunCoordinator
             Cases = run.Cases,
             Diagnostics = run.Diagnostics,
             Error = run.Error
+        };
+
+    private static RagasEvaluationRunSummaryItemDto ToSummaryItem(RagasEvaluationRunRecord run) =>
+        new()
+        {
+            RunId = run.RunId,
+            Status = run.Status.ToString(),
+            CreatedAt = run.CreatedAt,
+            StartedAt = run.StartedAt,
+            CompletedAt = run.CompletedAt,
+            Total = run.Summary.Total,
+            Succeeded = run.Summary.Succeeded,
+            Failed = run.Summary.Failed,
+            Cancelled = run.Summary.Cancelled,
+            RagasScore = run.Summary.AverageMetrics.RagasScore,
+            DurationSeconds = run.Summary.ElapsedTimeSeconds
         };
 }

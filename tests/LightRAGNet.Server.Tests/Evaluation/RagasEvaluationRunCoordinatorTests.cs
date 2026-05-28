@@ -158,6 +158,46 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_ReturnsLightweightRuns()
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-a"), CancellationToken.None);
+
+        var result = await coordinator.ListAsync(CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Value!.Runs.Should().ContainSingle();
+        result.Value.Runs[0].RunId.Should().Be("ragas-a");
+    }
+
+    [Fact]
+    public async Task ExportAsync_UnknownRun_ReturnsNotFound()
+    {
+        var coordinator = CreateCoordinator();
+
+        var result = await coordinator.ExportAsync("missing", "json", CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("run_not_found");
+        result.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+    }
+
+    [Fact]
+    public async Task CompareAsync_SameRun_ReturnsBadRequest()
+    {
+        var store = CreateStore();
+        var coordinator = CreateCoordinator(store: store);
+        await store.UpsertAsync(CreateCompletedRun("ragas-a"), CancellationToken.None);
+
+        var result = await coordinator.CompareAsync("ragas-a", "ragas-a", CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("same_run_compare");
+        result.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+    }
+
+    [Fact]
     public async Task CreateAsync_WhenFullTextPersistenceIsDisabled_PropagatesSnapshotterFailure()
     {
         var options = CreateOptions();
@@ -268,6 +308,8 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
             optionsMonitor,
             new RagasEvaluationDataLoader(optionsMonitor),
             store,
+            new RagasEvaluationExportService(),
+            new RagasEvaluationComparisonService(),
             scopeFactory,
             snapshotter,
             secretProvider ?? new RagasEvaluationSecretProvider(optionsMonitor, _ => null),
@@ -344,6 +386,37 @@ public sealed class RagasEvaluationRunCoordinatorTests : IDisposable
                 ChunkTopK = 2,
                 EnableRerank = false
             }
+        };
+
+    private static RagasEvaluationRunRecord CreateCompletedRun(string runId) =>
+        new()
+        {
+            RunId = runId,
+            Status = RagasEvaluationRunStatus.Completed,
+            CreatedAt = new DateTimeOffset(2026, 5, 28, 8, 0, 0, TimeSpan.Zero),
+            CompletedAt = new DateTimeOffset(2026, 5, 28, 8, 0, 5, TimeSpan.Zero),
+            Summary = new RagasEvaluationSummaryDto
+            {
+                Total = 1,
+                Succeeded = 1,
+                AverageMetrics = new RagasEvaluationMetricsDto
+                {
+                    Faithfulness = 0.9,
+                    AnswerRelevance = 0.8,
+                    ContextRecall = 0.7,
+                    ContextPrecision = 0.6,
+                    RagasScore = 0.75
+                },
+                ElapsedTimeSeconds = 5
+            },
+            Cases =
+            [
+                new RagasEvaluationCaseResultDto
+                {
+                    CaseName = "case-a",
+                    Status = RagasEvaluationCaseStatus.Succeeded.ToString()
+                }
+            ]
         };
 
     private sealed class SuccessfulRagasRagQueryClient : IRagasRagQueryClient
