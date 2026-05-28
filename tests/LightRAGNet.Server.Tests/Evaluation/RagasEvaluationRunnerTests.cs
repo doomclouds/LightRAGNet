@@ -72,6 +72,22 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenCasesComplete_ComputesBenchmarkStatistics()
+    {
+        var fixture = CreateSuccessfulRunnerFixture(caseCount: 2);
+        var run = CreateRun();
+
+        await fixture.Runner.ExecuteAsync(run, fixture.Cases, CancellationToken.None);
+
+        run.Summary.SuccessRate.Should().Be(1.0);
+        run.Summary.MinRagasScore.Should().BeGreaterThan(0);
+        run.Summary.MaxRagasScore.Should().BeGreaterThan(0);
+        run.Summary.ElapsedTimeSeconds.Should().BeGreaterThan(0);
+        run.Summary.AverageSecondsPerCase.Should().BeGreaterThan(0);
+        run.Summary.FailureReasons.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenNoContextsAreRetrieved_MarksCaseFailedAndSkipsEvaluator()
     {
         var queryClient = new FakeRagasRagQueryClient();
@@ -94,6 +110,22 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
             diagnostic.Code == "no_contexts" &&
             diagnostic.Message == "RAG query returned no retrieved contexts.");
         evaluator.Inputs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenCaseHasNoContexts_AddsFailureReason()
+    {
+        var fixture = CreateNoContextRunnerFixture();
+        var run = CreateRun();
+
+        await fixture.Runner.ExecuteAsync(run, fixture.Cases, CancellationToken.None);
+
+        run.Summary.Succeeded.Should().Be(0);
+        run.Summary.Failed.Should().Be(1);
+        run.Summary.SuccessRate.Should().Be(0);
+        run.Summary.MinRagasScore.Should().BeNull();
+        run.Summary.MaxRagasScore.Should().BeNull();
+        run.Summary.FailureReasons.Should().ContainKey("no_contexts").WhoseValue.Should().Be(1);
     }
 
     [Fact]
@@ -331,6 +363,35 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
         return new RagasEvaluationRunStore(configuration);
     }
 
+    private RunnerFixture CreateSuccessfulRunnerFixture(int caseCount)
+    {
+        var queryClient = new FakeRagasRagQueryClient();
+        var evaluator = new FakeRagasEvaluator();
+
+        for (var index = 1; index <= caseCount; index++)
+        {
+            queryClient.Enqueue(new RagasQueryExecutionResult(
+                $"answer {index}",
+                [new RagasRetrievedContext($"context {index}", $"chunk-{index}", $"docs/{index}.md", $"ref-{index}")],
+                QueryMode.Mix));
+            evaluator.EnqueueSuccess(CreateMetrics(0.8, 0.7, 0.6, 0.5));
+        }
+
+        var cases = CreateCases(caseCount);
+
+        return new RunnerFixture(CreateRunner(CreateStore(), queryClient, evaluator), cases);
+    }
+
+    private RunnerFixture CreateNoContextRunnerFixture()
+    {
+        var queryClient = new FakeRagasRagQueryClient();
+        queryClient.Enqueue(new RagasQueryExecutionResult("answer", [], QueryMode.Mix));
+        var evaluator = new FakeRagasEvaluator();
+        var cases = CreateCases(1);
+
+        return new RunnerFixture(CreateRunner(CreateStore(), queryClient, evaluator), cases);
+    }
+
     private static RagasEvaluationRunRecord CreateRun(bool includeFullText = false)
     {
         return new RagasEvaluationRunRecord
@@ -373,6 +434,10 @@ public sealed class RagasEvaluationRunnerTests : IDisposable
             new RagasMetricScore(contextRecall, "context recall reason"),
             new RagasMetricScore(contextPrecision, "context precision reason"));
     }
+
+    private sealed record RunnerFixture(
+        RagasEvaluationRunner Runner,
+        IReadOnlyList<RagasDatasetCase> Cases);
 
     private sealed class FakeRagasRagQueryClient : IRagasRagQueryClient
     {
