@@ -2,7 +2,13 @@
 
 ## Project Structure & Module Organization
 
-LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Production projects live under `src/`. Core contracts and shared models live in `src/LightRAGNet.Core/` and `src/LightRAGNet.Share/`. The main RAG orchestration code is in `src/LightRAGNet/`, with service areas under `Services/DocumentProcessing`, `Services/KnowledgeGraphMerge`, `Services/RetrievalContext`, and `Services/TaskQueue`. Provider implementations are split into `src/LightRAGNet.LLM/`, `src/LightRAGNet.Embedding/`, `src/LightRAGNet.Rerank/`, and `src/LightRAGNet.Storage/`. `src/LightRAGNet.Hosting/` contains dependency-injection setup. `src/LightRAGNet.Server/` is the ASP.NET Core API, SignalR hub, EF Core migrations, and SQLite-backed document metadata service. `src/LightRAGNet.Web/` is the Blazor Server UI with MudBlazor components and static assets under `wwwroot/`. `src/LightRAGNet.Example/` contains sample usage and local skill examples.
+LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Production .NET projects live under `src/`, and test projects live under `tests/`.
+
+Core contracts, interfaces, IO helpers, tokenizer assets, and shared models live in `src/LightRAGNet.Core/` and `src/LightRAGNet.Share/`. The main RAG orchestration library is `src/LightRAGNet/`, with service areas under `Services/DocumentDeletion`, `Services/DocumentLifecycle`, `Services/DocumentProcessing`, `Services/GraphCuration`, `Services/KnowledgeGraphMerge`, `Services/Query`, `Services/QueryCache`, `Services/RetrievalContext`, `Services/TaskQueue`, and `Services/Utilities`. Provider implementations are split into `src/LightRAGNet.LLM/`, `src/LightRAGNet.Embedding/`, `src/LightRAGNet.Rerank/`, and `src/LightRAGNet.Storage/`. `src/LightRAGNet.Hosting/` contains dependency-injection composition.
+
+`src/LightRAGNet.Server/` is the ASP.NET Core API host, including controllers, SignalR hubs, EF Core migrations, SQLite-backed document metadata, document intake/preview services, system health, cache management, graph APIs, and RAGAS/evaluation endpoints. `src/LightRAGNet.Web/` is the Blazor Server host and shell, with Razor pages, API client glue, SignalR UI services, and static assets under `wwwroot/`. Its `ClientApp/` directory still contains Vite-built React islands that emit assets into `wwwroot/`.
+
+`src/LightRAGNet.React/` is the standalone React/Vite workbench app, with API clients under `src/api`, routing and shell code under `src/app`, feature modules for documents, document preview, RAG chat, graph workbench, cache management, and system status under `src/features`, shared components/styles under `src/shared`, stores under `src/stores`, and Vitest suites under `tests/`. `src/LightRAGNet.Example/` contains sample usage and local example code. Project knowledge assets live under `docs/superpowers/`, including specs, plans, archives, problems, inbox notes, and visual artifacts.
 
 ## Build, Test, and Development Commands
 
@@ -11,7 +17,9 @@ LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Productio
 - `docker compose up -d` starts Qdrant and Neo4j for local RAG storage.
 - `dotnet run --project src/LightRAGNet.Server` runs the API server.
 - `dotnet run --project src/LightRAGNet.Web` runs the Blazor UI.
-- `dotnet test LightRAGNet.slnx` runs the core and server test projects.
+- `dotnet test LightRAGNet.slnx` runs the .NET test projects.
+- `Push-Location src/LightRAGNet.React; npm ci; npm test; npm run build; Pop-Location` restores, tests, and builds the standalone React app.
+- `Push-Location src/LightRAGNet.Web/ClientApp; npm ci; npm test; npm run build; Pop-Location` tests and rebuilds the legacy Web-hosted React islands when touching that tree.
 
 ## Coding Style & Naming Conventions
 
@@ -19,7 +27,7 @@ Use C# with nullable reference types and implicit usings enabled. Follow standar
 
 ## Testing Guidelines
 
-Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names and cover queue processing, retrieval strategy behavior, storage adapters, and API contracts.
+Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`; Blazor host/source tests live under `tests/LightRAGNet.Web.Tests/`; standalone React unit and integration tests live under `src/LightRAGNet.React/tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs` or `RagChatWorkbench.test.tsx`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names for .NET tests and focused Vitest suites for React behavior, API clients, stores, and design-system guardrails.
 
 Server/API tests must not use real developer databases or external RAG storage by default. Isolate Qdrant, Neo4j, hosted background workers, and destructive clear-all paths behind test doubles, no-op cleaners, temporary stores, or explicit opt-in integration tests with uniquely owned resources. A full `dotnet test` run must never delete or mutate local development Qdrant/Neo4j data.
 
@@ -34,7 +42,9 @@ Do not commit real API keys in `appsettings*.json`. Keep local credentials in us
 <!-- asset-compounding-guidance:start -->
 ## Asset Compounding Retrieval Guide
 
-This section is managed by `compound-development-asset`. Keep generic asset-compounding workflow rules in the skill system; keep repository-specific retrieval anchors here.
+This repository uses hook-assisted asset compounding from the `superpowers-asset-compounding` plugin. Keep this `AGENTS.md` block as repository-specific retrieval anchors only; generic routing, closeout reminders, subagent candidate reporting, and `asset_gate` nudges belong to the plugin hooks and skills.
+
+If the plugin was just installed or upgraded, review and trust the bundled hooks with `/hooks` before relying on lifecycle automation.
 
 ### Asset Directories
 
@@ -44,7 +54,7 @@ This section is managed by `compound-development-asset`. Keep generic asset-comp
 - Problems: `docs/superpowers/problems/`
 - Inbox: `docs/superpowers/inbox/`
 
-If one of these directories does not exist, do not assume there is no asset. Search the existing directories first, then decide whether the missing area should be created.
+If one of these directories does not exist, do not assume there is no asset. Search the existing directories first, then inspect current code and tests before guessing.
 
 ### Retrieval Order
 
@@ -52,8 +62,8 @@ When continuing feature work, explaining prior decisions, or checking whether a 
 
 1. Search `docs/superpowers/specs/` and `docs/superpowers/plans/` for the intended behavior and implementation plan.
 2. Search `docs/superpowers/archives/` for completed delivery history.
-3. Search `docs/superpowers/problems/` for reusable failure modes, root causes, and recovery rules.
-4. Search `docs/superpowers/inbox/` for uncertain but possibly reusable signals that have not been promoted yet.
+3. Search `docs/superpowers/problems/` for stable reusable failure modes, root causes, and recovery rules.
+4. Search `docs/superpowers/inbox/` for uncertain but possibly reusable signals.
 5. If no asset answers the question, inspect current code and tests before guessing.
 
 Preferred keyword search:
@@ -62,108 +72,13 @@ Preferred keyword search:
 rg -n "<topic-keyword>" docs/superpowers/specs docs/superpowers/plans docs/superpowers/archives docs/superpowers/problems docs/superpowers/inbox
 ```
 
-### Script-Assisted Checks
+### Hook-Owned Workflow
 
-When `compound-development-asset` and `write-superpowers-problem` are available, prefer bundled scripts for deterministic checks:
+- `SessionStart` injects a short asset protocol when `docs/superpowers/` exists.
+- `SubagentStart` / `SubagentStop` ask subagents to report `asset_candidates` without writing assets.
+- `PostToolUse` records compact signals from edits, verification, and git closeout commands.
+- `Stop` may request one more pass when meaningful work lacks an `asset_gate`.
+- `PreCompact` / `PostCompact` preserve pending asset signals across compaction.
 
-- `find_related_assets.py`: find matching specs, plans, archives, problems, and inbox notes before creating a new asset.
-- `suggest_asset_route.py`: get a first-pass route suggestion: `none`, `inbox`, `update-existing`, `new-problem`, `archive`, or `both`.
-- `check_indexes.py`: validate archive/problem/inbox index order, dead links, duplicate entries, and orphan files.
-- `check_completion_gate.py`: check close-out evidence, completed-topic archive coverage, reviewer/subagent asset candidates, src/tests relayout leftovers, and solution-folder drift.
-- `asset_status.py`: summarize requirement archive coverage, related problem/inbox assets, index health, and completed-topic gate status for one topic.
-- `asset_closeout.py`: aggregate topic status into a closeout route, required actions, related assets, and a compact handoff block.
-- `archive-superpowers-feature/scripts/validate_archive_asset.py`: validate formal archive assets.
-- `write-superpowers-problem/scripts/validate_problem_asset.py`: validate formal problem assets and inbox notes.
-- `write-superpowers-problem/scripts/inspect_inbox_lifecycle.py`: inspect related inbox lifecycle status and revisit candidates.
-
-Scripts provide evidence, not final authority. Use the output to reduce misses and duplicates, then make the final routing decision with project context.
-
-For completed requirement work, include the topic so spec+plan without archive coverage cannot silently pass:
-
-```powershell
-python <compound-development-asset>/scripts/asset_status.py . --topic "<topic-keyword-or-slug>" --json
-python <compound-development-asset>/scripts/asset_closeout.py . --topic "<topic-keyword-or-slug>" --json
-python <compound-development-asset>/scripts/check_completion_gate.py . --completed-topic "<topic-keyword-or-slug>" --json
-```
-
-### Routing Boundaries
-
-- Use `inbox` for uncertain but potentially reusable signals.
-- Update an existing problem/archive when the new learning belongs to the same feature or failure class.
-- Treat user validation feedback, CI/release warnings, installer/artifact warnings, and hosted automation deprecations as asset signals; update a related asset if one exists, otherwise park the signal in inbox.
-- Create a new problem only for a stable, distinct failure mode with root-cause evidence and recognition clues.
-- Create or update an archive only for completed or accepted requirement threads.
-- Use `both` only when a completed requirement also produced stable reusable debugging knowledge.
-
-### Completion Gates
-
-Requirement archives and problem archives are separate gates:
-
-- Requirement archiving records what was delivered. Run it when a coherent requirement, phase, feature, or accepted design-to-implementation thread is complete and verified.
-- Problem archiving records reusable failure knowledge. Run it after the current task has been implemented, spec-reviewed, code-quality-reviewed, and verified, before starting the next task or when the overall task is ending.
-
-A plain completion-gate pass is not enough to skip requirement archiving. If `docs/superpowers/specs/` and `docs/superpowers/plans/` contain the completed topic but `docs/superpowers/archives/` does not, route to `archive` or `update-existing` before close-out.
-
-For meaningful development work, the main agent must run a problem-archiving gate after:
-
-- implementation is complete enough to review as a unit
-- spec alignment has been checked against `docs/superpowers/specs/` and `docs/superpowers/plans/`
-- code quality review has checked correctness, maintainability, test coverage, and integration risks
-- verification commands or targeted manual checks have produced concrete evidence
-
-This gate belongs at task boundaries, not inside every small edit. Use it before moving from one planned task to the next, before merge/PR/cleanup when applicable, or before the final response when no next task remains.
-
-### Problem Archiving Ownership
-
-Only the main agent should execute the problem-archiving gate. Subagents may report candidate lessons, suspicious behavior, failed approaches, review findings, or tool quirks, but they should not write or promote problem/inbox/archive assets unless the main agent explicitly delegates that asset-writing task.
-
-Reviewer and subagent handoffs should include this field when useful:
-
-```text
-asset_candidates:
-  - <none | candidate lesson, failed approach, tool quirk, review finding>
-```
-
-During the gate, the main agent should collect candidates from:
-
-- implementation issues and debugging paths
-- failed or flaky tests
-- spec review mismatches
-- code quality review findings
-- provider, tool, MCP, SSE, SQLite, filesystem, encoding, or Windows-specific runtime quirks
-- subagent reports and unresolved observations
-
-### Inbox-First Problem Routing
-
-When a signal is potentially reusable but not mature enough for a formal problem asset, prefer `inbox` over dropping it.
-
-Use `inbox` for:
-
-- a fix that worked but whose root cause is not yet stable
-- a suspicious behavior that may recur but has limited evidence
-- a review finding that indicates a possible class of mistakes
-- an environment/tool/provider quirk that affected the work but was not fully diagnosed
-- a requirement or workflow ambiguity that may need later promotion
-- a "could archive or could skip" lesson that future agents might realistically search for
-- a release/CI warning that did not fail the run but may affect future builds
-
-Use `none` only when the signal is clearly mechanical, one-off, already covered, or unlikely to help future work. If choosing `none` after meaningful development, state the concrete reason in the final handoff.
-
-Inbox notes should track lifecycle: `Open`, `Partially promoted`, `Promoted`, or `Closed`. When a related problem/archive later covers the signal, update the inbox lifecycle instead of leaving it stale.
-
-### Problem Gate Output
-
-At the end of the gate, report the route decision compactly:
-
-- `none`: no asset, with the concrete reason
-- `inbox`: new or updated inbox note, with validation evidence
-- `update-existing`: updated archive/problem/inbox asset, with validation evidence
-- `new-problem`: formal problem asset, with validation evidence
-- `archive` or `both`: only when the route also includes completed requirement history
-
-Before final close-out on meaningful work, include an auditable `asset_gate:`
-block with `event_type`, `route`, `reason`, `evidence`, `related_assets`,
-`asset_candidates`, `deferred_signals`, and `next_step`. If no candidates exist,
-write `asset_candidates: none` explicitly.
+The main agent still owns final route decisions and repository asset writes. Use the plugin skills and scripts when the hook-provided context indicates an archive, problem, inbox, or update is needed.
 <!-- asset-compounding-guidance:end -->
-
