@@ -1,6 +1,8 @@
+using LightRAGNet.Services.DocumentProcessing.Chunking;
+
 namespace LightRAGNet;
 
-public class LightRAGOptions
+public partial class LightRAGOptions
 {
     /// <summary>
     /// Working directory
@@ -38,6 +40,8 @@ public class LightRAGOptions
     /// Chunk overlap token count
     /// </summary>
     public int ChunkOverlapTokenSize { get; set; } = 100;
+
+    public LightRagChunkingOptions Chunking { get; set; } = new();
     
     /// <summary>
     /// Top-K retrieval count
@@ -133,5 +137,65 @@ public class LightRAGOptions
     /// Maximum number of relationships to extract per chunk (0 = no limit)
     /// </summary>
     public int MaxRelationshipsPerChunk { get; set; } = 60;
+
+    public LightRagChunkingSnapshot CreateChunkingSnapshot()
+    {
+        var globalSize = ChunkingUtilities.RequirePositiveChunkSize(ChunkTokenSize, nameof(ChunkTokenSize));
+        var globalOverlap = ChunkingUtilities.ClampOverlap(globalSize, ChunkOverlapTokenSize);
+
+        var fixedSize = Chunking.FixedToken.ChunkTokenSize ?? globalSize;
+        fixedSize = ChunkingUtilities.RequirePositiveChunkSize(fixedSize, "Chunking:FixedToken:ChunkTokenSize");
+        var fixedOverlap = ChunkingUtilities.ClampOverlap(
+            fixedSize,
+            Chunking.FixedToken.ChunkOverlapTokenSize ?? globalOverlap);
+
+        var recursiveSize = Chunking.RecursiveCharacter.ChunkTokenSize ?? globalSize;
+        recursiveSize = ChunkingUtilities.RequirePositiveChunkSize(
+            recursiveSize,
+            "Chunking:RecursiveCharacter:ChunkTokenSize");
+        var recursiveOverlap = ChunkingUtilities.ClampOverlap(
+            recursiveSize,
+            Chunking.RecursiveCharacter.ChunkOverlapTokenSize ?? globalOverlap);
+
+        var vectorSize = Chunking.SemanticVector.ChunkTokenSize ?? globalSize;
+        vectorSize = ChunkingUtilities.RequirePositiveChunkSize(
+            vectorSize,
+            "Chunking:SemanticVector:ChunkTokenSize");
+
+        var paragraphSize = Chunking.ParagraphSemantic.ChunkTokenSize ?? 2000;
+        paragraphSize = ChunkingUtilities.RequirePositiveChunkSize(
+            paragraphSize,
+            "Chunking:ParagraphSemantic:ChunkTokenSize");
+        var paragraphOverlap = ChunkingUtilities.ClampOverlap(
+            paragraphSize,
+            Chunking.ParagraphSemantic.ChunkOverlapTokenSize ?? globalOverlap);
+
+        return new LightRagChunkingSnapshot(
+            Chunking.Strategy,
+            globalSize,
+            new FixedTokenChunkingSnapshot(
+                fixedSize,
+                fixedOverlap,
+                Chunking.FixedToken.SplitByCharacter,
+                Chunking.FixedToken.SplitByCharacterOnly),
+            new RecursiveCharacterChunkingSnapshot(
+                recursiveSize,
+                recursiveOverlap,
+                [.. Chunking.RecursiveCharacter.Separators]),
+            new SemanticVectorChunkingSnapshot(
+                vectorSize,
+                Chunking.SemanticVector.BreakpointThresholdType,
+                Chunking.SemanticVector.BreakpointThresholdAmount,
+                Math.Max(1, Chunking.SemanticVector.BufferSize),
+                Chunking.SemanticVector.NumberOfChunks,
+                Chunking.SemanticVector.MinChunkSize,
+                Math.Max(0, Chunking.SemanticVector.MinChunkTokenSize),
+                Chunking.SemanticVector.SentenceSplitRegex,
+                Chunking.SemanticVector.FallBackToRecursiveWhenEmbeddingUnavailable),
+            new ParagraphSemanticChunkingSnapshot(
+                paragraphSize,
+                paragraphOverlap,
+                Math.Max(0, Chunking.ParagraphSemantic.MinChunkTokenSize)));
+    }
 }
 
