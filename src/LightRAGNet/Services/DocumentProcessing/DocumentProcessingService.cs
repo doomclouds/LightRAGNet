@@ -54,6 +54,11 @@ public class DocumentProcessingService(
             cancellationToken);
     }
 
+    public LightRagChunkingSnapshot CreateChunkingSnapshot()
+    {
+        return _options.CreateChunkingSnapshot();
+    }
+
     /// <summary>
     /// Document chunking
     /// Reference: operate.py chunking_by_token_size function

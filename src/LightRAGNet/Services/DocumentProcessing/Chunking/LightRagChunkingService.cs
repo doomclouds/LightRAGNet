@@ -13,6 +13,22 @@ public sealed class LightRagChunkingService(
     private readonly Dictionary<LightRagChunkingStrategy, IChunkingStrategy> _strategies =
         strategies.ToDictionary(strategy => strategy.Strategy);
 
+    public static Dictionary<string, object> CreateMetadata(LightRagChunkingSnapshot snapshot)
+    {
+        return new Dictionary<string, object>
+        {
+            ["chunking_strategy"] = snapshot.Strategy.ToWireValue(),
+            ["chunk_token_size"] = snapshot.Strategy switch
+            {
+                LightRagChunkingStrategy.FixedToken => snapshot.FixedToken.ChunkTokenSize,
+                LightRagChunkingStrategy.RecursiveCharacter => snapshot.RecursiveCharacter.ChunkTokenSize,
+                LightRagChunkingStrategy.SemanticVector => snapshot.SemanticVector.ChunkTokenSize,
+                LightRagChunkingStrategy.ParagraphSemantic => snapshot.ParagraphSemantic.ChunkTokenSize,
+                _ => snapshot.ChunkTokenSize
+            }
+        };
+    }
+
     public async Task<IReadOnlyList<Chunk>> ChunkDocumentAsync(
         string content,
         string docId,

@@ -5,6 +5,7 @@ using LightRAGNet.Models;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.DocumentProcessing.Chunking;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.Query;
 using LightRAGNet.Services.QueryCache;
@@ -199,10 +200,19 @@ public class LightRAG(
                 DocId = docId
             });
 
-            var chunks = documentProcessingService.ChunkDocument(
+            var chunkingSnapshot = documentProcessingService.CreateChunkingSnapshot();
+            await documentLifecycleService.RecordChunkingMetadataAsync(
+                ingestion.Workspace,
+                docId,
+                LightRagChunkingService.CreateMetadata(chunkingSnapshot),
+                cancellationToken);
+
+            var chunks = await documentProcessingService.ChunkDocumentAsync(
                 content,
                 docId,
-                filePath);
+                filePath,
+                chunkingSnapshot,
+                cancellationToken);
 
             await documentLifecycleService.RecordChunksAsync(
                 ingestion.Workspace,

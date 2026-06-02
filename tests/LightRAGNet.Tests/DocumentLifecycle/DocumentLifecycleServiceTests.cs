@@ -50,6 +50,7 @@ public sealed class DocumentLifecycleServiceTests
         {
             nameof(DocumentLifecycleService.StartProcessingAsync),
             nameof(DocumentLifecycleService.RecordChunksAsync),
+            nameof(DocumentLifecycleService.RecordChunkingMetadataAsync),
             nameof(DocumentLifecycleService.MarkProcessedAsync),
             nameof(DocumentLifecycleService.MarkFailedAsync)
         };
@@ -172,6 +173,28 @@ public sealed class DocumentLifecycleServiceTests
         record.ChunkSnapshots.Should().Equal(
             new DocumentChunkSnapshot("chunk-1", 10, 0, "doc.md"),
             new DocumentChunkSnapshot("chunk-2", 8, 1, "doc.md"));
+    }
+
+    [Fact]
+    public async Task RecordChunkingMetadataAsync_StoresStrategyAndSnapshot()
+    {
+        var store = new InMemoryDocumentStatusStore();
+        var service = CreateService(store);
+        await service.PrepareIngestionAsync("content", docId: "doc-1", filePath: "doc.md");
+
+        await service.RecordChunkingMetadataAsync(
+            "workspace-a",
+            "doc-1",
+            new Dictionary<string, object>
+            {
+                ["chunking_strategy"] = "R",
+                ["chunk_token_size"] = 64
+            });
+
+        var record = await store.GetAsync("workspace-a", "doc-1");
+        record.Should().NotBeNull();
+        record!.Metadata.Should().Contain("chunking_strategy", "R");
+        record.Metadata.Should().Contain("chunk_token_size", 64);
     }
 
     [Fact]

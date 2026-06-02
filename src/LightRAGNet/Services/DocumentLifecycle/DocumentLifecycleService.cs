@@ -156,6 +156,30 @@ public sealed class DocumentLifecycleService
         await _statusStore.UpsertAsync(record, cancellationToken);
     }
 
+    public async Task RecordChunkingMetadataAsync(
+        string workspace,
+        string docId,
+        IReadOnlyDictionary<string, object> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedWorkspace = NormalizeWorkspace(workspace);
+        var record = await _statusStore.GetAsync(normalizedWorkspace, docId, cancellationToken);
+        if (record is null)
+        {
+            LogMissingStatusMutation(normalizedWorkspace, docId, nameof(RecordChunkingMetadataAsync));
+            return;
+        }
+
+        foreach (var (key, value) in metadata)
+        {
+            record.Metadata[key] = value;
+        }
+
+        Touch(record);
+
+        await _statusStore.UpsertAsync(record, cancellationToken);
+    }
+
     public async Task MarkProcessedAsync(
         string workspace,
         string docId,

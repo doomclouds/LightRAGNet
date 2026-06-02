@@ -232,6 +232,8 @@ public sealed class LightRAGLifecycleIntegrationTests
         status.ChunksCount.Should().Be(2);
         status.ChunksList.Should().HaveCount(2);
         status.ChunkSnapshots.Should().OnlyContain(snapshot => snapshot.FilePath == "new.md");
+        status.Metadata.Should().Contain("chunking_strategy", "F");
+        status.Metadata.Should().Contain("chunk_token_size", 3);
     }
 
     [Fact]
