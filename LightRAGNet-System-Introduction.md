@@ -10,7 +10,7 @@ lastUpdated: 2026-05-23
 
 # LightRAGNet System Introduction
 
-This document reflects the current project state. LightRAGNet is no longer just a small LightRAG core demo. It is now a .NET 10 solution with Server, Web UI, document intake, background tasks, RAG Chat, a knowledge graph workbench, and test boundaries around external storage.
+This document reflects the current project state. LightRAGNet is no longer just a small LightRAG core demo. It is now a .NET 10 solution with Server, React UI, document intake, background tasks, RAG Chat, a knowledge graph workbench, and test boundaries around external storage.
 
 ## 1. Positioning
 
@@ -21,7 +21,7 @@ The project currently focuses on these points:
 - Document intake should be visible and trackable, not a black-box upload.
 - RAG answers should expose references, retrieval data, and diagnostics.
 - Retrieval should combine chunk vectors with knowledge-graph entities, relations, and source chunks.
-- The graph should be visible in the Web UI, not only hidden inside Neo4j.
+- The graph should be visible in the React UI, not only hidden inside Neo4j.
 - Test runs must not mutate local development Qdrant / Neo4j data.
 
 ## 2. Current Capability Snapshot
@@ -34,9 +34,9 @@ The project currently focuses on these points:
 | Query modes | `Local`, `Global`, `Mix`, `Hybrid`, `Naive`, and `Bypass` all have implementation paths. |
 | Rerank | Long chunks can be split for rerank and aggregated back to the original chunk score. |
 | Cache | Indexing and query paths include LLM cache; query cache is guarded by workspace revision. |
-| Web UI | Blazor Server hosts RAG Chat, document management, upload, and the React graph workbench. |
+| React UI | React/Vite hosts RAG Chat, document management, upload, document preview, system status, cache management, and the graph workbench. |
 | Graph workbench | React/Vite + Sigma with graph browsing, search, layout, zoom, settings, fullscreen, and graph-curation semantics. |
-| Tests | Core, Server, and Web tests exist; Server tests replace real external storage by default. |
+| Tests | Core, Server, and React tests exist; Server tests replace real external storage by default. |
 
 ## 3. Architecture
 
@@ -44,7 +44,7 @@ The project currently focuses on these points:
   <img src="./docs/assets/readme/architecture.png" alt="LightRAGNet architecture overview" width="960">
 </p>
 
-The diagram follows the current code boundaries: Web UI, Server API, LightRAG Core, and Providers & Stores. Read it through three paths:
+The diagram follows the current code boundaries: React UI, Server API, LightRAG Core, and Providers & Stores. Read it through three paths:
 
 - Document intake: uploads enter `DocumentIntakeService`; PDF/DOCX files go through `DocumentConversionProcessor`; then `RagTaskQueueService` and `RagTaskProcessorService` call `LightRAG` for indexing.
 - Query answer: RAG Chat calls the Server API and then `LightRAG`; `RetrievalContextService` assembles KG, vector, rerank, and reference data before LLM answer generation.
@@ -55,11 +55,11 @@ The diagram follows the current code boundaries: Web UI, Server API, LightRAG Co
 The layering is practical:
 
 - `LightRAGNet.Core`: interfaces, models, utilities.
-- `LightRAGNet.Share`: DTOs, events, request/response contracts shared by Web and Server.
+- `LightRAGNet.Share`: DTOs, events, request/response contracts shared by React UI clients and Server.
 - `LightRAGNet`: core orchestration, indexing, query, deletion, cache, lifecycle, and graph curation services.
 - `LightRAGNet.Hosting`: dependency injection entry point.
 - `LightRAGNet.Server`: API, SignalR, SQLite metadata, document artifacts, conversion processors, and storage cleanup boundaries.
-- `LightRAGNet.Web`: Blazor Server UI and the embedded React/Vite graph workbench.
+- `LightRAGNet.React`: React/Vite frontend for RAG Chat, Documents, Document Preview, Graph Workbench, System Status, and Cache Management.
 - `LightRAGNet.Storage`, `LLM`, `Embedding`, `Rerank`: provider implementations.
 
 ## 4. Real UI State
@@ -68,7 +68,7 @@ The layering is practical:
   <img src="./docs/assets/readme/graph-view-functional-parity.png" alt="LightRAGNet Knowledge Graph workbench" width="960">
 </p>
 
-The graph workbench is one of the clearest current UI outcomes. It is not a future mockup. It is a real Knowledge Graph page inside the Web UI, with subgraph controls, node search, layout tools, zoom/focus controls, and a Sigma canvas for entities and relations.
+The graph workbench is one of the clearest current UI outcomes. It is not a future mockup. It is a real Knowledge Graph page inside the React UI, with subgraph controls, node search, layout tools, zoom/focus controls, and a Sigma canvas for entities and relations.
 
 The goal is not to wrap Neo4j Browser. Neo4j Browser is a database tool. This workbench is meant for RAG usage: inspect the generated graph after indexing, understand query structure, and keep moving toward entity merge, relationship editing, and property-level graph curation.
 
@@ -78,7 +78,7 @@ Current intake is more than `upload -> InsertAsync`:
 
 ```mermaid
 sequenceDiagram
-    participant UI as Web UI
+    participant UI as React UI
     participant API as Server API
     participant Intake as DocumentIntakeService
     participant Conv as DocumentConversionProcessor

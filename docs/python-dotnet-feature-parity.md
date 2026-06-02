@@ -200,7 +200,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | edit relation | `/graph/relation/edit`。 | 已对齐 |
 | merge entities | `/graph/entities/merge`，迁移关系、合并重复关系、防 self-loop。 | 已对齐 |
 | graph export | `export_data()` 支持 csv/excel/md/txt，可包含 vector。 | 未对齐 |
-| visualizer 工具 | Python 有 standalone graph visualizer。 | 部分对齐：.NET 有 Web graph workbench，但无 standalone export visualizer |
+| visualizer 工具 | Python 有 standalone graph visualizer。 | 部分对齐：.NET 有 React graph workbench，但无 standalone export visualizer |
 
 ### 11. API Server
 
@@ -217,26 +217,26 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | query routes | `/query`、`/query/stream`、`/query/data`。 | 已对齐近似：`/api/RagQuery/query` SSE、`/api/RagQuery/data` |
 | graph routes | label/query/entity/relation/merge。 | 部分到已对齐：主治理路径已对齐，label search/popular 分离不足 |
 | Ollama-compatible API | `/api/generate`、`/api/chat`、`/api/tags`、`/api/ps` 等模拟 Ollama。 | 未对齐 |
-| static WebUI mount | Python Server 托管 WebUI，若无 WebUI 可跳 docs。 | 部分对齐：.NET Server 与 Web 是分项目，Blazor Web 独立运行 |
+| static WebUI mount | Python Server 托管 WebUI，若无 WebUI 可跳 docs。 | 不适用：.NET Server 与 React 前端分离运行 |
 | CORS / static upload | 支持 WebUI/API 交互与上传。 | 已对齐 |
 
 ### 12. WebUI
 
 | Python 功能点 | 说明 | .NET 当前状态 |
 | --- | --- | --- |
-| 文档上传/扫描/状态 | Python WebUI 支持文档接入和 pipeline 状态。 | 部分对齐：Blazor 文档列表、`.md/.markdown/.pdf/.docx` 上传、Add to RAG、conversion 状态、retry/cancel/delete、SignalR；目录扫描仍缺 |
+| 文档上传/扫描/状态 | Python WebUI 支持文档接入和 pipeline 状态。 | 部分对齐：React 文档列表、`.md/.markdown/.pdf/.docx` 上传、Add to RAG、conversion 状态、retry/cancel/delete、SignalR；目录扫描仍缺 |
 | 查询聊天 | Python WebUI 支持 RAG 查询。 | 已对齐：RAG Chat 查询工作台 |
 | query mode 控制 | mode、stream、response type、topK 等。 | 已对齐 |
 | references 展示 | Python 支持引用。 | 已对齐 |
 | raw data/diagnostics | Python API 有 query_data，WebUI有相应数据能力。 | 已对齐：Chat 消息级检索数据面板 |
-| Graph viewer | Python React 图谱工作台：Sigma、布局、搜索、属性、编辑。 | 已对齐主要体验：Blazor host + React/Vite island |
-| System status | Python health 主要是 API/Server 状态，WebUI 可感知服务状态。 | .NET 增强：Blazor nav + React System Status island 展示 `/api/system/health` 的 evidence、remediation、fix-first 和 feature impact |
+| Graph viewer | Python React 图谱工作台：Sigma、布局、搜索、属性、编辑。 | 已对齐主要体验：React/Vite graph workbench |
+| System status | Python health 主要是 API/Server 状态，WebUI 可感知服务状态。 | .NET 增强：React System Status 展示 `/api/system/health` 的 evidence、remediation、fix-first 和 feature impact |
 | Settings/Labels/Layout/Zoom/Fullscreen/Legend | Python 图谱工作台控件。 | 已对齐主要控件 |
 | hover/focus/selection/neighborhood | Python 图谱交互。 | 已对齐 |
 | i18n | Python WebUI 有 i18n。 | 未对齐 |
 | search history | Python WebUI 有 search history manager。 | 未对齐 |
 | pipeline busy auto refresh | Python WebUI 有更完整 pipeline busy 语义。 | 部分对齐：SignalR + table reload，但非完全同款 |
-| React 全站 | Python WebUI 是 React SPA。 | 部分对齐：.NET 仍是 Blazor 主体，Graph 和 System Status 是 React islands，迁移方向已经开始但不是全站 React |
+| React 全站 | Python WebUI 是 React SPA。 | 已对齐：.NET 前端已迁移到独立 React/Vite SPA |
 
 ### 13. 部署、配置与运维
 
@@ -263,7 +263,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | offline retrieval check | 离线 retrieval oracle 检查。 | 未对齐 |
 | sample documents/datasets | Python evaluation 样例数据。 | 未对齐 |
 | examples 丰富 | OpenAI、Ollama、Gemini、Azure、Bedrock、HF、Mongo、OpenSearch、Milvus、Neo4j、RAG-Anything 等。 | 部分对齐：.NET 只有 `LightRAGNet.Example` |
-| graph visual examples | HTML、Neo4j、OpenSearch visual examples。 | 部分对齐：有 Web graph workbench |
+| graph visual examples | HTML、Neo4j、OpenSearch visual examples。 | 部分对齐：有 React graph workbench |
 
 ## LightRAG.NET 当前功能清单
 
@@ -271,10 +271,10 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 
 | .NET 功能点 | 当前实现 |
 | --- | --- |
-| 分层项目 | `Core`、`Share`、`LightRAGNet` core、`LLM`、`Embedding`、`Rerank`、`Storage`、`Hosting`、`Server`、`Web`、`Example` |
+| 分层项目 | `Core`、`Share`、`LightRAGNet` core、`LLM`、`Embedding`、`Rerank`、`Storage`、`Hosting`、`Server`、`React`、`Example` |
 | .NET 版本 | .NET 10 solution：`LightRAGNet.slnx` |
 | DI 组合 | `LightRAGNet.Hosting` 统一注册 provider、storage、core services、task queue |
-| 测试结构 | `LightRAGNet.Tests`、`LightRAGNet.Server.Tests`、`LightRAGNet.Web.Tests` |
+| 测试结构 | `LightRAGNet.Tests`、`LightRAGNet.Server.Tests`、`LightRAGNet.React/tests` |
 | 测试安全 | Server/API 测试隔离真实 Qdrant/Neo4j，clear-all 不碰本机开发数据 |
 | 中央包管理 | `Directory.Packages.props` |
 
@@ -337,19 +337,19 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | graph query | label/maxDepth/maxNodes | 已对齐 |
 | graph config | `GraphView:MaxNodesLimit` + `/api/graph/config` | .NET 增强 |
 
-### 6. Web 产品能力
+### 6. React 产品能力
 
 | .NET 功能点 | 当前实现 | 对齐级别 |
 | --- | --- | --- |
-| RAG Chat | Blazor + MudBlazor chat workspace | 已对齐 |
+| RAG Chat | React chat workspace | 已对齐 |
 | query toolbar | mode、response、stream/cacheable、references、rerank、TopK、ChunkTopK、keywords、debug output | 已对齐 |
 | message references | assistant message 可展开 references | 已对齐 |
 | diagnostics | high/low keywords、metadata diagnostics | 已对齐 |
 | retrieval data dialog | 每条 assistant 回复可查看 raw retrieval data | 已对齐 |
 | Markdown document list | 上传、查看、下载、Add to RAG、retry/cancel/delete、状态/进度，支持 PDF/DOCX 转换状态 | 部分对齐 |
 | React graph workbench | Sigma graph canvas、布局、搜索、属性面板、图谱治理控件 | 已对齐主要体验 |
-| React system status | `/system-status` React island 展示 `GET /api/system/health` 的 checks、evidence、fix-first、feature impact 和 JSON 复制 | .NET 增强 |
-| Blazor host + React island | 当前 graph workbench 和 system status 是 React islands，其他页面仍是 Blazor | 部分对齐 |
+| React system status | `/system-status` 展示 `GET /api/system/health` 的 checks、evidence、fix-first、feature impact 和 JSON 复制 | .NET 增强 |
+| React SPA shell | 独立 React/Vite shell 承载主要产品页面 | 已对齐 |
 
 ### 7. Server 运维状态
 
@@ -358,7 +358,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | System health API | `GET /api/system/health` | 部分对齐 Python health |
 | health checks | Server API、SQLite、WorkingDir、Qdrant、Neo4j、LLM config、Embedding config、Rerank config、RAG task queue、Conversion queue | .NET 增强 |
 | evidence/remediation | 结构化 evidence、字符串 remediation、fix-first、feature impact、敏感字段脱敏 | .NET 增强 |
-| health UI | `/system-status` React island + Blazor nav entry | .NET 增强 |
+| health UI | `/system-status` React 页面 | .NET 增强 |
 | 非目标 | 不真实调用模型 provider，不修改配置，不执行 clear-all/clear-cache 等破坏性操作 | 边界已明确 |
 
 ### 8. Provider 与存储
@@ -385,7 +385,7 @@ LightRAG.NET 当前已经把“核心 RAG 主链”推进到可用状态：文�
 | Document conversion | PDF/DOCX、docling/Office 生态 | PDF/DOCX 本地 MarkItDown | 已补首个切片，仍缺 PPTX/XLSX/OCR/scan |
 | Document lifecycle/deletion | 完整 | 核心对齐 | 边界/事务性仍可加强 |
 | Graph curation | 完整 | 主路径对齐 | label search/export 等缺口 |
-| WebUI | React SPA，文档/查询/图谱 | Blazor + React graph/system-status islands | 全站 React/i18n/search history 未对齐 |
+| WebUI | React SPA，文档/查询/图谱 | React/Vite SPA | i18n/search history 未对齐 |
 | API Server | FastAPI 全入口、auth、health、Ollama-compatible | ASP.NET Core 主业务 API + `/api/system/health` | auth/Ollama/prefix/cache 管理缺口明显 |
 | Provider | 多 LLM/Embedding/Rerank | DeepSeek/Aliyun | 生态差距大 |
 | Storage | Json/Redis/Postgres/Mongo/OpenSearch/Milvus/Faiss/Qdrant/Neo4j/Memgraph 等 | Json/Qdrant/Neo4j | 生态差距大 |
@@ -465,7 +465,7 @@ PDF/DOCX 已经是可靠首版，但 Python 文档接入面仍宽很多。第二
 - Python provider/storage：`LightRAG/lightrag/llm/`、`LightRAG/lightrag/kg/`
 - Python docs：`LightRAG/README-zh.md`、`LightRAG/docs/ProgramingWithCore.md`、`LightRAG/docs/AdvancedFeatures.md`、`LightRAG/docs/LightRAG-API-Server-zh.md`
 - .NET Core：`src/LightRAGNet/LightRAG.cs`、`src/LightRAGNet/LightRAGOptions.cs`、`src/LightRAGNet/Services/`
-- .NET Server/Web：`src/LightRAGNet.Server/Controllers/`、`src/LightRAGNet.Server/Services/`、`src/LightRAGNet.Web/Components/Pages/`、`src/LightRAGNet.Web/ClientApp/`
+- .NET Server/React：`src/LightRAGNet.Server/Controllers/`、`src/LightRAGNet.Server/Services/`、`src/LightRAGNet.React/src/`
 - .NET storage/provider：`src/LightRAGNet.Storage/`、`src/LightRAGNet.LLM/`、`src/LightRAGNet.Embedding/`、`src/LightRAGNet.Rerank/`
 - 已交付历史：`docs/superpowers/archives/INDEX.md`
 - PDF/DOCX 已交付：`docs/superpowers/archives/2026-05/2026-05-22-managedcode-markitdown-document-intake-archives.md`

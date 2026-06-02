@@ -26,6 +26,14 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
    at LightRAGNet.Tests.TaskQueue.RagTaskStateStoreTests.TempDirectoryCleanup.DisposeAsync(...)
 ```
 
+RAGAS evaluation 测试里也出现过同族症状：
+
+```text
+System.IO.IOException: The process cannot access the file 'ragas_runs.json' because it is being used by another process.
+   at System.IO.FileSystem.RemoveDirectoryRecursive(...)
+   at LightRAGNet.Server.Tests.Evaluation.RagasEvaluationRunCoordinatorTests.Dispose()
+```
+
 ## Trigger / Context
 
 - RAG 任务处理过程中频繁更新状态和进度，例如 `MergingRelations` 阶段。
@@ -42,6 +50,8 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
 
 后续测试清理失败的直接根因是构造函数中的 startup load 被 fire-and-forget 丢弃，测试没有可等待的 store 生命周期。即使 `SaveTaskStateAsync` 已经 await，构造时启动的 `LoadAllTasksAsync` 仍可能在测试结尾短暂持有 `tasks.json` 读句柄，Windows 递归删除目录因此失败。
 
+`ragas_runs.json` 的变体根因相同：测试只断言 `CreateAsync` 返回 queued，没有等待后台 evaluation runner 消费 evaluator、取消 run 并完成取消路径。`Dispose` 随即递归删除临时目录时，后台 runner 或 run store 仍可能短暂读写 `ragas_runs.json`。
+
 ## Fix
 
 - 写入时改用唯一临时文件名：`tasks.json.<guid>.tmp`。
@@ -51,6 +61,7 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
 - 增加回归测试：先锁住 `tasks.json`，启动保存任务，短暂延迟后释放锁，验证保存会等待并最终成功。
 - Store 实现 `IAsyncDisposable`，保存 startup load task，并在 `DisposeAsync` 中等待启动加载完成后再释放 `_fileLock`。
 - `RagTaskStateStoreTests` 使用 `await using var store = ...`，确保临时目录清理前没有该 store 自己遗留的后台读取。
+- RAGAS coordinator 测试使用可控的 `BlockingRagasEvaluator`，等待 evaluator 被调用，显式 `CancelAsync`，再等待取消完成后才允许测试对象 `Dispose` 删除临时目录。
 
 ## Why This Fix
 
@@ -65,6 +76,7 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
 - 失败发生在频繁进度更新、清空数据、重启多个本地服务实例或杀软/同步工具扫描目录时。
 - 同一方法被实例内锁保护，但仍出现文件替换级别的访问拒绝。
 - 堆栈停在测试 `TempDirectoryCleanup.DisposeAsync` / `Directory.Delete(..., recursive: true)`，目标文件是 `tasks.json`，且测试刚创建过 `RagTaskStateStore`。
+- 堆栈停在测试 `Dispose` / `Directory.Delete(..., recursive: true)`，目标文件是 `ragas_runs.json`，且测试刚启动过后台 evaluation run 但没有等待取消或完成。
 - 单独重跑同一测试可能通过，循环也可能不复现，因为后台读取窗口很短。
 
 ## Applicability / Non-Applicability
@@ -91,5 +103,6 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
 - Related Problems:
   - [2026-05-19-server-filesystem-test-parallelism-problem.md](./2026-05-19-server-filesystem-test-parallelism-problem.md)
 - Code or Test:
-  - [RagTaskStateStore.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskStateStore.cs)
-  - [RagTaskStateStoreTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskStateStoreTests.cs)
+- [RagTaskStateStore.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskStateStore.cs)
+- [RagTaskStateStoreTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskStateStoreTests.cs)
+  - [RagasEvaluationRunCoordinatorTests.cs](../../../../tests/LightRAGNet.Server.Tests/Evaluation/RagasEvaluationRunCoordinatorTests.cs)

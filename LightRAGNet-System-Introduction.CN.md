@@ -10,18 +10,18 @@ lastUpdated: 2026-05-23
 
 # LightRAGNet 系统介绍
 
-这篇文档按当前项目状态重写，不再复述早期方案。现在的 LightRAGNet 已经不是单纯的 LightRAG 核心类 Demo，而是一个带 Server、Web、文档接入、后台任务、RAG Chat、知识图谱工作台和测试边界的 .NET 10 工程。
+这篇文档按当前项目状态重写，不再复述早期方案。现在的 LightRAGNet 已经不是单纯的 LightRAG 核心类 Demo，而是一个带 Server、React UI、文档接入、后台任务、RAG Chat、知识图谱工作台和测试边界的 .NET 10 工程。
 
 ## 1. 项目定位
 
-LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 生态里，并且做成一个能继续开发、能验证、能跑 Web UI 的工程底座。
+LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 生态里，并且做成一个能继续开发、能验证、能跑 React UI 的工程底座。
 
 它当前主要解决几件事：
 
 - 文档从上传到入库要有状态，不要一上传就黑盒处理。
 - RAG 查询不只返回答案，还要能看引用、检索数据和调试信息。
 - 检索不只靠 chunk vector，也要用知识图谱里的实体、关系和来源块。
-- 图谱不是只存在 Neo4j 里，Web 端也要能看、能搜索、能继续做治理。
+- 图谱不是只存在 Neo4j 里，React 前端也要能看、能搜索、能继续做治理。
 - 测试必须保护本机 Qdrant / Neo4j 开发数据，不能一次 `dotnet test` 把本地数据清了。
 
 ## 2. 当前能力快照
@@ -34,7 +34,7 @@ LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 
 | 查询模式 | `Local`、`Global`、`Mix`、`Hybrid`、`Naive`、`Bypass` 都已有实现路径。 |
 | Rerank | 支持长 chunk 子片段 rerank，再按原始 chunk 聚合分数。 |
 | 缓存 | 索引阶段和查询阶段都有 LLM cache；查询 cache 受 workspace revision 约束。 |
-| Web UI | Blazor Server 承载 RAG Chat、文档管理、上传入口和 React 图谱工作台。 |
+| React UI | React/Vite 承载 RAG Chat、文档管理、上传入口、文档预览、系统状态、缓存管理和图谱工作台。 |
 | 图谱工作台 | React/Vite + Sigma，支持图谱浏览、搜索、布局、缩放、设置、全屏和图谱治理语义。 |
 | 测试 | 核心、Server、Web 都有测试；Server 测试默认替换真实外部存储。 |
 
@@ -44,7 +44,7 @@ LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 
   <img src="./docs/assets/readme/architecture.png" alt="LightRAGNet architecture overview" width="960">
 </p>
 
-这张图不是按“技术名词堆叠”画的，而是按当前代码里真实存在的边界画：Web UI、Server API、LightRAG Core、Providers & Stores。读图时先看三条线：
+这张图不是按“技术名词堆叠”画的，而是按当前代码里真实存在的边界画：React UI、Server API、LightRAG Core、Providers & Stores。读图时先看三条线：
 
 - 文档入库线：上传入口进入 `DocumentIntakeService`，PDF/DOCX 经过 `DocumentConversionProcessor`，随后由 `RagTaskQueueService` 和 `RagTaskProcessorService` 调用 `LightRAG` 入库。
 - 查询回答线：RAG Chat 经过 Server API 进入 `LightRAG`，由 `RetrievalContextService` 组织 KG、vector、rerank 和引用数据，再交给 LLM 生成回答。
@@ -55,11 +55,11 @@ LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 
 项目分层不是为了好看，是为了后面能换 provider、能测、能继续拆功能：
 
 - `LightRAGNet.Core`：接口、模型、工具类。
-- `LightRAGNet.Share`：Web 与 Server 共用的 DTO、事件和请求/响应模型。
+- `LightRAGNet.Share`：React UI 客户端与 Server 共用的 DTO、事件和请求/响应模型。
 - `LightRAGNet`：核心编排层，包含索引、查询、删除、缓存、文档生命周期和图谱治理服务。
 - `LightRAGNet.Hosting`：DI 注册入口，把核心服务、provider 和后台服务组起来。
 - `LightRAGNet.Server`：API、SignalR、SQLite 元数据、文档 artifact、转换处理器和外部存储清理边界。
-- `LightRAGNet.Web`：Blazor Server 前端，以及嵌入的 React/Vite 图谱工作台。
+- `LightRAGNet.React`：React/Vite 前端，包含 RAG Chat、Documents、Document Preview、Graph Workbench、System Status 与 Cache Management。
 - `LightRAGNet.Storage`、`LLM`、`Embedding`、`Rerank`：具体 provider 实现。
 
 ## 4. 真实界面状态
@@ -68,7 +68,7 @@ LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 
   <img src="./docs/assets/readme/graph-view-functional-parity.png" alt="LightRAGNet Knowledge Graph workbench" width="960">
 </p>
 
-图谱工作台是当前项目最直观的界面成果。它已经不是“以后会做”的部分，而是 Web UI 里的真实页面：可以取子图、搜索节点、调整布局、缩放定位，并用 Sigma 画布展示实体和关系。
+图谱工作台是当前项目最直观的界面成果。它已经不是“以后会做”的部分，而是 React UI 里的真实页面：可以取子图、搜索节点、调整布局、缩放定位，并用 Sigma 画布展示实体和关系。
 
 这部分的目标不是替代 Neo4j Browser。Neo4j Browser 偏数据库视角，LightRAGNet 的图谱工作台更偏 RAG 用户视角：看文档入库后生成了什么图谱，理解查询命中的结构，后续再做实体合并、关系编辑和属性治理。
 
@@ -78,7 +78,7 @@ LightRAGNet 的目标很明确：把 Python LightRAG 的核心思想搬到 .NET 
 
 ```mermaid
 sequenceDiagram
-    participant UI as Web UI
+    participant UI as React UI
     participant API as Server API
     participant Intake as DocumentIntakeService
     participant Conv as DocumentConversionProcessor

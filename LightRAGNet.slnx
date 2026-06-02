@@ -8,13 +8,11 @@
     <Project Path="src\LightRAGNet\LightRAGNet.csproj" />
     <Project Path="src\LightRAGNet.Example\LightRAGNet.Example.csproj" />
     <Project Path="src\LightRAGNet.Hosting\LightRAGNet.Hosting.csproj" />
-    <Project Path="src\LightRAGNet.Web\LightRAGNet.Web.csproj" />
     <Project Path="src\LightRAGNet.Server\LightRAGNet.Server.csproj" />
     <Project Path="src\LightRAGNet.Share\LightRAGNet.Share.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj" />
     <Project Path="tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj" />
-    <Project Path="tests\LightRAGNet.Web.Tests\LightRAGNet.Web.Tests.csproj" />
   </Folder>
 </Solution>

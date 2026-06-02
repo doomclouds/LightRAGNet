@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4">
-  <img alt="Blazor Server" src="https://img.shields.io/badge/UI-Blazor%20Server-5C2D91">
+  <img alt="React UI" src="https://img.shields.io/badge/UI-React%20%2B%20Vite-00A3FF">
   <img alt="React Graph Workbench" src="https://img.shields.io/badge/Graph-React%20%2B%20Sigma-00A3FF">
   <img alt="Storage" src="https://img.shields.io/badge/Storage-Qdrant%20%2B%20Neo4j-19A974">
   <img alt="Built with OpenAI Codex" src="https://img.shields.io/badge/Built%20with-OpenAI%20Codex-111111?logo=openai&logoColor=white">
@@ -30,7 +30,7 @@ It is useful when you want to:
 - Build a LightRAG-style knowledge-base Q&A system in the .NET ecosystem.
 - Ingest Markdown, text, PDF, and DOCX documents through a trackable RAG pipeline.
 - Combine Qdrant vector search with Neo4j graph search.
-- Start from a full-stack project that already includes API, Web UI, SignalR task status, tests, and storage adapters.
+- Start from a full-stack project that already includes API, React UI, SignalR task status, tests, and storage adapters.
 
 ## Capabilities
 
@@ -41,7 +41,7 @@ It is useful when you want to:
 | Retrieval modes | Supported | `Local`, `Global`, `Mix`, `Hybrid`, `Naive`, `Bypass`. |
 | KG + vector query | Supported | Neo4j graph retrieval and Qdrant chunk vector retrieval with rerank and references. |
 | RAG Chat | Supported | Streaming, cacheable answers, references, diagnostics, and raw retrieval data. |
-| Graph workbench | Supported | React/Vite + Sigma workbench hosted by Blazor, with graph viewing, node properties, search, settings, fullscreen, and entity-merge semantics. |
+| Graph workbench | Supported | React/Vite + Sigma workbench with graph viewing, node properties, search, settings, fullscreen, and entity-merge semantics. |
 | Test safety | Enforced | Default tests must not mutate local Qdrant / Neo4j development data. |
 
 ## Architecture
@@ -56,7 +56,7 @@ Read the diagram through three main paths:
 - Query answer: `RAG Chat -> ASP.NET Core API -> LightRAG -> RetrievalContextService -> LLM Provider`; retrieval context reads both Qdrant chunk vectors and the Neo4j graph.
 - Graph curation: `React Graph Workbench -> ASP.NET Core API -> GraphCurationService -> Neo4j / Qdrant`, covering entity edits, merge, deletion, and related index updates.
 
-`TaskStatusHub` pushes background task status back to the Web UI. SQLite stores server-side document metadata, conversion state, and RAG state; vectors and graph data live in Qdrant and Neo4j.
+`TaskStatusHub` pushes background task status back to the React UI. SQLite stores server-side document metadata, conversion state, and RAG state; vectors and graph data live in Qdrant and Neo4j.
 
 Project layout:
 
@@ -66,7 +66,7 @@ Project layout:
 - `src/LightRAGNet.LLM`, `Embedding`, `Rerank`, `Storage`: provider implementations.
 - `src/LightRAGNet.Hosting`: dependency injection entry points.
 - `src/LightRAGNet.Server`: ASP.NET Core API, SignalR, SQLite metadata, and EF Core migrations.
-- `src/LightRAGNet.Web`: Blazor Server UI and the React graph workbench island.
+- `src/LightRAGNet.React`: React/Vite frontend for RAG Chat, Documents, Document Preview, Graph Workbench, System Status, and Cache Management.
 - `tests/`: core, server, and web tests.
 
 ## Graph Workbench
@@ -75,7 +75,7 @@ Project layout:
   <img src="./docs/assets/readme/graph-view-functional-parity.png" alt="LightRAGNet graph workbench" width="960">
 </p>
 
-The graph workbench is one of the clearest snapshots of where the project is today. It is not a static mockup: it is the real Knowledge Graph page running inside the Web UI, with the LightRAGNet navigation on the left, a Sigma graph canvas in the middle, subgraph controls for label/depth/node count, and canvas tools for layout, zoom, focus, color semantics, and fullscreen usage.
+The graph workbench is one of the clearest snapshots of where the project is today. It is not a static mockup: it is the real Knowledge Graph page running inside the React UI, with the LightRAGNet navigation on the left, a Sigma graph canvas in the middle, subgraph controls for label/depth/node count, and canvas tools for layout, zoom, focus, color semantics, and fullscreen usage.
 
 The goal is not to wrap Neo4j Browser. The goal is to bring the Python LightRAG WebUI graph-curation experience into the .NET project: query with references, inspect the generated graph, then keep improving entity merge, property inspection, and relationship editing from there.
 
@@ -85,7 +85,7 @@ Prerequisites:
 
 - .NET 10 SDK
 - Docker Desktop
-- Node.js for the React graph workbench
+- Node.js for the React frontend
 
 Restore and build:
 
@@ -139,6 +139,8 @@ Run the API server and React frontend:
 .\scripts\dev-start.ps1
 ```
 
+The start script continues preparing development services in the background and immediately returns the current console to you. Startup progress and service logs are written under `artifacts/dev-runtime/logs/`. Add `-Foreground` when you want to watch the full startup flow in the current console for diagnostics.
+
 Default endpoints:
 
 - API Server: `http://localhost:5261`
@@ -165,6 +167,7 @@ Start only one side:
 ```powershell
 .\scripts\dev-start.ps1 -Target Server
 .\scripts\dev-start.ps1 -Target React
+.\scripts\dev-start.ps1 -Foreground
 ```
 
 Git Bash wrappers are also available:
@@ -228,16 +231,7 @@ dotnet restore LightRAGNet.slnx
 dotnet build LightRAGNet.slnx
 dotnet test LightRAGNet.slnx
 dotnet run --project src/LightRAGNet.Server
-dotnet run --project src/LightRAGNet.Web
-```
-
-The React graph workbench can be built separately:
-
-```powershell
-Set-Location .\src\LightRAGNet.Web\ClientApp
-npm install
-npm run build
-Set-Location ..\..\..
+npm run dev --prefix src/LightRAGNet.React
 ```
 
 ## Test Safety Boundary

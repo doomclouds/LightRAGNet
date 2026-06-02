@@ -19,6 +19,7 @@ coverage/
 # Local agent and assistant state
 .claude/
 .cursor/
+.codegraph/
 CLAUDE.md
 AGENT.md
 .worktrees/

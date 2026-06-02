@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4">
-  <img alt="Blazor Server" src="https://img.shields.io/badge/UI-Blazor%20Server-5C2D91">
+  <img alt="React UI" src="https://img.shields.io/badge/UI-React%20%2B%20Vite-00A3FF">
   <img alt="React Graph Workbench" src="https://img.shields.io/badge/Graph-React%20%2B%20Sigma-00A3FF">
   <img alt="Storage" src="https://img.shields.io/badge/Storage-Qdrant%20%2B%20Neo4j-19A974">
   <img alt="Built with OpenAI Codex" src="https://img.shields.io/badge/Built%20with-OpenAI%20Codex-111111?logo=openai&logoColor=white">
@@ -30,7 +30,7 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
 - 在 .NET 技术栈里构建 LightRAG 风格的知识库问答系统。
 - 把 PDF、DOCX、Markdown、text 文档接入到可追踪的 RAG pipeline。
 - 同时使用 Qdrant 向量存储和 Neo4j 图存储，验证 KG + Vector 的混合检索效果。
-- 需要一个带 Web UI、API、SignalR 任务状态和图谱工作台的完整工程作为二次开发底座。
+- 需要一个带 React UI、API、SignalR 任务状态和图谱工作台的完整工程作为二次开发底座。
 
 ## 核心能力
 
@@ -40,8 +40,8 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
 | 后台任务队列 | 已支持 | 文档入库走后台队列，支持状态追踪、重试、取消、删除与恢复。 |
 | 检索模式 | 已支持 | `Local`、`Global`、`Mix`、`Hybrid`、`Naive`、`Bypass`。 |
 | KG + Vector 查询 | 已支持 | Neo4j 图检索与 Qdrant chunk 向量检索组合，支持 rerank 与引用返回。 |
-| RAG Chat | 已支持 | Blazor Chat 工作台，支持 streaming、cacheable、references、diagnostics 与 raw retrieval data。 |
-| 图谱工作台 | 已支持 | Blazor 承载 React/Vite + Sigma 图谱工作台，支持节点/边展示、节点属性面板、搜索、设置、全屏与实体合并语义。 |
+| RAG Chat | 已支持 | React Chat 工作台，支持 streaming、cacheable、references、diagnostics 与 raw retrieval data。 |
+| 图谱工作台 | 已支持 | React/Vite + Sigma 图谱工作台，支持节点/边展示、节点属性面板、搜索、设置、全屏与实体合并语义。 |
 | 缓存与一致性 | 已支持 | 查询阶段与索引阶段 LLM cache，workspace revision 防止文档变更后命中旧答案。 |
 | 测试安全边界 | 已固化 | 默认测试不允许触碰本机真实 Qdrant / Neo4j 数据。 |
 
@@ -57,7 +57,7 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
 - 查询回答线：`RAG Chat -> ASP.NET Core API -> LightRAG -> RetrievalContextService -> LLM Provider`，检索上下文会同时读取 Qdrant chunk 向量和 Neo4j 图谱。
 - 图谱治理线：`React Graph Workbench -> ASP.NET Core API -> GraphCurationService -> Neo4j / Qdrant`，用于实体编辑、合并、删除以及相关索引更新。
 
-`TaskStatusHub` 负责把后台任务状态推回 Web UI，SQLite 只保存 Server 侧文档元数据、转换状态和 RAG 状态，不承担向量或图谱存储。
+`TaskStatusHub` 负责把后台任务状态推回 React UI，SQLite 只保存 Server 侧文档元数据、转换状态和 RAG 状态，不承担向量或图谱存储。
 
 主要项目分层：
 
@@ -67,8 +67,8 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
 - `src/LightRAGNet.LLM`、`Embedding`、`Rerank`、`Storage`：模型 provider 与存储 provider 实现。
 - `src/LightRAGNet.Hosting`：依赖注入入口。
 - `src/LightRAGNet.Server`：ASP.NET Core API、SignalR hub、SQLite 文档元数据与 EF Core migrations。
-- `src/LightRAGNet.Web`：Blazor Server UI，包含 React/Vite 图谱工作台 island。
-- `tests/`：核心、Server 与 Web 测试。
+- `src/LightRAGNet.React`：React/Vite 前端，包含 RAG Chat、Documents、Document Preview、Graph Workbench、System Status 与 Cache Management。
+- `tests/`：核心与 Server 测试；React 测试位于 `src/LightRAGNet.React/tests`。
 
 ## 图谱工作台
 
@@ -76,7 +76,7 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
   <img src="./docs/assets/readme/graph-view-functional-parity.png" alt="LightRAGNet graph workbench" width="960">
 </p>
 
-图谱工作台是这个项目现在比较能代表“做到哪一步”的地方。它不是一张静态图，而是 Web UI 里真实跑起来的 Knowledge Graph 页面：左侧还是 LightRAGNet 的主导航，中间是 Sigma 图谱画布，上方可以按 label、depth、nodes 取子图，画布工具栏支持布局、缩放、定位、颜色语义和全屏这类图谱操作。
+图谱工作台是这个项目现在比较能代表“做到哪一步”的地方。它不是一张静态图，而是 React UI 里真实跑起来的 Knowledge Graph 页面：左侧还是 LightRAGNet 的主导航，中间是 Sigma 图谱画布，上方可以按 label、depth、nodes 取子图，画布工具栏支持布局、缩放、定位、颜色语义和全屏这类图谱操作。
 
 我的目标不是把 Neo4j Browser 包一层，而是把 Python LightRAG WebUI 里那套更适合 RAG 用户的图谱治理体验搬到 .NET 项目里：查询时能看引用，入库后能看图谱，后续再逐步把实体合并、属性查看、关系编辑这些能力补完整。
 
@@ -86,7 +86,7 @@ LightRAGNet 是一个参考 Python LightRAG 架构与产品语义的 .NET 实现
 
 - .NET 10 SDK
 - Docker Desktop
-- Node.js，用于构建 React 图谱工作台
+- Node.js，用于构建 React 前端
 
 1. 恢复并构建：
 
@@ -140,6 +140,8 @@ docker compose up -d
 .\scripts\dev-start.ps1
 ```
 
+启动脚本会在后台继续准备开发服务，并立即把当前控制台还给你；启动进度和服务日志写入 `artifacts/dev-runtime/logs/`。如果需要在当前控制台里看完整启动过程，可以加 `-Foreground`。
+
 默认地址：
 
 - API Server: `http://localhost:5261`
@@ -166,6 +168,7 @@ docker compose up -d
 ```powershell
 .\scripts\dev-start.ps1 -Target Server
 .\scripts\dev-start.ps1 -Target React
+.\scripts\dev-start.ps1 -Foreground
 ```
 
 如果在 Git Bash 中运行，可以使用 `.sh` 包装脚本：
@@ -183,9 +186,9 @@ dotnet run --project src/LightRAGNet.Server
 npm run dev --prefix src/LightRAGNet.React
 ```
 
-## Web 使用路径
+## React UI 使用路径
 
-1. 打开 Web UI。
+1. 打开 React UI。
 2. 在 Documents 页面上传 Markdown、text、PDF 或 DOCX。
 3. 对文档执行 `Add to RAG`，观察后台任务状态。
 4. 在 Chat 页面选择 query mode、response type、TopK、ChunkTopK、Rerank 与 References。
@@ -238,7 +241,7 @@ dotnet restore LightRAGNet.slnx
 dotnet build LightRAGNet.slnx
 dotnet test LightRAGNet.slnx
 dotnet run --project src/LightRAGNet.Server
-dotnet run --project src/LightRAGNet.Web
+npm run dev --prefix src/LightRAGNet.React
 ```
 
 ## 测试安全边界

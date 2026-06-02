@@ -45,8 +45,32 @@ $repoRoot = Get-RepoRoot
 $runtimeDir = Join-Path $repoRoot "artifacts\dev-runtime"
 $logsDir = Join-Path $runtimeDir "logs"
 $stateFile = Join-Path $runtimeDir "dev-services.json"
+$workerStateFile = Join-Path $runtimeDir "dev-start-worker.json"
+$stoppedAny = $false
+
+if (Test-Path -LiteralPath $workerStateFile) {
+    $workerState = Get-Content -LiteralPath $workerStateFile -Encoding utf8 -Raw | ConvertFrom-Json
+    $workerPid = [int]$workerState.pid
+    if ($workerPid -gt 0 -and (Get-Process -Id $workerPid -ErrorAction SilentlyContinue)) {
+        Write-Step "Stopping dev starter worker (PID $workerPid)..."
+        Stop-ProcessTree -ProcessId $workerPid
+        $stoppedAny = $true
+    } else {
+        Write-Step "Removing stale dev starter worker state."
+    }
+
+    Remove-Item -LiteralPath $workerStateFile -Force -ErrorAction SilentlyContinue
+}
 
 if (-not (Test-Path -LiteralPath $stateFile)) {
+    if ($stoppedAny) {
+        Get-ChildItem -LiteralPath $runtimeDir -Filter "*.run.ps1" -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+        Write-Step "Development services stopped."
+        return
+    }
+
     Write-Step "No dev service state file found. Nothing to stop."
     return
 }
@@ -64,6 +88,7 @@ foreach ($service in $services) {
     if ($servicePid -gt 0 -and (Get-Process -Id $servicePid -ErrorAction SilentlyContinue)) {
         Write-Step "Stopping $($service.name) (PID $servicePid)..."
         Stop-ProcessTree -ProcessId $servicePid
+        $stoppedAny = $true
     } elseif ($servicePid -le 0 -and $isExternal) {
         Write-Step "$($service.name) is externally managed at $($service.url); skipping stop."
     } elseif ($servicePid -le 0) {

@@ -6,7 +6,7 @@ LightRAGNet is a multi-project .NET 10 solution in `LightRAGNet.slnx`. Productio
 
 Core contracts, interfaces, IO helpers, tokenizer assets, and shared models live in `src/LightRAGNet.Core/` and `src/LightRAGNet.Share/`. The main RAG orchestration library is `src/LightRAGNet/`, with service areas under `Services/DocumentDeletion`, `Services/DocumentLifecycle`, `Services/DocumentProcessing`, `Services/GraphCuration`, `Services/KnowledgeGraphMerge`, `Services/Query`, `Services/QueryCache`, `Services/RetrievalContext`, `Services/TaskQueue`, and `Services/Utilities`. Provider implementations are split into `src/LightRAGNet.LLM/`, `src/LightRAGNet.Embedding/`, `src/LightRAGNet.Rerank/`, and `src/LightRAGNet.Storage/`. `src/LightRAGNet.Hosting/` contains dependency-injection composition.
 
-`src/LightRAGNet.Server/` is the ASP.NET Core API host, including controllers, SignalR hubs, EF Core migrations, SQLite-backed document metadata, document intake/preview services, system health, cache management, graph APIs, and RAGAS/evaluation endpoints. `src/LightRAGNet.Web/` is the Blazor Server host and shell, with Razor pages, API client glue, SignalR UI services, and static assets under `wwwroot/`. Its `ClientApp/` directory still contains Vite-built React islands that emit assets into `wwwroot/`.
+`src/LightRAGNet.Server/` is the ASP.NET Core API host, including controllers, SignalR hubs, EF Core migrations, SQLite-backed document metadata, document intake/preview services, system health, cache management, graph APIs, and RAGAS/evaluation endpoints.
 
 `src/LightRAGNet.React/` is the standalone React/Vite workbench app, with API clients under `src/api`, routing and shell code under `src/app`, feature modules for documents, document preview, RAG chat, graph workbench, cache management, and system status under `src/features`, shared components/styles under `src/shared`, stores under `src/stores`, and Vitest suites under `tests/`. `src/LightRAGNet.Example/` contains sample usage and local example code. Project knowledge assets live under `docs/superpowers/`, including specs, plans, archives, problems, inbox notes, and visual artifacts.
 
@@ -16,10 +16,8 @@ Core contracts, interfaces, IO helpers, tokenizer assets, and shared models live
 - `dotnet build LightRAGNet.slnx` builds all projects.
 - `docker compose up -d` starts Qdrant and Neo4j for local RAG storage.
 - `dotnet run --project src/LightRAGNet.Server` runs the API server.
-- `dotnet run --project src/LightRAGNet.Web` runs the Blazor UI.
 - `dotnet test LightRAGNet.slnx` runs the .NET test projects.
 - `Push-Location src/LightRAGNet.React; npm ci; npm test; npm run build; Pop-Location` restores, tests, and builds the standalone React app.
-- `Push-Location src/LightRAGNet.Web/ClientApp; npm ci; npm test; npm run build; Pop-Location` tests and rebuilds the legacy Web-hosted React islands when touching that tree.
 
 ## Coding Style & Naming Conventions
 
@@ -27,13 +25,13 @@ Use C# with nullable reference types and implicit usings enabled. Follow standar
 
 ## Testing Guidelines
 
-Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`; Blazor host/source tests live under `tests/LightRAGNet.Web.Tests/`; standalone React unit and integration tests live under `src/LightRAGNet.React/tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs` or `RagChatWorkbench.test.tsx`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names for .NET tests and focused Vitest suites for React behavior, API clients, stores, and design-system guardrails.
+Core behavior tests live under `tests/LightRAGNet.Tests/`; server host and API-oriented tests live under `tests/LightRAGNet.Server.Tests/`; standalone React unit and integration tests live under `src/LightRAGNet.React/tests/`. Name test files after the subject under test, for example `RagTaskQueueServiceTests.cs` or `RagChatWorkbench.test.tsx`. Prefer xUnit-style `MethodName_State_ExpectedResult` test names for .NET tests and focused Vitest suites for React behavior, API clients, stores, and design-system guardrails.
 
 Server/API tests must not use real developer databases or external RAG storage by default. Isolate Qdrant, Neo4j, hosted background workers, and destructive clear-all paths behind test doubles, no-op cleaners, temporary stores, or explicit opt-in integration tests with uniquely owned resources. A full `dotnet test` run must never delete or mutate local development Qdrant/Neo4j data.
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses short English imperative messages such as `Add docker-compose.yml...`, `Fix: ...`, and `Refactor ...`. Keep that style, but avoid vague subjects like `Remove` or `Delete`; prefer `fix: correct rag task notification timing` or `refactor: simplify http client setup`. Pull requests should include a concise summary, verification commands run, linked issues when available, and screenshots or recordings for Blazor UI changes.
+Recent history uses short English imperative messages such as `Add docker-compose.yml...`, `Fix: ...`, and `Refactor ...`. Keep that style, but avoid vague subjects like `Remove` or `Delete`; prefer `fix: correct rag task notification timing` or `refactor: simplify http client setup`. Pull requests should include a concise summary, verification commands run, linked issues when available, and screenshots or recordings for React UI changes.
 
 ## Security & Configuration Tips
 

@@ -8,7 +8,9 @@ param(
     [int]$ReadyTimeoutSeconds = 60,
     [switch]$SkipNpmInstall,
     [switch]$SkipClientBuild,
-    [switch]$OpenBrowser
+    [switch]$OpenBrowser,
+    [switch]$Foreground,
+    [switch]$Worker
 )
 
 $ErrorActionPreference = "Stop"
@@ -275,13 +277,101 @@ function Find-DevRunnerProcessId {
     return [int]$process.ProcessId
 }
 
+function New-WorkerArgumentList {
+    param([hashtable]$BoundParameters)
+
+    $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-Worker")
+    $parameterNames = @(
+        "Target",
+        "ServerUrl",
+        "ReactUrl",
+        "ApiBaseUrl",
+        "ReadyTimeoutSeconds",
+        "SkipNpmInstall",
+        "SkipClientBuild",
+        "OpenBrowser"
+    )
+
+    foreach ($parameterName in $parameterNames) {
+        if (-not $BoundParameters.ContainsKey($parameterName)) {
+            continue
+        }
+
+        $value = $BoundParameters[$parameterName]
+        if ($value -is [System.Management.Automation.SwitchParameter]) {
+            if ($value.IsPresent) {
+                $arguments += "-$parameterName"
+            }
+
+            continue
+        }
+
+        $arguments += "-$parameterName"
+        $arguments += [string]$value
+    }
+
+    return $arguments
+}
+
 $repoRoot = Get-RepoRoot
 $reactApp = Join-Path $repoRoot "src\LightRAGNet.React"
 $runtimeDir = Join-Path $repoRoot "artifacts\dev-runtime"
 $logsDir = Join-Path $runtimeDir "logs"
 $stateFile = Join-Path $runtimeDir "dev-services.json"
+$workerStateFile = Join-Path $runtimeDir "dev-start-worker.json"
 
 New-Item -ItemType Directory -Path $runtimeDir, $logsDir -Force | Out-Null
+
+if (-not $Foreground -and -not $Worker) {
+    if (Test-Path -LiteralPath $workerStateFile) {
+        $workerState = Get-Content -LiteralPath $workerStateFile -Encoding utf8 -Raw | ConvertFrom-Json
+        $workerPid = [int]$workerState.pid
+        if (Test-RunningProcess $workerPid) {
+            Write-Step "Development starter is already running in background (PID $workerPid)."
+            Write-Host "  Logs: $($workerState.stdoutLog)"
+            Write-Host "        $($workerState.stderrLog)"
+            Write-Host "Stop with:"
+            Write-Host "  .\scripts\dev-stop.ps1"
+            return
+        }
+
+        Remove-Item -LiteralPath $workerStateFile -Force -ErrorAction SilentlyContinue
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $stdoutLog = Join-Path $logsDir "dev-start-$timestamp.out.log"
+    $stderrLog = Join-Path $logsDir "dev-start-$timestamp.err.log"
+    $workerArguments = New-WorkerArgumentList -BoundParameters $PSBoundParameters
+
+    $workerProcess = Start-Process `
+        -FilePath "powershell.exe" `
+        -ArgumentList $workerArguments `
+        -WorkingDirectory $repoRoot `
+        -RedirectStandardOutput $stdoutLog `
+        -RedirectStandardError $stderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+
+    [pscustomobject]@{
+        repoRoot = $repoRoot
+        pid = $workerProcess.Id
+        stdoutLog = $stdoutLog
+        stderrLog = $stderrLog
+        startedAt = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $workerStateFile -Encoding utf8
+
+    Write-Step "Development starter is running in background (PID $($workerProcess.Id))."
+    Write-Host "  Logs:   $stdoutLog"
+    Write-Host "          $stderrLog"
+    Write-Host "  State:  $stateFile"
+    Write-Host ""
+    Write-Host "Stop with:"
+    Write-Host "  .\scripts\dev-stop.ps1"
+    Write-Host ""
+    Write-Host "Run in the current console for diagnostics:"
+    Write-Host "  .\scripts\dev-start.ps1 -Foreground"
+    return
+}
 
 Write-Step "Repo: $repoRoot"
 if ($Target -eq "Service") {
@@ -426,4 +516,8 @@ Write-Host "  .\scripts\dev-stop.ps1"
 
 if ($OpenBrowser -and $wantsReact) {
     Start-Process "$ReactUrl/documents"
+}
+
+if ($Worker) {
+    Remove-Item -LiteralPath $workerStateFile -Force -ErrorAction SilentlyContinue
 }

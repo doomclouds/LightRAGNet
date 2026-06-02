@@ -1,5 +1,9 @@
 # Superpowers Archives Index
 
+## 2026-06
+
+- [2026-06-02-dev-start-background-worker-archives.md](./2026-06/2026-06-02-dev-start-background-worker-archives.md): 将开发启动脚本改为默认后台 worker 模式，让 `dev-start.ps1` 立即释放当前控制台并继续由 `dev-stop.ps1` 统一停止。
+
 ## 2026-05
 
 - [2026-05-27-api-retrieval-evaluation-smoke-archives.md](./2026-05/2026-05-27-api-retrieval-evaluation-smoke-archives.md): 增加基于共享 retrieval JSON oracle 的 `/api/RagQuery/data` Server smoke 测试，覆盖 Naive 与 KG raw data API 边界且保持外部依赖隔离。

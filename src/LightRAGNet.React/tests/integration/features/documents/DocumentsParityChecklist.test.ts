@@ -7,7 +7,7 @@ function readDocumentsPageSource(): string {
 }
 
 describe('DocumentsPage parity checklist', () => {
-  it('keeps the document list lifecycle controls from the Blazor page', () => {
+  it('keeps the document list lifecycle controls from the legacy document page', () => {
     const source = readDocumentsPageSource();
 
     expect(source).toContain('Status');

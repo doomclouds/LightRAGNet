@@ -4,7 +4,7 @@
 - Topic slug: `react-full-ui-migration`
 - Status: `Archived`
 - Scope: `UI`
-- Tags: `react`, `frontend-migration`, `dark-ops`, `rag-chat`, `documents`, `graph`
+- Tags: `react`, `frontend-migration`, `dark-ops`, `rag-chat`, `documents`, `graph`, `blazor-removal`
 
 ## Summary
 
@@ -17,10 +17,11 @@
 - Documents/Upload 迁入深色工作台样式，Documents 表格、状态切换、下载/删除、同页 preview drawer、scrim、阴影和 full preview 链路可用。
 - Knowledge Graph、System Status、Cache Management 从 Blazor-hosted React 迁入独立 React，保留图谱控件和运营页信息架构。
 - Dev startup 和 README route 清单更新为 standalone React routes，并防止 `dev-start` 误复用不属于当前 worktree 的旧 React dev server；Development CORS 支持本机 React 自定义端口。
+- `2026-06-02` 后续收尾删除 `src/LightRAGNet.Web` 和 `tests/LightRAGNet.Web.Tests`，从 solution、中央包版本、当前 README/AGENTS/系统介绍和现状对齐文档中移除 Blazor/MudBlazor/Web-hosted React island 入口。
 
 ## Out of Scope
 
-- 未删除 `src/LightRAGNet.Web` 或 Blazor/MudBlazor 主项目。
+- `2026-05-24` 阶段未删除 `src/LightRAGNet.Web` 或 Blazor/MudBlazor 主项目；该共存边界已在 `2026-06-02` 后续收尾中解除。
 - 未重写 Knowledge Graph 图谱按钮、浮层、设置面板或交互语义。
 - 未引入主题切换 UI，也未改变后端核心 RAG API 语义。
 - 未把截图纳入 git；视觉 QA 截图保存在被 `.gitignore` 忽略的 `output/playwright/`。
@@ -33,6 +34,7 @@
 - Full solution: `dotnet test LightRAGNet.slnx --no-restore --verbosity minimal` -> `LightRAGNet.Tests` `429` passed, `LightRAGNet.Web.Tests` `36` passed, `LightRAGNet.Server.Tests` `222` passed.
 - Visual QA: standalone React ran from the current worktree on `http://127.0.0.1:5174`; screenshots covered shell, RAG Chat, Documents, Upload, Document Preview, Graph, System Status, Cache Management, and Documents preview drawer. Graph canvas was nonblank, drawer scrim/shadow/full preview were present, and no clipped button text was detected.
 - Final code review subagent approved after CORS custom-port and query details abort fixes.
+- `2026-06-02` Web removal follow-up: `dotnet restore .\LightRAGNet.slnx` passed; `dotnet build .\LightRAGNet.slnx --no-restore` passed with `0` warnings and `0` errors; `dotnet test .\tests\LightRAGNet.Tests\LightRAGNet.Tests.csproj --no-build` passed `420/420`; `dotnet test .\tests\LightRAGNet.Server.Tests\LightRAGNet.Server.Tests.csproj --no-build` passed `301/301`; `npm test` from `src\LightRAGNet.React` passed `35` files / `273` tests; `npm run build` passed with only the existing large chunk warning. A solution-level `dotnet test .\LightRAGNet.slnx --no-build` run was stopped after `LightRAGNet.Server.Tests` passed because the `LightRAGNet.Tests` vstest process stopped producing output; both .NET test projects passed immediately when rerun separately.
 
 ## Source Documents
 
@@ -47,3 +49,4 @@
 ## Notes
 
 - The existing inbox note remains open because several guardrails are reusable beyond this requirement and may later be promoted into formal problem assets.
+- `2026-06-02` 后续收尾还修复了 `RagasEvaluationRunCoordinatorTests.CreateAsync_WhenEvaluatorApiKeyComesFromDeepSeekEnvironment_QueuesRun` 的测试清理竞态：该用例现在等待后台 evaluator 被调用、取消 run 并等待取消完成，避免 Windows 在 `Dispose` 删除临时目录时撞上 `ragas_runs.json` 文件锁。
