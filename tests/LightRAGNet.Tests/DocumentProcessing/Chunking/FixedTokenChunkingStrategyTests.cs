@@ -73,6 +73,37 @@ public sealed class FixedTokenChunkingStrategyTests
         chunks.Select(chunk => chunk.Id).Should().OnlyContain(id => id.StartsWith("chunk-", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task ChunkDocumentAsync_FiltersBlankSegmentsAndReindexesChunks()
+    {
+        var service = new LightRagChunkingService(
+            [new FixedTokenChunkingStrategy()],
+            new FakeTokenizer(),
+            Options.Create(new LightRAGOptions
+            {
+                ChunkTokenSize = 4,
+                ChunkOverlapTokenSize = 1,
+                Chunking = new LightRagChunkingOptions
+                {
+                    FixedToken = new FixedTokenChunkingOptions
+                    {
+                        SplitByCharacter = "|"
+                    }
+                }
+            }),
+            NullLogger<LightRagChunkingService>.Instance);
+
+        var chunks = await service.ChunkDocumentAsync(
+            "alpha||beta",
+            "doc-1",
+            "file.md");
+
+        chunks.Select(chunk => chunk.Content).Should().Equal("alpha", "beta");
+        chunks.Select(chunk => chunk.Tokens).Should().Equal(1, 1);
+        chunks.Select(chunk => chunk.ChunkOrderIndex).Should().Equal(0, 1);
+        chunks.Should().OnlyContain(chunk => !string.IsNullOrWhiteSpace(chunk.Content));
+    }
+
     private static ChunkingRequest CreateRequest(
         string content,
         int chunkSize,

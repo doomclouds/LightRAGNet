@@ -37,6 +37,7 @@ public sealed class LightRagChunkingService(
             segments.Count);
 
         return segments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.Content))
             .Select((segment, index) => new Chunk
             {
                 Id = HashUtils.ComputeMd5Hash(segment.Content, "chunk-"),
