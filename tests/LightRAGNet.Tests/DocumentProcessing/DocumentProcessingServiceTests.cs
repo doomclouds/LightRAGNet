@@ -2,6 +2,7 @@ using FluentAssertions;
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.DocumentProcessing.Chunking;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -94,6 +95,38 @@ public sealed class DocumentProcessingServiceTests
             splitByCharacterOnly: true);
 
         act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task ChunkDocumentAsync_UsesChunkingServiceSnapshot()
+    {
+        var service = CreateService(chunkSize: 3, overlap: 1);
+        var snapshot = new LightRAGOptions
+        {
+            ChunkTokenSize = 3,
+            ChunkOverlapTokenSize = 1,
+            Chunking = new LightRagChunkingOptions
+            {
+                FixedToken = new FixedTokenChunkingOptions
+                {
+                    SplitByCharacter = "|"
+                }
+            }
+        }.CreateChunkingSnapshot();
+
+        var chunks = await service.ChunkDocumentAsync(
+            "alpha beta|gamma delta epsilon zeta|eta",
+            "doc-1",
+            snapshot: snapshot);
+
+        chunks.Should().HaveCount(4);
+        chunks.Select(chunk => chunk.Tokens).Should().Equal(2, 3, 2, 1);
+        chunks.Select(chunk => chunk.Content).Should().Equal(
+            "alpha beta",
+            "t1 t2 t3",
+            "t3 t4",
+            "eta");
+        chunks.Select(chunk => chunk.ChunkOrderIndex).Should().Equal(0, 1, 2, 3);
     }
 
     [Fact]
@@ -335,18 +368,26 @@ public sealed class DocumentProcessingServiceTests
             ChunkTokenSize = chunkSize,
             ChunkOverlapTokenSize = overlap
         };
+        var tokenizer = new FakeTokenizer();
+        var optionsAccessor = Options.Create(lightRagOptions);
+        var chunkingService = new LightRagChunkingService(
+            [new FixedTokenChunkingStrategy()],
+            tokenizer,
+            optionsAccessor,
+            NullLogger<LightRagChunkingService>.Instance);
 
         return new DocumentProcessingService(
             llmService ?? Substitute.For<ILLMService>(),
             embeddingService ?? Substitute.For<IEmbeddingService>(),
-            new FakeTokenizer(),
+            tokenizer,
             new LightRagLlmCacheService(
                 llmCacheStore,
-                Options.Create(lightRagOptions),
+                optionsAccessor,
                 keyBuilder,
                 NullLogger<LightRagLlmCacheService>.Instance),
-            Options.Create(lightRagOptions),
-            NullLogger<DocumentProcessingService>.Instance);
+            optionsAccessor,
+            NullLogger<DocumentProcessingService>.Instance,
+            chunkingService);
     }
 
     private static List<string> DefaultEntityTypes()
