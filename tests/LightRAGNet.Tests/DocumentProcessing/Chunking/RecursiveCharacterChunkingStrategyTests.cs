@@ -68,6 +68,38 @@ public sealed class RecursiveCharacterChunkingStrategyTests
     }
 
     [Fact]
+    public async Task ChunkAsync_WhenParagraphPiecesAreSmall_MergesThem()
+    {
+        var strategy = new RecursiveCharacterChunkingStrategy();
+        var body = "alpha\n\nbeta\n\ngamma";
+        var request = CreateRequest(body, chunkSize: 10, overlap: 0);
+
+        var chunks = await strategy.ChunkAsync(request, new FakeTokenizer(), CancellationToken.None);
+
+        chunks.Should().ContainSingle();
+        chunks[0].Content.Should().Be(body);
+        chunks[0].SourceSpan.Should().Be(new SourceSpan(0, body.Length));
+    }
+
+    [Fact]
+    public async Task ChunkAsync_WhenParagraphPiecesCanFitTogether_MergesAcrossParagraphSeparators()
+    {
+        var strategy = new RecursiveCharacterChunkingStrategy();
+        var body = "alpha one\n\nbeta two\n\ngamma three\n\ndelta four";
+        var request = CreateRequest(body, chunkSize: 4, overlap: 0);
+
+        var chunks = await strategy.ChunkAsync(request, new FakeTokenizer(), CancellationToken.None);
+
+        chunks.Should().HaveCount(2);
+        chunks.Select(chunk => chunk.Content).Should().Equal(
+            "alpha one\n\nbeta two",
+            "gamma three\n\ndelta four");
+        chunks.Select(chunk => chunk.SourceSpan).Should().Equal(
+            new SourceSpan(0, 19),
+            new SourceSpan(21, body.Length));
+    }
+
+    [Fact]
     public async Task ChunkAsync_WhenTextRepeats_MovesSourceSpansForward()
     {
         var strategy = new RecursiveCharacterChunkingStrategy();

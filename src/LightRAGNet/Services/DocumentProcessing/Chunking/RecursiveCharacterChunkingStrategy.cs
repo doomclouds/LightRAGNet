@@ -88,7 +88,6 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         var pieces = new List<Piece>();
         var segmentStart = span.Start;
         var cursor = span.Start;
-        var segmentIndex = 0;
 
         while (cursor <= span.End)
         {
@@ -110,8 +109,7 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
                     overlap,
                     tokenizer,
                     cancellationToken,
-                    pieces,
-                    ShouldStartNewChunk(selectedIndex, segmentIndex));
+                    pieces);
                 break;
             }
 
@@ -125,12 +123,10 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
                 overlap,
                 tokenizer,
                 cancellationToken,
-                pieces,
-                ShouldStartNewChunk(selectedIndex, segmentIndex));
+                pieces);
 
             segmentStart = separatorStart + separator.Length;
             cursor = segmentStart;
-            segmentIndex++;
         }
 
         return pieces.Count == 0
@@ -166,8 +162,7 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         int overlap,
         ITokenizer tokenizer,
         CancellationToken cancellationToken,
-        List<Piece> pieces,
-        bool forceNewChunkBefore)
+        List<Piece> pieces)
     {
         var span = ChunkingUtilities.TrimmedSpan(source, start, end);
         if (span is null)
@@ -179,11 +174,11 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         var tokens = ChunkingUtilities.CountTokens(tokenizer, content);
         if (tokens <= chunkSize)
         {
-            pieces.Add(Piece.FromSource(content, tokens, span.Start, span.End, forceNewChunkBefore));
+            pieces.Add(Piece.FromSource(content, tokens, span.Start, span.End));
             return;
         }
 
-        var nestedPieces = SplitRecursive(
+        pieces.AddRange(SplitRecursive(
             source,
             span.Start,
             span.End,
@@ -192,17 +187,8 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
             chunkSize,
             overlap,
             tokenizer,
-            cancellationToken);
-        if (forceNewChunkBefore && nestedPieces.Count > 0)
-        {
-            nestedPieces[0] = nestedPieces[0] with { ForceNewChunkBefore = true };
-        }
-
-        pieces.AddRange(nestedPieces);
+            cancellationToken));
     }
-
-    private static bool ShouldStartNewChunk(int selectedIndex, int segmentIndex) =>
-        selectedIndex == 0 && segmentIndex > 0;
 
     private static List<Piece> HardSplit(
         string content,
@@ -261,13 +247,6 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
             if (current.Count == 0)
             {
                 current.Add(piece);
-                continue;
-            }
-
-            if (piece.ForceNewChunkBefore)
-            {
-                AddChunk(source, chunks, current, tokenizer);
-                current = [piece];
                 continue;
             }
 
@@ -332,7 +311,7 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         chunks.Add(new ChunkingSegment
         {
             Content = content,
-            Tokens = ChunkingUtilities.CountTokens(tokenizer, content),
+            Tokens = CountMergedTokens(source, pieces, tokenizer),
             Order = chunks.Count,
             Strategy = LightRagChunkingStrategy.RecursiveCharacter,
             SourceSpan = span
@@ -344,7 +323,9 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         IReadOnlyList<Piece> pieces,
         ITokenizer tokenizer)
     {
-        return ChunkingUtilities.CountTokens(tokenizer, BuildMergedContent(source, pieces));
+        var mergedTokens = ChunkingUtilities.CountTokens(tokenizer, BuildMergedContent(source, pieces));
+        var pieceTokens = pieces.Sum(piece => piece.Tokens);
+        return Math.Max(mergedTokens, pieceTokens);
     }
 
     private static string BuildMergedContent(string source, IReadOnlyList<Piece> pieces)
@@ -368,21 +349,16 @@ public sealed class RecursiveCharacterChunkingStrategy : IChunkingStrategy
         return new SourceSpan(pieces[0].SourceSpan!.Start, pieces[^1].SourceSpan!.End);
     }
 
-    private sealed record Piece(
-        string Content,
-        int Tokens,
-        SourceSpan? SourceSpan,
-        bool ForceNewChunkBefore)
+    private sealed record Piece(string Content, int Tokens, SourceSpan? SourceSpan)
     {
         public static Piece FromSource(
             string content,
             int tokens,
             int start,
-            int end,
-            bool forceNewChunkBefore = false) =>
-            new(content, tokens, new SourceSpan(start, end), forceNewChunkBefore);
+            int end) =>
+            new(content, tokens, new SourceSpan(start, end));
 
         public static Piece FromContent(string content, int tokens) =>
-            new(content, tokens, null, false);
+            new(content, tokens, null);
     }
 }
