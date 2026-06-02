@@ -2,6 +2,7 @@
 
 ## 2026-06
 
+- [2026-06-02-chunking-strategy-parity-archives.md](./2026-06/2026-06-02-chunking-strategy-parity-archives.md): 将核心文档分块升级为 F/R/V/P 可配置策略体系，并在索引流程中记录策略快照和生命周期 metadata。
 - [2026-06-02-dev-start-background-worker-archives.md](./2026-06/2026-06-02-dev-start-background-worker-archives.md): 将开发启动脚本改为默认后台 worker 模式，让 `dev-start.ps1` 立即释放当前控制台并继续由 `dev-stop.ps1` 统一停止。
 
 ## 2026-05
