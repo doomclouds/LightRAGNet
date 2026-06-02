@@ -24,7 +24,7 @@ internal sealed class RagasEvaluationRunner(
         {
             run.Status = RagasEvaluationRunStatus.Running;
             run.StartedAt = DateTimeOffset.UtcNow;
-            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
             await store.UpsertAsync(run, CancellationToken.None);
 
             foreach (var dataSetCase in cases)
@@ -46,7 +46,7 @@ internal sealed class RagasEvaluationRunner(
                             }
                         ],
                         run.Request.IncludeFullText));
-                    run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+                    run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
                     await store.UpsertAsync(run, CancellationToken.None);
                     continue;
                 }
@@ -75,7 +75,7 @@ internal sealed class RagasEvaluationRunner(
                             evaluatorResult,
                             run.Request.IncludeFullText),
                         run.Request.IncludeFullText));
-                    run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+                    run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
                     await store.UpsertAsync(run, CancellationToken.None);
                     continue;
                 }
@@ -87,20 +87,25 @@ internal sealed class RagasEvaluationRunner(
                     evaluatorResult.ParseResult.Metrics,
                     AppendJudgeDiagnostics([], evaluatorResult, run.Request.IncludeFullText),
                     run.Request.IncludeFullText));
-                run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+                run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
                 await store.UpsertAsync(run, CancellationToken.None);
             }
 
             run.Status = RagasEvaluationRunStatus.Completed;
             run.CompletedAt = DateTimeOffset.UtcNow;
-            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
             await store.UpsertAsync(run, CancellationToken.None);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             run.Status = RagasEvaluationRunStatus.Cancelled;
             run.CompletedAt = DateTimeOffset.UtcNow;
-            run.Summary = CreateSummary(cases.Count, run.Cases, Math.Max(0, cases.Count - run.Cases.Count));
+            run.Summary = CreateSummary(
+                cases.Count,
+                run.Cases,
+                Math.Max(0, cases.Count - run.Cases.Count),
+                run.StartedAt,
+                run.CompletedAt);
             await store.UpsertAsync(run, CancellationToken.None);
         }
         catch (Exception exception)
@@ -109,7 +114,7 @@ internal sealed class RagasEvaluationRunner(
             run.Status = RagasEvaluationRunStatus.Failed;
             run.Error = exception.Message;
             run.CompletedAt = DateTimeOffset.UtcNow;
-            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0);
+            run.Summary = CreateSummary(cases.Count, run.Cases, cancelledRemaining: 0, run.StartedAt, run.CompletedAt);
             await store.UpsertAsync(run, CancellationToken.None);
         }
     }
@@ -297,20 +302,43 @@ internal sealed class RagasEvaluationRunner(
     private static RagasEvaluationSummaryDto CreateSummary(
         int total,
         IReadOnlyList<RagasEvaluationCaseResultDto> results,
-        int cancelledRemaining)
+        int cancelledRemaining,
+        DateTimeOffset? startedAt,
+        DateTimeOffset? completedAt)
     {
         var succeeded = results
             .Where(result => result.Status == RagasEvaluationCaseStatus.Succeeded.ToString())
+            .ToArray();
+        var failed = results
+            .Where(result => result.Status == RagasEvaluationCaseStatus.Failed.ToString())
+            .ToArray();
+        var elapsed = startedAt is not null && completedAt is not null
+            ? (completedAt.Value - startedAt.Value).TotalSeconds
+            : (double?)null;
+        var scores = succeeded
+            .Select(result => result.Metrics.RagasScore)
+            .Where(score => score.HasValue)
+            .Select(score => score!.Value)
             .ToArray();
 
         return new RagasEvaluationSummaryDto
         {
             Total = total,
             Succeeded = succeeded.Length,
-            Failed = results.Count(result => result.Status == RagasEvaluationCaseStatus.Failed.ToString()),
+            Failed = failed.Length,
             Cancelled = results.Count(result => result.Status == RagasEvaluationCaseStatus.Cancelled.ToString())
                 + cancelledRemaining,
-            AverageMetrics = AverageMetrics(succeeded)
+            AverageMetrics = AverageMetrics(succeeded),
+            SuccessRate = total > 0 ? (double)succeeded.Length / total : null,
+            ElapsedTimeSeconds = elapsed,
+            AverageSecondsPerCase = elapsed is not null && total > 0 ? elapsed.Value / total : null,
+            MinRagasScore = scores.Length > 0 ? scores.Min() : null,
+            MaxRagasScore = scores.Length > 0 ? scores.Max() : null,
+            FailureReasons = failed
+                .Select(result => result.Diagnostics.FirstOrDefault())
+                .Where(diagnostic => diagnostic is not null)
+                .GroupBy(diagnostic => diagnostic!.Code, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal)
         };
     }
 

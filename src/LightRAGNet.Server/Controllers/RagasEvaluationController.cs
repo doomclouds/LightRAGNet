@@ -45,6 +45,60 @@ public sealed class RagasEvaluationController(
         return ToActionResult(result);
     }
 
+    [HttpGet]
+    public async Task<ActionResult<RagasEvaluationRunListResponse>> ListAsync(
+        CancellationToken cancellationToken)
+    {
+        if (ValidateRequestAccess() is { } failure)
+        {
+            return failure;
+        }
+
+        var result = await coordinator.ListAsync(cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [HttpGet("{runId}/export")]
+    public async Task<ActionResult> ExportAsync(
+        string runId,
+        [FromQuery] string? format,
+        CancellationToken cancellationToken)
+    {
+        if (ValidateRequestAccess() is { } failure)
+        {
+            return failure;
+        }
+
+        var result = await coordinator.ExportAsync(runId, format, cancellationToken);
+        if (!result.Success)
+        {
+            return ToErrorResult(result);
+        }
+
+        var export = result.Value!;
+        return File(
+            Encoding.UTF8.GetBytes(export.Content),
+            export.ContentType,
+            export.FileName);
+    }
+
+    [HttpGet("{runId}/compare/{baselineRunId}")]
+    public async Task<ActionResult<RagasEvaluationComparisonResponse>> CompareAsync(
+        string runId,
+        string baselineRunId,
+        CancellationToken cancellationToken)
+    {
+        if (ValidateRequestAccess() is { } failure)
+        {
+            return failure;
+        }
+
+        var result = await coordinator.CompareAsync(runId, baselineRunId, cancellationToken);
+
+        return ToActionResult(result);
+    }
+
     [HttpPost("{runId}/cancel")]
     public async Task<ActionResult<RagasEvaluationRunResponse>> CancelAsync(
         string runId,
@@ -67,6 +121,11 @@ public sealed class RagasEvaluationController(
             return StatusCode(result.StatusCode, result.Value);
         }
 
+        return ToErrorResult(result);
+    }
+
+    private ObjectResult ToErrorResult<T>(RagasEvaluationOperationResult<T> result)
+    {
         return StatusCode(result.StatusCode, new
         {
             code = result.ErrorCode,

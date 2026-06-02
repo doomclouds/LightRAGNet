@@ -22,6 +22,23 @@ internal sealed class RagasEvaluationRunStore(IConfiguration configuration)
         }
     }
 
+    public async Task<IReadOnlyList<RagasEvaluationRunRecord>> ListAsync(CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var runs = await LoadAllUnlockedAsync(cancellationToken);
+
+            return runs
+                .OrderByDescending(run => run.CreatedAt)
+                .ToArray();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<RagasEvaluationRunRecord?> GetAsync(string runId, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);

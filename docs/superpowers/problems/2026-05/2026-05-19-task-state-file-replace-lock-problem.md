@@ -26,12 +26,16 @@ System.IO.IOException: The process cannot access the file 'tasks.json' because i
    at LightRAGNet.Tests.TaskQueue.RagTaskStateStoreTests.TempDirectoryCleanup.DisposeAsync(...)
 ```
 
-RAGAS evaluation 测试里也出现过同族症状：
+RAGAS evaluation run store 也可能出现同族症状，文件名可能是目标 JSON，也可能是唯一临时文件：
 
 ```text
 System.IO.IOException: The process cannot access the file 'ragas_runs.json' because it is being used by another process.
    at System.IO.FileSystem.RemoveDirectoryRecursive(...)
-   at LightRAGNet.Server.Tests.Evaluation.RagasEvaluationRunCoordinatorTests.Dispose()
+   at LightRAGNet.Server.Tests.Evaluation.RagasEvaluationRunCoordinatorTests.Dispose(...)
+
+System.IO.IOException: The process cannot access the file 'ragas_runs.json.<guid>.tmp' because it is being used by another process.
+   at System.IO.FileSystem.RemoveDirectoryRecursive(...)
+   at LightRAGNet.Server.Tests.Evaluation.RagasEvaluationRunCoordinatorTests.Dispose(...)
 ```
 
 ## Trigger / Context
@@ -41,6 +45,7 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 - Windows 上目标 `tasks.json` 可能被另一个运行实例、短暂读取者、文件扫描器或其它文件系统观察者占用。
 - 原实现每次都写固定临时文件 `tasks.json.tmp`，随后直接 `File.Move(temp, tasks.json, overwrite: true)`。
 - `RagTaskStateStore` 构造函数会启动 fire-and-forget startup load；如果测试很快写入并清理临时目录，后台 load 可能仍在读同一个 `tasks.json`。
+- `RagasEvaluationRunCoordinator.CreateAsync` 会启动 fire-and-forget background runner；如果测试只断言 queued response 就结束，runner 可能仍在通过 `RagasEvaluationRunStore.UpsertAsync` 写 `ragas_runs.json.<guid>.tmp`。
 
 ## Root Cause
 
@@ -50,7 +55,7 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 
 后续测试清理失败的直接根因是构造函数中的 startup load 被 fire-and-forget 丢弃，测试没有可等待的 store 生命周期。即使 `SaveTaskStateAsync` 已经 await，构造时启动的 `LoadAllTasksAsync` 仍可能在测试结尾短暂持有 `tasks.json` 读句柄，Windows 递归删除目录因此失败。
 
-`ragas_runs.json` 的变体根因相同：测试只断言 `CreateAsync` 返回 queued，没有等待后台 evaluation runner 消费 evaluator、取消 run 并完成取消路径。`Dispose` 随即递归删除临时目录时，后台 runner 或 run store 仍可能短暂读写 `ragas_runs.json`。
+RAGAS env-key coordinator test 的直接根因同样不是目录权限，而是测试提前清理：`CreateAsync` 返回 `Queued` 后，后台 runner 仍可能在消费 evaluator、取消 run 或写 run store 临时文件；测试类 `Dispose` 立即递归删除临时 WorkingDir，就会撞上 Windows 文件句柄占用。
 
 ## Fix
 
@@ -61,13 +66,16 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 - 增加回归测试：先锁住 `tasks.json`，启动保存任务，短暂延迟后释放锁，验证保存会等待并最终成功。
 - Store 实现 `IAsyncDisposable`，保存 startup load task，并在 `DisposeAsync` 中等待启动加载完成后再释放 `_fileLock`。
 - `RagTaskStateStoreTests` 使用 `await using var store = ...`，确保临时目录清理前没有该 store 自己遗留的后台读取。
-- RAGAS coordinator 测试使用可控的 `BlockingRagasEvaluator`，等待 evaluator 被调用，显式 `CancelAsync`，再等待取消完成后才允许测试对象 `Dispose` 删除临时目录。
+- RAGAS coordinator 测试使用可控的 `BlockingRagasEvaluator` 时，等待 evaluator 被调用，显式 `CancelAsync`，再等待取消完成后才允许测试对象 `Dispose` 删除临时目录。
+- RAGAS coordinator env-key 测试改为显式持有 `RagasEvaluationRunStore`，在断言 queued response 后轮询该 run 到 `Completed`，再允许测试类清理临时 WorkingDir。
 
 ## Why This Fix
 
 这不是权限配置错误，而是 Windows 文件替换语义下的短暂占用问题。直接放宽权限或吞掉异常都会掩盖任务状态丢失风险；唯一临时文件加有界重试既保留原子的“先写临时文件、再替换目标文件”策略，又能穿过短锁窗口。
 
 测试清理场景也不应该靠 `Task.Delay` 或给 `Directory.Delete` 重试硬躲，因为真正缺的是 store 生命周期边界。让 store 可异步释放，可以把构造期后台加载纳入宿主/测试的生命周期管理，同时保持现有 startup load 语义。
+
+RAGAS 场景同理：重试删除目录只能降低撞上短锁的概率，不能证明 background runner 已经结束。等待 run 进入 terminal status 能把测试的生命周期边界和实际后台写入对齐。
 
 ## Recognition Clues
 
@@ -76,7 +84,7 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 - 失败发生在频繁进度更新、清空数据、重启多个本地服务实例或杀软/同步工具扫描目录时。
 - 同一方法被实例内锁保护，但仍出现文件替换级别的访问拒绝。
 - 堆栈停在测试 `TempDirectoryCleanup.DisposeAsync` / `Directory.Delete(..., recursive: true)`，目标文件是 `tasks.json`，且测试刚创建过 `RagTaskStateStore`。
-- 堆栈停在测试 `Dispose` / `Directory.Delete(..., recursive: true)`，目标文件是 `ragas_runs.json`，且测试刚启动过后台 evaluation run 但没有等待取消或完成。
+- 堆栈停在测试类 `Dispose` / `Directory.Delete(..., recursive: true)`，目标文件是 `ragas_runs.json` 或 `ragas_runs.json.<guid>.tmp`，且测试刚通过 coordinator 创建过后台 run 但没有等待取消或完成。
 - 单独重跑同一测试可能通过，循环也可能不复现，因为后台读取窗口很短。
 
 ## Applicability / Non-Applicability
@@ -87,6 +95,7 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 - 目标文件可能被短暂读取或扫描。
 - 同一应用可能存在多个运行实例指向同一个工作目录。
 - 异常类型是文件替换阶段的 `UnauthorizedAccessException` 或 `IOException`。
+- 测试启动 fire-and-forget 后台写入流程，并在流程进入 terminal state 前清理临时目录。
 
 ### Does Not Apply When
 
@@ -99,10 +108,12 @@ System.IO.IOException: The process cannot access the file 'ragas_runs.json' beca
 
 - Spec: `None yet.`
 - Plan: [2026-05-17-testability-foundation-implementation-plan.md](../../plans/2026-05-17-testability-foundation-implementation-plan.md)
-- Archive: [2026-05-18-document-deletion-parity-archives.md](../../archives/2026-05/2026-05-18-document-deletion-parity-archives.md)
+- Archive:
+  - [2026-05-18-document-deletion-parity-archives.md](../../archives/2026-05/2026-05-18-document-deletion-parity-archives.md)
+  - [2026-05-28-ragas-evaluation-power-workflow-archives.md](../../archives/2026-05/2026-05-28-ragas-evaluation-power-workflow-archives.md)
 - Related Problems:
   - [2026-05-19-server-filesystem-test-parallelism-problem.md](./2026-05-19-server-filesystem-test-parallelism-problem.md)
 - Code or Test:
-- [RagTaskStateStore.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskStateStore.cs)
-- [RagTaskStateStoreTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskStateStoreTests.cs)
+  - [RagTaskStateStore.cs](../../../../src/LightRAGNet/Services/TaskQueue/RagTaskStateStore.cs)
+  - [RagTaskStateStoreTests.cs](../../../../tests/LightRAGNet.Tests/TaskQueue/RagTaskStateStoreTests.cs)
   - [RagasEvaluationRunCoordinatorTests.cs](../../../../tests/LightRAGNet.Server.Tests/Evaluation/RagasEvaluationRunCoordinatorTests.cs)

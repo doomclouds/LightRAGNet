@@ -41,6 +41,30 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_WhenStoreMissing_ReturnsEmptyList()
+    {
+        var store = CreateStore();
+
+        var runs = await store.ListAsync(CancellationToken.None);
+
+        runs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ListAsync_ReturnsRunsNewestFirst()
+    {
+        var store = CreateStore();
+        var older = CreateRun("ragas-older", new DateTimeOffset(2026, 5, 27, 8, 0, 0, TimeSpan.Zero));
+        var newer = CreateRun("ragas-newer", new DateTimeOffset(2026, 5, 28, 8, 0, 0, TimeSpan.Zero));
+        await store.UpsertAsync(older, CancellationToken.None);
+        await store.UpsertAsync(newer, CancellationToken.None);
+
+        var runs = await store.ListAsync(CancellationToken.None);
+
+        runs.Select(run => run.RunId).Should().Equal("ragas-newer", "ragas-older");
+    }
+
+    [Fact]
     public async Task GetActiveAsync_WhenRunIsQueued_ReturnsRun()
     {
         await AssertActiveRunAsync(RagasEvaluationRunStatus.Queued);
@@ -142,6 +166,14 @@ public sealed class RagasEvaluationRunStoreTests : IDisposable
                 MaxCases = maxCases
             }
         };
+    }
+
+    private static RagasEvaluationRunRecord CreateRun(string runId, DateTimeOffset createdAt)
+    {
+        var run = CreateRun(runId, RagasEvaluationRunStatus.Completed);
+        run.CreatedAt = createdAt;
+
+        return run;
     }
 
     private async Task AssertActiveRunAsync(RagasEvaluationRunStatus status)
