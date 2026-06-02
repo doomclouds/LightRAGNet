@@ -373,7 +373,8 @@ public sealed class LightRAGQueryCacheIntegrationTests
             tokenizer,
             cacheService,
             optionsMonitor,
-            NullLogger<DocumentProcessingService>.Instance);
+            NullLogger<DocumentProcessingService>.Instance,
+            TestChunkingServiceFactory.Create(tokenizer, optionsMonitor, embeddingService));
 
         var loggerFactory = NullLoggerFactory.Instance;
         var knowledgeGraphMergeService = new KnowledgeGraphMergeService(

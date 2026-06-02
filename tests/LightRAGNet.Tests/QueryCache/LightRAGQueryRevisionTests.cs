@@ -296,7 +296,8 @@ public sealed class LightRAGQueryRevisionTests
             tokenizer,
             cacheService,
             options,
-            NullLogger<DocumentProcessingService>.Instance);
+            NullLogger<DocumentProcessingService>.Instance,
+            TestChunkingServiceFactory.Create(tokenizer, options, embeddingService));
 
         var loggerFactory = NullLoggerFactory.Instance;
         var knowledgeGraphMergeService = new KnowledgeGraphMergeService(
