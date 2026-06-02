@@ -6,6 +6,7 @@ using LightRAGNet.Rerank;
 using LightRAGNet.Services.DocumentDeletion;
 using LightRAGNet.Services.DocumentLifecycle;
 using LightRAGNet.Services.DocumentProcessing;
+using LightRAGNet.Services.DocumentProcessing.Chunking;
 using LightRAGNet.Services.GraphCuration;
 using LightRAGNet.Services.KnowledgeGraphMerge;
 using LightRAGNet.Services.Query;
@@ -161,6 +162,15 @@ public static class ServiceCollectionExtensions
 
         #region Register Retrieval Services
 
+        services.AddSingleton<FixedTokenChunkingStrategy>();
+        services.AddSingleton<RecursiveCharacterChunkingStrategy>();
+        services.AddSingleton<SemanticVectorChunkingStrategy>();
+        services.AddSingleton<ParagraphSemanticChunkingStrategy>();
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<FixedTokenChunkingStrategy>());
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<RecursiveCharacterChunkingStrategy>());
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<SemanticVectorChunkingStrategy>());
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<ParagraphSemanticChunkingStrategy>());
+        services.AddSingleton<LightRagChunkingService>();
         services.AddSingleton<DocumentProcessingService>();
         services.AddSingleton<DocumentDeletionService>();
         services.AddSingleton(sp => new GraphCurationService(

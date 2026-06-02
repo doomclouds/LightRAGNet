@@ -1,6 +1,7 @@
 using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
+using LightRAGNet.Services.DocumentProcessing.Chunking;
 using LightRAGNet.Services.QueryCache;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,15 +18,46 @@ public class DocumentProcessingService(
     ITokenizer tokenizer,
     LightRagLlmCacheService llmCacheService,
     IOptions<LightRAGOptions> options,
-    ILogger<DocumentProcessingService> logger)
+    ILogger<DocumentProcessingService> logger,
+    LightRagChunkingService? chunkingService = null)
 {
     private readonly LightRAGOptions _options = options.Value;
+    private readonly LightRagChunkingService? _chunkingService = chunkingService;
     private readonly SemaphoreSlim _extractGenerationSemaphore = new(10, 10);
     private static readonly List<string> DefaultEntityTypes =
     [
         "Person", "Creature", "Organization", "Location", "Event",
         "Concept", "Method", "Content", "Data", "Artifact", "NaturalObject"
     ];
+
+    /// <summary>
+    /// Document chunking
+    /// Reference: operate.py chunking_by_token_size function
+    /// </summary>
+    public async Task<IReadOnlyList<Chunk>> ChunkDocumentAsync(
+        string content,
+        string docId,
+        string filePath = "",
+        LightRagChunkingSnapshot? snapshot = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_chunkingService is null)
+        {
+            return ChunkDocument(content, docId, filePath);
+        }
+
+        return await _chunkingService.ChunkDocumentAsync(
+            content,
+            docId,
+            filePath,
+            snapshot,
+            cancellationToken);
+    }
+
+    public LightRagChunkingSnapshot CreateChunkingSnapshot()
+    {
+        return _options.CreateChunkingSnapshot();
+    }
 
     /// <summary>
     /// Document chunking

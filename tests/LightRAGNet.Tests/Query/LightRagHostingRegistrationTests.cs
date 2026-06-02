@@ -3,6 +3,7 @@ using LightRAGNet.Core.Interfaces;
 using LightRAGNet.Core.Models;
 using LightRAGNet.Core.Utils;
 using LightRAGNet.Hosting;
+using LightRAGNet.Services.DocumentProcessing.Chunking;
 using LightRAGNet.Services.QueryCache;
 using LightRAGNet.Services.RetrievalContext;
 using Microsoft.Extensions.Configuration;
@@ -55,6 +56,54 @@ public sealed class LightRagHostingRegistrationTests
         var service = provider.GetRequiredService<RetrievalContextService>();
 
         service.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddLightRag_RegistersChunkingServices()
+    {
+        var workingDir = Path.Combine(Path.GetTempPath(), "lightragnet-tests", Guid.NewGuid().ToString("N"));
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LLM:ApiKey"] = "test-key",
+                ["Rerank:ApiKey"] = "test-key",
+                ["Embedding:ApiKey"] = "test-key",
+                ["Embedding:EmbeddingDimension"] = "2",
+                ["Qdrant:Host"] = "localhost",
+                ["Qdrant:Port"] = "6334",
+                ["Neo4j:Uri"] = "bolt://localhost:7687",
+                ["Neo4j:User"] = "neo4j",
+                ["Neo4j:Password"] = "password",
+                ["LightRAG:WorkingDir"] = workingDir
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddLightRAG(configuration);
+        services.RemoveAll<IEmbeddingService>();
+        services.RemoveAll<ITokenizer>();
+        services.AddSingleton(Substitute.For<IEmbeddingService>());
+        services.AddSingleton<ITokenizer, SingleTokenTokenizer>();
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<LightRagChunkingService>().Should().NotBeNull();
+        var strategies = provider.GetServices<IChunkingStrategy>().ToList();
+        strategies.Should().HaveCount(4);
+        strategies.Select(strategy => strategy.Strategy).Should().BeEquivalentTo(
+            [
+                LightRagChunkingStrategy.FixedToken,
+                LightRagChunkingStrategy.RecursiveCharacter,
+                LightRagChunkingStrategy.SemanticVector,
+                LightRagChunkingStrategy.ParagraphSemantic
+            ]);
+        strategies.Select(strategy => strategy.GetType()).Should().BeEquivalentTo(
+            [
+                typeof(FixedTokenChunkingStrategy),
+                typeof(RecursiveCharacterChunkingStrategy),
+                typeof(SemanticVectorChunkingStrategy),
+                typeof(ParagraphSemanticChunkingStrategy)
+            ]);
     }
 
     [Fact]
