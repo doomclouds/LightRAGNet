@@ -28,6 +28,8 @@ Task 1 of the React full UI migration passed spec review, but code-quality revie
 - Dialog components that set parent-owned loading state must clear that parent state on pending abort/unmount, or the next open can be blocked by a stale loading flag.
 - Subagents working in an isolated worktree should verify path and branch before edits; file editing tools should use absolute paths when there is any risk of defaulting to the parent session cwd.
 
+During the chunking strategy parity closeout, the isolated worktree editing signal recurred in a tool-specific form: `apply_patch` did not receive a workdir and wrote archive edits into the parent session cwd instead of `.worktrees/chunking-strategy-parity`. The recovery was to delete the parent-worktree archive/index edits and re-apply the same archive using explicit `.worktrees/chunking-strategy-parity/...` paths before committing. This confirms the risk is not only subagent discipline; tools without an explicit workdir can cross the worktree boundary unless paths are anchored.
+
 ## Why It Might Matter
 
 These are small foundation mistakes that can propagate across migrated pages. If left implicit, future agents may copy unreadable CTA styles, reintroduce silent SignalR event failures, allow stale reconnect promises to overwrite current shell status, trust an empty targeted .NET test run, run the React frontend on an isolated port with broken API/SignalR CORS, leave parent-owned loading state stuck after closing async dialogs, ship tabs whose URL semantics do not match API state, declare modal dialogs that still let keyboard focus escape, leave lazy route chunks as blank pages, leak isolated island CSS into the app shell, execute destructive actions against the wrong live controls, route safe preview links through the wrong frontend base path, lose preview error messages by double-reading response bodies, or write to the wrong checkout during subagent-driven work.
@@ -35,7 +37,6 @@ These are small foundation mistakes that can propagate across migrated pages. If
 ## What Is Missing
 
 - Repeated occurrence across later migrated routes.
-- Evidence that the worktree editing risk is specific to one tool path rather than a one-off subagent workflow issue.
 - Whether later migrated pages reuse the same status/filter URL pattern or need a shared helper.
 - Whether later drawers/modals need a shared focus-management utility rather than local handlers.
 - Whether later browser-heavy routes should share a route shell helper for lazy loading, error fallback, and retry behavior.
@@ -58,5 +59,6 @@ If the same patterns recur during Tasks 2-10, update this inbox note or promote 
 - Spec: [React full UI migration design](../../specs/2026-05-24-react-full-ui-migration-design.md)
 - Plan: [React full UI migration implementation plan](../../plans/2026-05-24-react-full-ui-migration-implementation-plan.md)
 - Archive: [React full UI migration](../../archives/2026-05/2026-05-24-react-full-ui-migration-archives.md)
+- Archive: [Chunking strategy parity](../../archives/2026-06/2026-06-02-chunking-strategy-parity-archives.md)
 - Problems:
   - `None yet.`
