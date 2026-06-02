@@ -12,6 +12,11 @@ public sealed class ChunkingSegment
         new Dictionary<string, object?>();
 }
 
+/// <summary>
+/// Represents a half-open source interval in the original document.
+/// </summary>
+/// <param name="Start">Inclusive zero-based start offset.</param>
+/// <param name="End">Exclusive zero-based end offset.</param>
 public sealed record SourceSpan(int Start, int End);
 
 public sealed record ChunkHeading(

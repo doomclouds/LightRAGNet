@@ -41,7 +41,7 @@ public partial class LightRAGOptions
     /// </summary>
     public int ChunkOverlapTokenSize { get; set; } = 100;
 
-    public LightRagChunkingOptions Chunking { get; set; } = new();
+    public LightRagChunkingOptions? Chunking { get; set; } = new();
     
     /// <summary>
     /// Top-K retrieval count
@@ -140,62 +140,74 @@ public partial class LightRAGOptions
 
     public LightRagChunkingSnapshot CreateChunkingSnapshot()
     {
+        var chunking = Chunking ?? new LightRagChunkingOptions();
+        var fixedToken = chunking.FixedToken ?? new FixedTokenChunkingOptions();
+        var recursiveCharacter = chunking.RecursiveCharacter ?? new RecursiveCharacterChunkingOptions();
+        var semanticVector = chunking.SemanticVector ?? new SemanticVectorChunkingOptions();
+        var paragraphSemantic = chunking.ParagraphSemantic ?? new ParagraphSemanticChunkingOptions();
+        var recursiveSeparators = recursiveCharacter.Separators is { Count: > 0 }
+            ? recursiveCharacter.Separators
+            : RecursiveCharacterChunkingOptions.CreateDefaultSeparators();
+        var sentenceSplitRegex = string.IsNullOrWhiteSpace(semanticVector.SentenceSplitRegex)
+            ? SemanticVectorChunkingOptions.DefaultSentenceSplitRegex
+            : semanticVector.SentenceSplitRegex;
+
         var globalSize = ChunkingUtilities.RequirePositiveChunkSize(ChunkTokenSize, nameof(ChunkTokenSize));
         var globalOverlap = ChunkingUtilities.ClampOverlap(globalSize, ChunkOverlapTokenSize);
 
-        var fixedSize = Chunking.FixedToken.ChunkTokenSize ?? globalSize;
+        var fixedSize = fixedToken.ChunkTokenSize ?? globalSize;
         fixedSize = ChunkingUtilities.RequirePositiveChunkSize(fixedSize, "Chunking:FixedToken:ChunkTokenSize");
         var fixedOverlap = ChunkingUtilities.ClampOverlap(
             fixedSize,
-            Chunking.FixedToken.ChunkOverlapTokenSize ?? globalOverlap);
+            fixedToken.ChunkOverlapTokenSize ?? globalOverlap);
 
-        var recursiveSize = Chunking.RecursiveCharacter.ChunkTokenSize ?? globalSize;
+        var recursiveSize = recursiveCharacter.ChunkTokenSize ?? globalSize;
         recursiveSize = ChunkingUtilities.RequirePositiveChunkSize(
             recursiveSize,
             "Chunking:RecursiveCharacter:ChunkTokenSize");
         var recursiveOverlap = ChunkingUtilities.ClampOverlap(
             recursiveSize,
-            Chunking.RecursiveCharacter.ChunkOverlapTokenSize ?? globalOverlap);
+            recursiveCharacter.ChunkOverlapTokenSize ?? globalOverlap);
 
-        var vectorSize = Chunking.SemanticVector.ChunkTokenSize ?? globalSize;
+        var vectorSize = semanticVector.ChunkTokenSize ?? globalSize;
         vectorSize = ChunkingUtilities.RequirePositiveChunkSize(
             vectorSize,
             "Chunking:SemanticVector:ChunkTokenSize");
 
-        var paragraphSize = Chunking.ParagraphSemantic.ChunkTokenSize ?? 2000;
+        var paragraphSize = paragraphSemantic.ChunkTokenSize ?? 2000;
         paragraphSize = ChunkingUtilities.RequirePositiveChunkSize(
             paragraphSize,
             "Chunking:ParagraphSemantic:ChunkTokenSize");
         var paragraphOverlap = ChunkingUtilities.ClampOverlap(
             paragraphSize,
-            Chunking.ParagraphSemantic.ChunkOverlapTokenSize ?? globalOverlap);
+            paragraphSemantic.ChunkOverlapTokenSize ?? globalOverlap);
 
         return new LightRagChunkingSnapshot(
-            Chunking.Strategy,
+            chunking.Strategy,
             globalSize,
             new FixedTokenChunkingSnapshot(
                 fixedSize,
                 fixedOverlap,
-                Chunking.FixedToken.SplitByCharacter,
-                Chunking.FixedToken.SplitByCharacterOnly),
+                fixedToken.SplitByCharacter,
+                fixedToken.SplitByCharacterOnly),
             new RecursiveCharacterChunkingSnapshot(
                 recursiveSize,
                 recursiveOverlap,
-                [.. Chunking.RecursiveCharacter.Separators]),
+                [.. recursiveSeparators]),
             new SemanticVectorChunkingSnapshot(
                 vectorSize,
-                Chunking.SemanticVector.BreakpointThresholdType,
-                Chunking.SemanticVector.BreakpointThresholdAmount,
-                Math.Max(1, Chunking.SemanticVector.BufferSize),
-                Chunking.SemanticVector.NumberOfChunks,
-                Chunking.SemanticVector.MinChunkSize,
-                Math.Max(0, Chunking.SemanticVector.MinChunkTokenSize),
-                Chunking.SemanticVector.SentenceSplitRegex,
-                Chunking.SemanticVector.FallBackToRecursiveWhenEmbeddingUnavailable),
+                semanticVector.BreakpointThresholdType,
+                semanticVector.BreakpointThresholdAmount,
+                Math.Max(1, semanticVector.BufferSize),
+                semanticVector.NumberOfChunks,
+                semanticVector.MinChunkSize,
+                Math.Max(0, semanticVector.MinChunkTokenSize),
+                sentenceSplitRegex,
+                semanticVector.FallBackToRecursiveWhenEmbeddingUnavailable),
             new ParagraphSemanticChunkingSnapshot(
                 paragraphSize,
                 paragraphOverlap,
-                Math.Max(0, Chunking.ParagraphSemantic.MinChunkTokenSize)));
+                Math.Max(0, paragraphSemantic.MinChunkTokenSize)));
     }
 }
 

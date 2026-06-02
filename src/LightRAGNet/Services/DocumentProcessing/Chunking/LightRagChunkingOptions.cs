@@ -3,10 +3,10 @@ namespace LightRAGNet.Services.DocumentProcessing.Chunking;
 public sealed class LightRagChunkingOptions
 {
     public LightRagChunkingStrategy Strategy { get; set; } = LightRagChunkingStrategy.FixedToken;
-    public FixedTokenChunkingOptions FixedToken { get; set; } = new();
-    public RecursiveCharacterChunkingOptions RecursiveCharacter { get; set; } = new();
-    public SemanticVectorChunkingOptions SemanticVector { get; set; } = new();
-    public ParagraphSemanticChunkingOptions ParagraphSemantic { get; set; } = new();
+    public FixedTokenChunkingOptions? FixedToken { get; set; } = new();
+    public RecursiveCharacterChunkingOptions? RecursiveCharacter { get; set; } = new();
+    public SemanticVectorChunkingOptions? SemanticVector { get; set; } = new();
+    public ParagraphSemanticChunkingOptions? ParagraphSemantic { get; set; } = new();
 }
 
 public sealed class FixedTokenChunkingOptions
@@ -21,7 +21,9 @@ public sealed class RecursiveCharacterChunkingOptions
 {
     public int? ChunkTokenSize { get; set; }
     public int? ChunkOverlapTokenSize { get; set; }
-    public List<string> Separators { get; set; } =
+    public List<string>? Separators { get; set; } = CreateDefaultSeparators();
+
+    internal static List<string> CreateDefaultSeparators() =>
     [
         "\n\n", "\n", "。", "！", "？", "；", "，", " ", ""
     ];
@@ -37,6 +39,8 @@ public enum SemanticVectorBreakpointThresholdType
 
 public sealed class SemanticVectorChunkingOptions
 {
+    internal const string DefaultSentenceSplitRegex = @"(?<=[。？！.!?])\s+";
+
     public int? ChunkTokenSize { get; set; }
     public SemanticVectorBreakpointThresholdType BreakpointThresholdType { get; set; } =
         SemanticVectorBreakpointThresholdType.Percentile;
@@ -45,7 +49,7 @@ public sealed class SemanticVectorChunkingOptions
     public int? NumberOfChunks { get; set; }
     public int? MinChunkSize { get; set; }
     public int MinChunkTokenSize { get; set; } = 0;
-    public string SentenceSplitRegex { get; set; } = @"(?<=[。？！.!?])\s+";
+    public string? SentenceSplitRegex { get; set; } = DefaultSentenceSplitRegex;
     public bool FallBackToRecursiveWhenEmbeddingUnavailable { get; set; } = true;
 }
 

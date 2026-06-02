@@ -73,6 +73,14 @@ internal static class ChunkingUtilities
 
     public static double Percentile(IReadOnlyList<double> values, double percentile)
     {
+        if (double.IsNaN(percentile) || percentile < 0 || percentile > 100)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(percentile),
+                percentile,
+                "Percentile must be between 0 and 100.");
+        }
+
         if (values.Count == 0)
         {
             return 0;
