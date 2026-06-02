@@ -40,7 +40,7 @@ Do not commit real API keys in `appsettings*.json`. Keep local credentials in us
 <!-- asset-compounding-guidance:start -->
 ## Asset Compounding Retrieval Guide
 
-This repository uses hook-assisted asset compounding from the `superpowers-asset-compounding` plugin. Keep this `AGENTS.md` block as repository-specific retrieval anchors only; generic routing, closeout reminders, subagent candidate reporting, and `asset_gate` nudges belong to the plugin hooks and skills.
+This repository uses hook-assisted asset compounding from the `superpowers-asset-compounding` plugin. Keep this `AGENTS.md` block as repository-specific retrieval anchors only; generic routing, plan-boundary checkpoints, closeout reminders, and `asset_gate` nudges belong to the plugin hooks and skills.
 
 If the plugin was just installed or upgraded, review and trust the bundled hooks with `/hooks` before relying on lifecycle automation.
 
@@ -73,10 +73,9 @@ rg -n "<topic-keyword>" docs/superpowers/specs docs/superpowers/plans docs/super
 ### Hook-Owned Workflow
 
 - `SessionStart` injects a short asset protocol when `docs/superpowers/` exists.
-- `SubagentStart` / `SubagentStop` ask subagents to report `asset_candidates` without writing assets.
-- `PostToolUse` records compact signals from edits, verification, and git closeout commands.
+- `PostToolUse` records compact signals from edits, verification, git closeout commands, and main-agent plan updates.
 - `Stop` may request one more pass when meaningful work lacks an `asset_gate`.
 - `PreCompact` / `PostCompact` preserve pending asset signals across compaction.
 
-The main agent still owns final route decisions and repository asset writes. Use the plugin skills and scripts when the hook-provided context indicates an archive, problem, inbox, or update is needed.
+Subagent lifecycle hooks are intentionally not used for asset compounding. The main agent owns final route decisions and repository asset writes. Use the plugin skills and scripts when the hook-provided context indicates an archive, problem, inbox, or update is needed.
 <!-- asset-compounding-guidance:end -->
