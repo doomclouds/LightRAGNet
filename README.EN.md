@@ -139,7 +139,7 @@ Run the API server and React frontend:
 .\scripts\dev-start.ps1
 ```
 
-The start script continues preparing development services in the background and immediately returns the current console to you. Startup progress and service logs are written under `artifacts/dev-runtime/logs/`. Add `-Foreground` when you want to watch the full startup flow in the current console for diagnostics.
+The start script waits in the current console until Server / React are fully ready, then prints the reachable URLs before returning control to you. Startup progress and service logs are written under `artifacts/dev-runtime/logs/`. Add `-Background` only when you explicitly want the old hidden-worker behavior that immediately returns the console.
 
 Default endpoints:
 
@@ -167,7 +167,7 @@ Start only one side:
 ```powershell
 .\scripts\dev-start.ps1 -Target Server
 .\scripts\dev-start.ps1 -Target React
-.\scripts\dev-start.ps1 -Foreground
+.\scripts\dev-start.ps1 -Background
 ```
 
 Git Bash wrappers are also available:

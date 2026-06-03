@@ -140,7 +140,7 @@ docker compose up -d
 .\scripts\dev-start.ps1
 ```
 
-启动脚本会在后台继续准备开发服务，并立即把当前控制台还给你；启动进度和服务日志写入 `artifacts/dev-runtime/logs/`。如果需要在当前控制台里看完整启动过程，可以加 `-Foreground`。
+启动脚本会在当前控制台等待 Server / React 完全 ready，然后打印可访问 URL；在它完成之前不会把输入权还给你。启动进度和服务日志写入 `artifacts/dev-runtime/logs/`。如果确实想恢复“立即返回控制台、隐藏 worker 后台启动”的行为，可以加 `-Background`。
 
 默认地址：
 
@@ -168,7 +168,7 @@ docker compose up -d
 ```powershell
 .\scripts\dev-start.ps1 -Target Server
 .\scripts\dev-start.ps1 -Target React
-.\scripts\dev-start.ps1 -Foreground
+.\scripts\dev-start.ps1 -Background
 ```
 
 如果在 Git Bash 中运行，可以使用 `.sh` 包装脚本：

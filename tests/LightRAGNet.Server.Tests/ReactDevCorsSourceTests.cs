@@ -31,6 +31,19 @@ public sealed class ReactDevCorsSourceTests
         source.Should().Contain("does not match the standalone LightRAGNet.React app");
     }
 
+    [Fact]
+    public void DevStart_DefaultPathWaitsForReadyAndPrintsUrls()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("scripts/dev-start.ps1"));
+
+        source.Should().Contain("[switch]$Background");
+        source.Should().Contain("if ($Background -and -not $Worker)");
+        source.Should().Contain("Write-Step \"Development services are ready.\"");
+        source.Should().Contain("Write-Host \"  Server: $ServerUrl\"");
+        source.Should().Contain("Write-Host \"    $ReactUrl/documents\"");
+        source.Should().NotContain("if (-not $Foreground -and -not $Worker)");
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

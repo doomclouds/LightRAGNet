@@ -10,6 +10,7 @@ param(
     [switch]$SkipClientBuild,
     [switch]$OpenBrowser,
     [switch]$Foreground,
+    [switch]$Background,
     [switch]$Worker
 )
 
@@ -322,7 +323,11 @@ $workerStateFile = Join-Path $runtimeDir "dev-start-worker.json"
 
 New-Item -ItemType Directory -Path $runtimeDir, $logsDir -Force | Out-Null
 
-if (-not $Foreground -and -not $Worker) {
+if ($Background -and $Foreground) {
+    throw "Use either -Background or -Foreground, not both."
+}
+
+if ($Background -and -not $Worker) {
     if (Test-Path -LiteralPath $workerStateFile) {
         $workerState = Get-Content -LiteralPath $workerStateFile -Encoding utf8 -Raw | ConvertFrom-Json
         $workerPid = [int]$workerState.pid
@@ -368,8 +373,8 @@ if (-not $Foreground -and -not $Worker) {
     Write-Host "Stop with:"
     Write-Host "  .\scripts\dev-stop.ps1"
     Write-Host ""
-    Write-Host "Run in the current console for diagnostics:"
-    Write-Host "  .\scripts\dev-start.ps1 -Foreground"
+    Write-Host "Run in the current console and wait for ready URLs:"
+    Write-Host "  .\scripts\dev-start.ps1"
     return
 }
 
